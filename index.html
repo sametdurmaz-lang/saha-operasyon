@@ -983,8 +983,8 @@ function isConverted(customerId,fromDate){
 }
 function realizedFor(empId,katId,period){
   const kat=hedefKat(katId);if(!kat)return 0;
-  if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)).length;
-  if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&isConverted(a.customerId,a.date)).length;
+  if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)).length;
+  if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)&&isConverted(a.customerId,a.date)).length;
   const rows=salesIn(period).filter(s=>s.employeeId===empId&&s.hedefKat===katId);
   return kat.kind==='puan'?sum(rows.map(s=>({amount:s.puan}))):sum(rows.map(s=>({amount:s.amount||0})));
 }
@@ -1215,38 +1215,55 @@ function apptTable(){
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
   return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
   list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
+    void 0;
     const custBtn=c?'<button class="btn sm" data-act="cust-info" data-id="'+c.id+'">Müşteri</button> ':'';
     const acts=custBtn+(a.status==='Açık'
-      ?'<button class="btn sm" data-act="transfer-appt" data-id="'+a.id+'">Devret</button> <button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>'
+      ?(isAdmin()?'<button class="btn sm" data-act="transfer-appt" data-id="'+a.id+'">Devret</button> ':'')+
+       '<button class="btn sm danger" data-act="cancel-appt" data-id="'+a.id+'">İptal</button> '+
+       '<button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>'
       :'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>');
     const al=emp(alanOf(a));
-    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
+    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':a.status==='İptal'?'<span class="badge bad">İptal</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 const alanOf=a=>a.alanId||a.employeeId;
+const iptalMi=a=>a.status==='İptal';
+const acikRandevular=cid=>db.appointments.filter(a=>a.customerId===cid&&a.status==='Açık');
 function apptStatsRows(period){
   const emps=db.employees.filter(e=>db.appointments.some(a=>alanOf(a)===e.id));
   return emps.map(e=>{
     const all=db.appointments.filter(a=>alanOf(a)===e.id&&inPeriod(a,period));
-    const closed=all.filter(a=>a.status==='Kapandı');
-    const conv=all.filter(a=>isConverted(a.customerId,a.date));
-    return {e,total:all.length,closed:closed.length,conv:conv.length};
-  }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
+    const gecerli=all.filter(a=>!iptalMi(a));
+    return {e,total:gecerli.length,
+      closed:gecerli.filter(a=>a.status==='Kapandı').length,
+      conv:gecerli.filter(a=>isConverted(a.customerId,a.date)).length,
+      iptal:all.filter(iptalMi).length};
+  }).filter(r=>r.total||r.iptal).sort((a,b)=>b.total-a.total);
 }
 function viewRandevu(){
   const f=state.rand,rows=apptStatsRows(state.period),bm=bayiMuduru();
   const totalOpen=db.appointments.filter(a=>a.status==='Açık').length;
   const inPeriodList=db.appointments.filter(a=>inPeriod(a,state.period));
-  const convCount=inPeriodList.filter(a=>isConverted(a.customerId,a.date)).length;
+  const iptalSayi=inPeriodList.filter(iptalMi).length;
+  const gecerliList=inPeriodList.filter(a=>!iptalMi(a));
+  const convCount=gecerliList.filter(a=>isConverted(a.customerId,a.date)).length;
   return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
-  '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+inPeriodList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+inPeriodList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
+  '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
   '<div class="stack">'+
-  (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
-    rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
+  (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
   '<section class="panel"><div class="panel-h"><input id="rq" type="search" placeholder="Müşteri veya açıklama ara" value="'+esc(f.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
-    '<select data-set="rand.status" aria-label="Durum">'+opt([['Açık','Açık'],['Kapandı','Kapandı']],f.status,'Tüm durumlar')+'</select>'+
+    '<select data-set="rand.status" aria-label="Durum">'+opt([['Açık','Açık'],['Kapandı','Kapandı'],['İptal','İptal']],f.status,'Tüm durumlar')+'</select>'+
     '<select data-set="rand.emp" aria-label="Personel">'+opt(db.employees.map(e=>[e.id,e.name]),f.emp,'Tüm personel')+'</select></div></div><div id="randlist">'+apptTable()+'</div></section></div>';
+}
+function acikRandevuUyari(cid){
+  const list=(cid&&cid!==NEW_CUST)?acikRandevular(cid):[];
+  if(!list.length)return '';
+  return '<div class="ro-banner"><b>Bu müşterinin açık randevusu var.</b><br>'+
+    list.map(a=>fmtDate(a.date)+' · '+esc((emp(alanOf(a))||{}).name||'—')+' aldı, '+
+      esc((emp(a.employeeId)||{}).name||'—')+' üzerinde'+(a.desc?' — '+esc(a.desc):'')).join('<br>')+
+    '<div class="sm" style="margin-top:6px">Mükerrer randevu olmadığından eminseniz kaydedebilirsiniz; onay için kaydet düğmesine ikinci kez basmanız istenecek.</div></div>';
 }
 function openAppointment(customerId){
   if(!db.employees.length)return needDlg('Randevu ekle','Önce personel ekleyin ve içlerinden birini Bayi Müdürü olarak işaretleyin.');
@@ -1254,6 +1271,7 @@ function openAppointment(customerId){
   const cust=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr')),bm=bayiMuduru();
   openDlg(dlgHtml('Randevu ekle','<div class="fields">'+
     '<div class="field full"><label for="ap-cust">Müşteri</label><select id="ap-cust"><option value="">Müşteri seçin</option><option value="'+NEW_CUST+'">+ Yeni müşteri ekle</option>'+cust.map(c=>'<option value="'+c.id+'"'+(c.id===customerId?' selected':'')+'>'+esc(c.unvan+' — '+c.yetkili)+'</option>').join('')+'</select></div>'+
+    '<div class="field full" id="ap-openwarn">'+acikRandevuUyari(customerId)+'</div>'+
     quickCustomerFields('ap')+
     '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div>'+
     '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
@@ -1270,6 +1288,10 @@ function saveAppointment(){
   const alan=($('#ap-alan')||{}).value||'';
   if(!custSel)return err('Müşteri seçin.');if(!date)return err('Tarih seçin.');if(!desc)return err('Açıklama girin.');
   if(!alan)return err('Randevuyu alan personeli seçin.');
+  if(custSel!==NEW_CUST&&acikRandevular(custSel).length&&!dlgState.apOpenConfirmed){
+    dlgState.apOpenConfirmed=true;
+    return err('Bu müşterinin açık randevusu var. Yine de oluşturmak için “Randevuyu kaydet” düğmesine tekrar basın.');
+  }
   const bm=bayiMuduru();if(!bm)return err('Bayi Müdürü tanımlı değil. Önce Personel sayfasından bir Bayi Müdürü belirleyin.');
   run('ap-err',async()=>{
     let custId=custSel;
@@ -1285,6 +1307,7 @@ function saveAppointment(){
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
 function openTransferAppt(id){
+  if(!isAdmin())return needDlg('Randevuyu devret','Randevu devri yalnızca yönetim tarafından yapılabilir.');
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),cur=emp(a.employeeId);dlgState={kind:'transferappt',id};
   openDlg(dlgHtml('Randevuyu devret','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Şu an atanan</dt><dd>'+esc(cur?cur.name:'')+'</dd></dl>'+
     '<div class="field full"><label for="tr-emp">Devredilecek personel</label><select id="tr-emp">'+opt(db.employees.filter(e=>e.id!==a.employeeId).map(e=>[e.id,e.name]),'','Personel seçin')+'</select></div><p class="err" id="tr-err"></p>',
@@ -1316,11 +1339,38 @@ function saveCloseAppt(id){
     await ins('appointment_logs',{appt_id:id,date,text:'Randevu kapatıldı'});
   },'Randevu kapatıldı');
 }
+function openCancelAppt(id){
+  const a=byId(db.appointments,id);if(!a)return;
+  const c=apptCustomer(a),e=emp(a.employeeId);dlgState={kind:'cancelappt',id};
+  openDlg(dlgHtml('Randevuyu iptal et',
+    '<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd>'+
+    '<dt>Randevuyu alan</dt><dd>'+esc((emp(alanOf(a))||{}).name||'—')+'</dd>'+
+    '<dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd>'+
+    '<dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd>'+
+    '<dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd></dl>'+
+    '<div class="fields"><div class="field full"><label for="ip-desc">İptal nedeni</label>'+
+      '<textarea id="ip-desc" rows="3" placeholder="Örn. Müşteri görüşmeyi iptal etti, adres yanlış, ulaşılamadı"></textarea></div>'+
+      '<div class="field"><label for="ip-date">İptal tarihi</label><input id="ip-date" type="date" value="'+TODAY+'"></div></div>'+
+    '<p class="hint">İptal edilen randevu silinmez, kaydı ve geçmişi kalır. Ancak randevu hedefine ve dönüşüm oranına sayılmaz. Görüşme gerçekleştiyse iptal değil “Kapat” kullanın.</p>'+
+    '<p class="err" id="ip-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button><button class="btn danger" data-act="save-cancelappt" data-id="'+id+'">Randevuyu iptal et</button>'));
+}
+function saveCancelAppt(id){
+  const desc=$('#ip-desc').value.trim(),date=$('#ip-date').value,err=m=>{$('#ip-err').textContent=m;};
+  if(!desc)return err('İptal nedenini yazın.');
+  if(!date)return err('Tarih seçin.');
+  run('ip-err',async()=>{
+    await upd('appointments',id,{status:'İptal',close_descr:desc,close_date:date});
+    await ins('appointment_logs',{appt_id:id,date,text:'Randevu iptal edildi: '+desc});
+  },'Randevu iptal edildi');
+}
 function openApptDetail(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=isConverted(a.customerId,a.date);dlgState={kind:'apptdetail',id};
   const log=(a.log||[]).slice().reverse();
   const al=emp(alanOf(a));
-  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+(a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>Sonuç</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
+  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+
+    (a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>Sonuç</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+
+    (a.status==='İptal'?'<dt>İptal tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>İptal nedeni</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
     (log.length?'<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+log.map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('')+'</ul></section>':''),
     (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
     '<button class="btn primary" data-act="close">Kapat</button>'));
@@ -1867,7 +1917,13 @@ function dialogChange(el){
   }
   if(k==='appt'){
     if(id==='ap-cil'){const w=$('#ap-cilce');if(w)w.innerHTML=ilceOptions(el.value,'');return;}
-    if(id==='ap-cust'){const w=$('#ap-newcust');if(w)w.style.display=(el.value===NEW_CUST)?'block':'none';return;}
+    if(id==='ap-cust'){
+      const w=$('#ap-newcust');if(w)w.style.display=(el.value===NEW_CUST)?'block':'none';
+      const u=$('#ap-openwarn');if(u)u.innerHTML=acikRandevuUyari(el.value);
+      dlgState.apOpenConfirmed=false;
+      const er=$('#ap-err');if(er)er.textContent='';
+      return;
+    }
     return;
   }
   if(k==='prod'){if(id==='pr-calc')$('#pr-calcwrap').innerHTML=prodCalcFields({calcType:el.value,prim:0,puan:0,primPct:0,puanPct:0});return;}
@@ -2196,6 +2252,8 @@ const actions={
   'open-appt-for'(el){openAppointment(el.dataset.id);},
   'save-appt'(){saveAppointment();},
   'close-appt'(el){openCloseAppt(el.dataset.id);},
+  'cancel-appt'(el){openCancelAppt(el.dataset.id);},
+  'save-cancelappt'(el){saveCancelAppt(el.dataset.id);},
   'save-closeappt'(el){saveCloseAppt(el.dataset.id);},
   'appt-detail'(el){openApptDetail(el.dataset.id);},
   'transfer-appt'(el){openTransferAppt(el.dataset.id);},
