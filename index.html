@@ -358,6 +358,7 @@ async function loadAll(){
     q('products'),q('warehouses'),q('stock_units'),q('stock_logs'),
     q('sales'),q('sale_items'),q('targets'),q('customers'),q('appointments'),q('appointment_logs')]);
   const subs=await q('sale_subscriptions');
+  const users=await q('profiles');
 
   const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
   const groupLogs=(rows,key)=>{const m={};rows.forEach(r=>{(m[r[key]]=m[r[key]]||[]).push({date:r.date,text:r.text});});
@@ -400,8 +401,10 @@ async function loadAll(){
       dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
       pstnVar:!!r.pstn_var,pstnHizmetNo:r.pstn_hizmet_no||'',pstnAdet:r.pstn_adet||0,pstnTaahhutAy:r.pstn_taahhut_ay||'',pstnTaahhutYil:r.pstn_taahhut_yil||'',
       metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||''})),
-    appointments:appointments.map(r=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,date:r.date,
-      desc:r.descr,status:r.status,closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:pLog[r.id]||[]}))
+    appointments:appointments.map(r=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,
+      alanId:r.alan_id||null,date:r.date,desc:r.descr,status:r.status,
+      closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:pLog[r.id]||[]})),
+    users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id}))
   };
 }
 
@@ -453,7 +456,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[]};
+    assets:[],repairs:[],users:[]};
   save();
 }
 function setupSteps(){
@@ -979,8 +982,8 @@ function isConverted(customerId,fromDate){
 }
 function realizedFor(empId,katId,period){
   const kat=hedefKat(katId);if(!kat)return 0;
-  if(kat.kind==='randevu')return db.appointments.filter(a=>a.employeeId===empId&&inPeriod(a,period)).length;
-  if(kat.kind==='donusum')return db.appointments.filter(a=>a.employeeId===empId&&inPeriod(a,period)&&isConverted(a.customerId,a.date)).length;
+  if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)).length;
+  if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&isConverted(a.customerId,a.date)).length;
   const rows=salesIn(period).filter(s=>s.employeeId===empId&&s.hedefKat===katId);
   return kat.kind==='puan'?sum(rows.map(s=>({amount:s.puan}))):sum(rows.map(s=>({amount:s.amount||0})));
 }
@@ -1153,21 +1156,24 @@ function apptTable(){
   const f=state.rand,q=f.q.trim().toLocaleLowerCase('tr');
   let list=db.appointments.slice();
   if(f.status)list=list.filter(a=>a.status===f.status);
-  if(f.emp)list=list.filter(a=>a.employeeId===f.emp);
+  if(f.emp)list=list.filter(a=>a.employeeId===f.emp||alanOf(a)===f.emp);
   if(state.period!=='all')list=list.filter(a=>inPeriod(a,state.period));
-  if(q)list=list.filter(a=>{const c=apptCustomer(a);return [c?c.unvan:'',c?c.yetkili:'',a.desc].join(' ').toLocaleLowerCase('tr').includes(q);});
+  if(q)list=list.filter(a=>{const c=apptCustomer(a),al=emp(alanOf(a));
+    return [c?c.unvan:'',c?c.yetkili:'',a.desc,al?al.name:''].join(' ').toLocaleLowerCase('tr').includes(q);});
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
   list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
     const acts=a.status==='Açık'?'<button class="btn sm" data-act="transfer-appt" data-id="'+a.id+'">Devret</button> <button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>':'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>';
-    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
+    const al=emp(alanOf(a));
+    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
 }
+const alanOf=a=>a.alanId||a.employeeId;
 function apptStatsRows(period){
-  const emps=db.employees.filter(e=>db.appointments.some(a=>a.employeeId===e.id));
+  const emps=db.employees.filter(e=>db.appointments.some(a=>alanOf(a)===e.id));
   return emps.map(e=>{
-    const all=db.appointments.filter(a=>a.employeeId===e.id&&inPeriod(a,period));
+    const all=db.appointments.filter(a=>alanOf(a)===e.id&&inPeriod(a,period));
     const closed=all.filter(a=>a.status==='Kapandı');
     const conv=all.filter(a=>isConverted(a.customerId,a.date));
     return {e,total:all.length,closed:closed.length,conv:conv.length};
@@ -1178,10 +1184,10 @@ function viewRandevu(){
   const totalOpen=db.appointments.filter(a=>a.status==='Açık').length;
   const inPeriodList=db.appointments.filter(a=>inPeriod(a,state.period));
   const convCount=inPeriodList.filter(a=>isConverted(a.customerId,a.date)).length;
-  return head('Randevular','Yeni alınan randevular otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir. Kapatılırken sonuç açıklaması girilir.',periodSel()+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
+  return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+inPeriodList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+inPeriodList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
   '<div class="stack">'+
-  (rows.length?'<section class="panel"><div class="panel-h"><h2>Personel bazında dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
+  (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
   '<section class="panel"><div class="panel-h"><input id="rq" type="search" placeholder="Müşteri veya açıklama ara" value="'+esc(f.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
@@ -1195,14 +1201,21 @@ function openAppointment(customerId){
   openDlg(dlgHtml('Randevu ekle','<div class="fields">'+
     '<div class="field full"><label for="ap-cust">Müşteri</label><select id="ap-cust"><option value="">Müşteri seçin</option><option value="'+NEW_CUST+'">+ Yeni müşteri ekle</option>'+cust.map(c=>'<option value="'+c.id+'"'+(c.id===customerId?' selected':'')+'>'+esc(c.unvan+' — '+c.yetkili)+'</option>').join('')+'</select></div>'+
     quickCustomerFields('ap')+
-    '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div></div>'+
+    '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div>'+
+    '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
+      (isAdmin()
+        ?'<select id="ap-alan">'+opt(db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')]),me.employeeId||'','Personel seçin')+'</select>'
+        :'<input id="ap-alan" type="hidden" value="'+esc(me.employeeId||'')+'"><div style="padding:10px 0;font-weight:500">'+esc((emp(me.employeeId)||{}).name||'')+'</div>')+
+    '</div></div>'+
     '<p class="hint">'+(bm?'Bu randevu otomatik olarak Bayi Müdürü <b>'+esc(bm.name)+'</b>\u2019ye atanacak. Kaydettikten sonra istediğiniz personele devredebilirsiniz.':'Bayi Müdürü tanımlı değil, randevu size en yakın yönetici personele atanamayabilir. Personel sayfasından bir Bayi Müdürü belirleyin.')+'</p>'+
     '<div class="fields"><div class="field full"><label for="ap-desc">Açıklama</label><textarea id="ap-desc" rows="2" placeholder="Örn. Fiber yükseltme teklifi görüşülecek"></textarea></div></div><p class="err" id="ap-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-appt">Randevuyu kaydet</button>'));
 }
 function saveAppointment(){
   const custSel=$('#ap-cust').value,date=$('#ap-date').value,desc=$('#ap-desc').value.trim(),err=m=>{$('#ap-err').textContent=m;};
+  const alan=($('#ap-alan')||{}).value||'';
   if(!custSel)return err('Müşteri seçin.');if(!date)return err('Tarih seçin.');if(!desc)return err('Açıklama girin.');
+  if(!alan)return err('Randevuyu alan personeli seçin.');
   const bm=bayiMuduru();if(!bm)return err('Bayi Müdürü tanımlı değil. Önce Personel sayfasından bir Bayi Müdürü belirleyin.');
   run('ap-err',async()=>{
     let custId=custSel;
@@ -1211,9 +1224,10 @@ function saveAppointment(){
       if(res.error)throw new Error(res.error);
       custId=res.customer.id;
     }
-    const a=await ins('appointments',{customer_id:custId,employee_id:bm.id,date,descr:desc,status:'Açık'});
+    const a=await ins('appointments',{customer_id:custId,employee_id:bm.id,alan_id:alan,
+      date,descr:desc,status:'Açık'});
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
-      text:'Randevu oluşturuldu, Bayi Müdürü\u2019ne atandı: '+bm.name});
+      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Bayi Müdürü\u2019ne atandı: '+bm.name});
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
 function openTransferAppt(id){
@@ -1235,7 +1249,7 @@ function saveTransferAppt(id){
 }
 function openCloseAppt(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId);dlgState={kind:'closeappt',id};
-  openDlg(dlgHtml('Randevuyu kapat','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd></dl>'+
+  openDlg(dlgHtml('Randevuyu kapat','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc((emp(alanOf(a))||{}).name||'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd></dl>'+
     '<div class="fields"><div class="field full"><label for="cl-desc">Sonuç açıklaması</label><textarea id="cl-desc" rows="3" placeholder="Görüşmede ne konuşuldu, sonuç ne oldu"></textarea></div><div class="field"><label for="cl-date">Kapanma tarihi</label><input id="cl-date" type="date" value="'+TODAY+'"></div></div><p class="err" id="cl-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-closeappt" data-id="'+id+'">Randevuyu kapat</button>'));
 }
@@ -1250,7 +1264,8 @@ function saveCloseAppt(id){
 function openApptDetail(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=isConverted(a.customerId,a.date);dlgState={kind:'apptdetail',id};
   const log=(a.log||[]).slice().reverse();
-  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+(a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>Sonuç</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
+  const al=emp(alanOf(a));
+  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+(a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>Sonuç</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
     (log.length?'<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+log.map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('')+'</ul></section>':''),
     '<button class="btn" data-act="close">Kapat</button>'));
 }
@@ -1275,6 +1290,61 @@ function viewOrg(){
     (ds.length?'<div class="scroll"><table><thead><tr><th>Departman</th><th class="num">Personel</th><th class="num">Dönem gideri</th><th></th></tr></thead><tbody>'+ds.map(d=>'<tr><td>'+esc(d.name)+'</td><td class="num">'+db.employees.filter(e=>e.departmentId===d.id).length+'</td><td class="num">'+money(sum(exp.filter(t=>t.departmentId===d.id)))+'</td><td class="num"><button class="btn sm" data-act="drill" data-dim="departman" data-key="'+d.id+'">Gider detayı</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Bu şirkete henüz departman eklenmedi.</div>')+'</section>';}).join('')+'</div>';
 }
 
+function rolBadge(r){
+  return '<span class="badge '+(r==='sahip'?'ok':r==='yonetici'?'warn':'')+'">'+esc(ROL_ADI[r]||r)+'</span>';
+}
+function viewKullanici(){
+  const users=(db.users||[]).slice().sort((a,b)=>
+    ({sahip:0,yonetici:1,personel:2}[a.role]-{sahip:0,yonetici:1,personel:2}[b.role])||
+    a.email.localeCompare(b.email,'tr'));
+  const bagsiz=users.filter(u=>u.role==='personel'&&!u.employeeId).length;
+  return head('Kullanıcılar','Uygulamaya giriş yapabilen hesaplar. Personel kendi hesabını açar; siz yalnızca personel kaydıyla eşleştirirsiniz.','')+
+  '<div class="kpis"><div class="kpi"><span>Toplam hesap</span><b>'+users.length+'</b></div>'+
+    '<div class="kpi"><span>Yönetim</span><b>'+users.filter(u=>u.role!=='personel').length+'</b></div>'+
+    '<div class="kpi"><span>Eşleştirilmemiş</span><b>'+bagsiz+'</b></div></div>'+
+  (bagsiz?'<div class="ro-banner">'+bagsiz+' hesap henüz bir personel kaydıyla eşleştirilmedi. Eşleştirilene kadar bu kişiler hiçbir veriye erişemez.</div>':'')+
+  '<section class="panel"><div class="scroll"><table><thead><tr><th>E-posta</th><th>Yetki</th><th>Bağlı personel</th><th></th></tr></thead><tbody>'+
+  (users.length?users.map(u=>{
+    const e=u.employeeId?emp(u.employeeId):null,benim=u.userId===me.userId;
+    const yetkim=isSahip()||u.role==='personel';
+    return '<tr><td><b>'+esc(u.email)+'</b>'+(benim?' <span class="badge">Siz</span>':'')+'</td>'+
+      '<td>'+rolBadge(u.role)+'</td>'+
+      '<td>'+(e?esc(e.name)+'<div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div>'
+             :'<span class="badge warn">Eşleştirilmedi</span>')+'</td>'+
+      '<td class="num">'+(benim?'<span class="muted sm">Kendi hesabınız</span>'
+        :yetkim?'<button class="btn sm" data-act="open-user" data-id="'+u.userId+'">Düzenle</button>'
+               :'<span class="muted sm">Yetkiniz yok</span>')+'</td></tr>';
+  }).join(''):'<tr><td colspan="4"><div class="empty">Henüz kullanıcı yok.</div></td></tr>')+
+  '</tbody></table></div></section>'+
+  '<p class="hint" style="margin-top:10px">Yeni personel giriş ekranındaki “Hesap oluştur” bağlantısıyla kendi hesabını açar, bu listeye düşer ve siz eşleştirirsiniz. İşten ayrılanın erişimini kaldırın; girdiği satış, müşteri ve randevular sistemde kalır.</p>';
+}
+function openUser(uid){
+  const u=(db.users||[]).find(x=>x.userId===uid);if(!u)return;
+  if(!isSahip()&&u.role!=='personel')return needDlg('Kullanıcı','Yönetici hesaplarını yalnızca ana kullanıcı düzenleyebilir.');
+  dlgState={kind:'user',id:uid};
+  const bagli={};(db.users||[]).forEach(x=>{if(x.employeeId&&x.userId!==uid)bagli[x.employeeId]=x.email;});
+  const empOpts=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'))
+    .map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')+(bagli[e.id]?' (kullanımda: '+bagli[e.id]+')':'')]);
+  const roller=isSahip()?[['personel','Personel'],['yonetici','Yönetici']]:[['personel','Personel']];
+  openDlg(dlgHtml('Kullanıcıyı düzenle',
+    '<dl class="kv"><dt>E-posta</dt><dd>'+esc(u.email)+'</dd></dl>'+
+    '<div class="fields">'+
+      '<div class="field"><label for="us-role">Yetki</label><select id="us-role">'+opt(roller,u.role)+'</select></div>'+
+      '<div class="field"><label for="us-emp">Bağlı personel</label><select id="us-emp">'+opt(empOpts,u.employeeId||'','Eşleştirilmedi')+'</select></div>'+
+    '</div>'+
+    '<p class="hint">Yönetici yetkisi verilen kişi finans, maaş ve tüm kayıtlara erişir. Personel yalnızca kendi satış, müşteri ve randevularını görür; kendi girdiği kayıtları aynı hafta içinde düzeltebilir.</p>'+
+    '<p class="err" id="us-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn danger" data-act="del-user" data-id="'+uid+'">Erişimi kaldır</button>'+
+    '<button class="btn primary" data-act="save-user">Kaydet</button>'));
+}
+function saveUser(){
+  const uid=dlgState.id,role=$('#us-role').value,empId=$('#us-emp').value;
+  run('us-err',async()=>{
+    const r=await sb.from('profiles').update({role,employee_id:nz(empId)}).eq('user_id',uid);
+    if(r.error)throw r.error;
+  },'Kullanıcı kaydedildi');
+}
 function viewRapor(){
   const r=state.rep,p=state.period,list=expenses(p).filter(t=>repMatch(t,r)),total=sum(list);
   const groups=groupExp(list,r.group),max=Math.max(1,...groups.map(g=>g.total));
@@ -1294,27 +1364,43 @@ function viewRapor(){
   '<section class="panel"><div class="panel-h"><h2>Hareketler</h2><span class="muted sm">'+(list.length>60?'İlk 60 hareket gösteriliyor':list.length+' hareket')+'</span></div>'+(detail.length?'<div class="scroll"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Bağlı olduğu</th><th class="num">Tutar</th></tr></thead><tbody>'+detail.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+'</div></td><td>'+relCell(t)+'</td><td class="num out"><b>'+money(t.amount)+'</b></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Gösterilecek hareket yok.</div>')+'</section></div>';
 }
 
-const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor};
+const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici};
 const NAV=[
   {g:'',items:[['ozet','Genel bakış']]},
   {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
   {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
   {g:'Müşteri',items:[['musteri','Müşteriler'],['randevu','Randevular']]},
   {g:'Ürün ve envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
-  {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve departmanlar']]},
+  {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve departmanlar'],['kullanici','Kullanıcılar']]},
   {g:'Analiz',items:[['rapor','Gider raporu']]}
 ];
 const LATER=[['Yıllık izin','Faz 3']];
 function sidebar(){
   return '<aside class="side"><div class="brand"><div class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><rect x="2" y="12" width="3.5" height="6" rx="1" fill="#fff"/><rect x="8.2" y="8" width="3.5" height="10" rx="1" fill="#fff"/><rect x="14.5" y="2" width="3.5" height="16" rx="1" fill="#fff"/></svg></div><div><b>Saha Operasyon</b><span>Yönetim paneli</span></div></div><nav aria-label="Ana menü">'+
-  NAV.map(g=>'<div class="nav-group">'+(g.g?'<div class="nav-title">'+g.g+'</div>':'')+g.items.map(([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>').join('')+'</div>').join('')+
-  '<div class="nav-group later"><div class="nav-title">Sonraki aşamalar</div>'+LATER.map(([l,f])=>'<button class="nav" disabled>'+l+'<span class="tag">'+f+'</span></button>').join('')+'</div></nav>'+
+  NAV.map(g=>{
+    const items=g.items.filter(([v])=>gorebilir(v));
+    if(!items.length)return '';
+    return '<div class="nav-group">'+(g.g?'<div class="nav-title">'+g.g+'</div>':'')+
+      items.map(([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>').join('')+'</div>';
+  }).join('')+
+  (isAdmin()?'<div class="nav-group later"><div class="nav-title">Sonraki aşamalar</div>'+LATER.map(([l,f])=>'<button class="nav" disabled>'+l+'<span class="tag">'+f+'</span></button>').join('')+'</div>':'')+'</nav>'+
   '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[me.role]||me.role)+'</span><b>'+esc(me.email)+'</b></div><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
 }
 function render(){
   if(!me)return renderLogin();
+  if(!isAdmin()&&!me.employeeId)return renderEslesmemis();
+  if(!gorebilir(state.view))state.view=isAdmin()?'ozet':'satis';
   $('#app').innerHTML='<div class="shell">'+sidebar()+'<main class="main" id="main">'+
     (WRITE_ENABLED?'':roBanner())+VIEWS[state.view]()+'</main></div>';
+}
+function renderEslesmemis(){
+  $('#app').innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+    '<div class="brand">'+MARK+'<div><b>Saha Operasyon</b></div></div>'+
+    '<h1>Hesabınız henüz eşleştirilmedi</h1>'+
+    '<p class="sub">Girişiniz başarılı, ancak hesabınız bir personel kaydına bağlanmamış. Yöneticiniz Kullanıcılar ekranından eşleştirmesini yaptığında satış, müşteri ve randevu ekranlarınız açılacak.</p>'+
+    '<p class="muted sm" style="margin-bottom:14px">Hesap: '+esc(me.email)+'</p>'+
+    '<button class="btn" data-act="logout">Çıkış yap</button>'+
+  '</div></div>';
 }
 
 /* ---------- Diyaloglar ---------- */
@@ -1794,7 +1880,12 @@ async function run(errId,work,okMsg,after){
 }
 
 /* ---------- Giriş ve oturum ---------- */
-const ROL_ADI={yonetici:'Yönetici',muhasebe:'Muhasebe',bayi_muduru:'Bayi Müdürü',personel:'Personel'};
+const ROL_ADI={sahip:'Ana kullanıcı',yonetici:'Yönetici',personel:'Personel'};
+const isSahip=()=>!!me&&me.role==='sahip';
+const isAdmin=()=>!!me&&(me.role==='sahip'||me.role==='yonetici');
+/* Yalnızca yönetimin göreceği ekranlar */
+const YONETIM_EKRAN=new Set(['ozet','kasa','maas','urun','stok','zimmet','personel','org','rapor','kullanici']);
+const gorebilir=v=>!YONETIM_EKRAN.has(v)||isAdmin();
 const MARK='<div class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><rect x="2" y="12" width="3.5" height="6" rx="1" fill="#fff"/><rect x="8.2" y="8" width="3.5" height="10" rx="1" fill="#fff"/><rect x="14.5" y="2" width="3.5" height="16" rx="1" fill="#fff"/></svg></div>';
 
 function renderLogin(msg,busy){
@@ -1805,9 +1896,42 @@ function renderLogin(msg,busy){
     '<div class="field"><label for="lg-pass">Şifre</label><input id="lg-pass" type="password" autocomplete="current-password" '+(busy?'disabled':'')+'></div>'+
     '<button class="btn primary" data-act="login"'+(busy?' disabled':'')+'>'+(busy?'Giriş yapılıyor…':'Giriş yap')+'</button>'+
     '<p class="err" id="lg-err">'+esc(msg||'')+'</p>'+
-    '<div class="auth-note"><p class="muted sm">Hesabınız yoksa yöneticinizden kullanıcı açmasını isteyin. Şifrenizi kimseyle paylaşmayın.</p></div>'+
+    '<div class="auth-note"><p class="muted sm">Hesabınız yok mu? <button class="btn sm" data-act="show-signup">Hesap oluştur</button></p>'+
+    '<p class="muted sm" style="margin-top:10px">Hesabınızı açtıktan sonra yöneticinizin sizi personel kaydıyla eşleştirmesi gerekir. Şifrenizi kimseyle paylaşmayın.</p></div>'+
   '</div></div>';
   const f=$('#lg-email');if(f&&!busy)f.focus();
+}
+
+function renderSignup(msg,busy,ok){
+  $('#app').innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+    '<div class="brand">'+MARK+'<div><b>Saha Operasyon</b></div></div>'+
+    '<h1>Hesap oluştur</h1><p class="sub">Şirket e-postanızla kendi hesabınızı açın.</p>'+
+    (ok?'<div class="ro-banner" style="background:var(--in-soft);color:var(--in);border-color:transparent">'+esc(ok)+'</div>':
+    '<div class="field"><label for="sg-email">E-posta</label><input id="sg-email" type="email" autocomplete="username" '+(busy?'disabled':'')+'></div>'+
+    '<div class="field"><label for="sg-pass">Şifre</label><input id="sg-pass" type="password" autocomplete="new-password" '+(busy?'disabled':'')+'></div>'+
+    '<div class="field"><label for="sg-pass2">Şifre (tekrar)</label><input id="sg-pass2" type="password" autocomplete="new-password" '+(busy?'disabled':'')+'></div>'+
+    '<button class="btn primary" data-act="signup"'+(busy?' disabled':'')+'>'+(busy?'Oluşturuluyor…':'Hesabı oluştur')+'</button>'+
+    '<p class="err" id="sg-err">'+esc(msg||'')+'</p>')+
+    '<div class="auth-note"><p class="muted sm">Hesabınız varsa <button class="btn sm" data-act="show-login">giriş yapın</button></p></div>'+
+  '</div></div>';
+  const f=$('#sg-email');if(f&&!busy)f.focus();
+}
+
+async function doSignup(){
+  const email=(($('#sg-email')||{}).value||'').trim();
+  const p1=($('#sg-pass')||{}).value||'',p2=($('#sg-pass2')||{}).value||'';
+  if(!email)return renderSignup('E-posta adresinizi girin.');
+  if(p1.length<8)return renderSignup('Şifre en az 8 karakter olmalı.');
+  if(p1!==p2)return renderSignup('Şifreler birbiriyle aynı değil.');
+  renderSignup('',true);
+  const {data,error}=await sb.auth.signUp({email,password:p1});
+  if(error){
+    const m=/already registered|already exists/i.test(error.message)?'Bu e-posta ile kayıtlı bir hesap zaten var. Giriş yapmayı deneyin.':
+            /password/i.test(error.message)?'Şifre kurallara uymuyor. Daha uzun bir şifre deneyin.':error.message;
+    return renderSignup(m);
+  }
+  if(data&&data.session){await afterLogin();return;}
+  renderSignup('',false,'Hesabınız oluşturuldu. E-postanıza gönderilen doğrulama bağlantısına tıkladıktan sonra giriş yapabilirsiniz.');
 }
 
 async function doLogin(){
@@ -2030,6 +2154,19 @@ const actions={
     if(state.kasa.account===id)state.kasa.account='all';
     run(null,()=>del('accounts',id),'Hesap silindi');
   },
+  'open-user'(el){openUser(el.dataset.id);},
+  'save-user'(){saveUser();},
+  'del-user'(el){confirmDlg('Erişimi kaldır','Bu hesabın uygulamaya erişimi tamamen kesilecek. Girdiği satış, müşteri ve randevu kayıtları silinmez, yerinde kalır. Kişi isterse yeniden hesap açabilir; o zaman tekrar eşleştirmeniz gerekir.','confirm-del-user',el.dataset.id,'Erişimi kaldır');},
+  'confirm-del-user'(el){
+    const uid=el.dataset.id;
+    run(null,async()=>{
+      const r=await sb.from('profiles').delete().eq('user_id',uid);
+      if(r.error)throw r.error;
+    },'Erişim kaldırıldı');
+  },
+  'show-signup'(){renderSignup();},
+  'show-login'(){renderLogin();},
+  signup(){doSignup();},
   'open-company'(){openCompany();},
   'save-company'(){saveCompany();},
   'open-dept'(el){openDept(el.dataset.id);},
@@ -2040,7 +2177,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:'ozet',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:isAdmin()?'ozet':'satis',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -2056,6 +2193,7 @@ function init(){
   });
   document.addEventListener('keydown',e=>{
     if(e.key==='Enter'&&e.target.matches&&e.target.matches('#lg-email,#lg-pass')){e.preventDefault();doLogin();return;}
+    if(e.key==='Enter'&&e.target.matches&&e.target.matches('#sg-email,#sg-pass,#sg-pass2')){e.preventDefault();doSignup();return;}
     if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('tr.click')){e.preventDefault();const fn=actions[e.target.dataset.act];if(fn)fn(e.target);}
   });
   document.addEventListener('change',e=>{
