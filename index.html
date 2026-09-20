@@ -395,7 +395,8 @@ async function loadAll(){
       unitPrim:num(r.unit_prim),unitPuan:num(r.unit_puan),prim:num(r.prim),puan:num(r.puan),
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
     targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
-    customers:customers.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
+    customers:customers.map(r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
+      unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',
       mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
       dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
@@ -947,7 +948,7 @@ function openSaleDetail(id){
   const serials=s.items.map(it=>{const u=byId(db.stock,it.unitId);return u?u.serial:'';}).filter(Boolean);
   const kardes=s.batchId?db.sales.filter(x=>x.batchId===s.batchId&&x.id!==s.id):[];
   const rateLine=s.calcType==='yuzde'?('Satış tutarının %'+nf.format(s.unitPrim)+'’i prim, %'+nf.format(s.unitPuan)+'’i puan'):('Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim));
-  const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
+  const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
   openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd><dt>Satışı yapan</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
     (s.amount?'<dt>Satış tutarı</dt><dd>'+money(s.amount)+'</dd>':'')+
     '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd><dt>Toplam prim</dt><dd>'+money(s.prim)+'</dd></dl>'+
@@ -1035,9 +1036,10 @@ function custTable(){
   if(q)list=list.filter(c=>[c.unvan,c.yetkili,c.telefon,c.il,c.ilce].join(' ').toLocaleLowerCase('tr').includes(q));
   list.sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr'));
   if(!list.length)return '<div class="empty">Bu aramayla eşleşen müşteri yok. Yeni eklemek için "Müşteri ekle" düğmesini kullanın.</div>';
+  const act=isAdmin()?'cust':'cust-info';
   return '<div class="scroll"><table><thead><tr><th>Ünvan</th><th>Yetkili</th><th>İrtibat</th><th>İl / İlçe</th><th>Hizmetler</th><th></th></tr></thead><tbody>'+
   list.map(c=>{const svc=custSummary(c);
-    return '<tr class="click" tabindex="0" data-act="cust" data-id="'+c.id+'"><td><b>'+esc(c.unvan)+'</b>'+(c.vkn?'<div class="muted sm">VKN: '+esc(c.vkn)+'</div>':'<div class="muted sm">VKN girilmedi</div>')+'</td><td>'+esc(c.yetkili)+'</td><td>'+esc(c.telefon)+'</td><td>'+esc([c.il,c.ilce].filter(Boolean).join(' / '))+'</td><td>'+(svc.length?svc.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join(''):'<span class="muted">—</span>')+'</td><td class="num"><button class="btn sm" data-act="cust" data-id="'+c.id+'">Detay</button></td></tr>';}).join('')+
+    return '<tr class="click" tabindex="0" data-act="'+act+'" data-id="'+c.id+'"><td><b>'+esc(c.unvan)+'</b>'+(c.vkn?'<div class="muted sm">VKN: '+esc(c.vkn)+'</div>':'<div class="muted sm">VKN girilmedi</div>')+'</td><td>'+esc(c.yetkili)+'</td><td>'+esc(c.telefon)+'</td><td>'+esc([c.il,c.ilce].filter(Boolean).join(' / '))+'</td><td>'+(svc.length?svc.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join(''):'<span class="muted">—</span>')+'</td><td class="num"><button class="btn sm" data-act="'+act+'" data-id="'+c.id+'">Detay</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 function viewMusteri(){
@@ -1082,6 +1084,55 @@ function openCustomer(id){
     (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(s=>'<li><span class="muted">'+fmtDate(s.date)+'</span><span>'+esc(prodLabel(byId(db.products,s.productId)))+', '+money(s.prim)+' prim</span></li>').join('')+'</ul></section>':'')+
     '<p class="err" id="c-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(c?'<button class="btn" data-act="open-appt-for" data-id="'+c.id+'">Randevu oluştur</button>':'')+'<button class="btn primary" data-act="save-cust">Kaydet</button>'));
+}
+function haftaBasi(){
+  const d=new Date();d.setHours(0,0,0,0);
+  d.setDate(d.getDate()-((d.getDay()+6)%7));
+  return d;
+}
+function duzenlenebilirMusteri(c){
+  if(isAdmin())return true;
+  if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
+  return new Date(c.createdAt)>=haftaBasi();
+}
+function taahhutMetni(ay,yil){
+  if(!ay&&!yil)return '<span class="muted">—</span>';
+  return esc((ay?MONTHS[+ay-1]:'')+(yil?' '+yil:''));
+}
+function hizmetSatirlari(c){
+  const rows=[];
+  if(c.mobilAdet)rows.push(['Mobil hat',c.mobilAdet+' adet','',taahhutMetni(c.mobilTaahhutAy,c.mobilTaahhutYil)]);
+  if(c.dslVar)rows.push(['DSL sabit internet',(c.dslAdet||0)+' adet',c.dslHizmetNo||'',taahhutMetni(c.dslTaahhutAy,c.dslTaahhutYil)]);
+  if(c.pstnVar)rows.push(['PSTN sabit telefon',(c.pstnAdet||0)+' adet',c.pstnHizmetNo||'',taahhutMetni(c.pstnTaahhutAy,c.pstnTaahhutYil)]);
+  if(c.metroVar)rows.push(['Metro ethernet',(c.metroAdet||0)+' adet',c.metroHizmetNo||'',taahhutMetni(c.metroTaahhutAy,c.metroTaahhutYil)]);
+  if(!rows.length)return '<div class="empty">Bu müşteri için kayıtlı hizmet bilgisi yok.</div>';
+  return '<div class="scroll"><table><thead><tr><th>Hizmet</th><th>Adet</th><th>Hizmet no</th><th>Taahhüt bitişi</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><b>'+esc(r[0])+'</b></td><td>'+esc(r[1])+'</td><td>'+(r[2]?esc(r[2]):'<span class="muted">—</span>')+'</td><td>'+r[3]+'</td></tr>').join('')+
+    '</tbody></table></div>';
+}
+function openCustomerInfo(id){
+  const c=byId(db.customers,id);if(!c)return;
+  dlgState={kind:'custinfo',id};
+  const appts=db.appointments.filter(a=>a.customerId===c.id).sort((a,b)=>a.date<b.date?1:-1);
+  const sales=db.sales.filter(x=>x.customerId===c.id).sort((a,b)=>a.date<b.date?1:-1);
+  const adres=[c.adres,[c.ilce,c.il].filter(Boolean).join(' / ')].filter(Boolean).join(' — ');
+  const harita=adres?'<a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(adres+' '+(c.unvan||''))+'">Haritada aç</a>':'';
+  openDlg(dlgHtml(esc(c.unvan),
+    '<dl class="kv">'+
+      '<dt>Yetkili</dt><dd>'+esc(c.yetkili||'—')+'</dd>'+
+      '<dt>İrtibat</dt><dd>'+(c.telefon?'<a href="tel:'+esc(c.telefon.replace(/\s/g,''))+'">'+esc(c.telefon)+'</a>':'—')+'</dd>'+
+      '<dt>VKN / TCKN</dt><dd>'+esc(c.vkn||'—')+'</dd>'+
+      '<dt>İl / İlçe</dt><dd>'+esc([c.il,c.ilce].filter(Boolean).join(' / ')||'—')+'</dd>'+
+    '</dl>'+
+    '<section class="dsec"><h3>Adres</h3><p>'+(c.adres?esc(c.adres):'<span class="muted">Adres girilmemiş</span>')+'</p>'+
+      (harita?'<div class="row" style="margin-top:10px">'+harita+'</div>':'')+'</section>'+
+    '<section class="dsec"><h3>Mevcut hizmetler</h3>'+hizmetSatirlari(c)+'</section>'+
+    (appts.length?'<section class="dsec"><h3>Randevu geçmişi</h3><ul class="log">'+appts.map(a=>'<li><span class="muted">'+fmtDate(a.date)+'</span><span>'+esc((emp(alanOf(a))||{}).name||'')+' — '+esc(a.desc)+' <span class="badge '+(a.status==='Açık'?'warn':'ok')+'">'+a.status+'</span>'+(a.closeDesc?'<div class="muted sm">'+esc(a.closeDesc)+'</div>':'')+'</span></li>').join('')+'</ul></section>':'')+
+    (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(x=>'<li><span class="muted">'+fmtDate(x.date)+'</span><span>'+esc(prodLabel(byId(db.products,x.productId)))+', '+x.qty+' adet'+((x.abone&&x.abone.length)?' · '+esc(x.abone.join(', ')):'')+'</span></li>').join('')+'</ul></section>':'')+
+    '<p class="hint">Bu kart bilgi amaçlıdır. Düzeltme yetkiniz varsa aşağıdaki düğmeyle açabilirsiniz.</p>',
+    (duzenlenebilirMusteri(c)?'<button class="btn" data-act="open-cust" data-id="'+c.id+'">Bilgileri düzenle</button>':'')+
+    '<button class="btn" data-act="open-appt-for" data-id="'+c.id+'">Randevu oluştur</button>'+
+    '<button class="btn primary" data-act="close">Kapat</button>'));
 }
 function findDuplicateCustomer(unvan,telefon,vkn,exceptId){
   if(vkn){
@@ -1164,7 +1215,10 @@ function apptTable(){
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
   return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
   list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
-    const acts=a.status==='Açık'?'<button class="btn sm" data-act="transfer-appt" data-id="'+a.id+'">Devret</button> <button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>':'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>';
+    const custBtn=c?'<button class="btn sm" data-act="cust-info" data-id="'+c.id+'">Müşteri</button> ':'';
+    const acts=custBtn+(a.status==='Açık'
+      ?'<button class="btn sm" data-act="transfer-appt" data-id="'+a.id+'">Devret</button> <button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>'
+      :'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>');
     const al=emp(alanOf(a));
     return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
@@ -1251,6 +1305,7 @@ function openCloseAppt(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId);dlgState={kind:'closeappt',id};
   openDlg(dlgHtml('Randevuyu kapat','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc((emp(alanOf(a))||{}).name||'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd></dl>'+
     '<div class="fields"><div class="field full"><label for="cl-desc">Sonuç açıklaması</label><textarea id="cl-desc" rows="3" placeholder="Görüşmede ne konuşuldu, sonuç ne oldu"></textarea></div><div class="field"><label for="cl-date">Kapanma tarihi</label><input id="cl-date" type="date" value="'+TODAY+'"></div></div><p class="err" id="cl-err"></p>',
+    (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-closeappt" data-id="'+id+'">Randevuyu kapat</button>'));
 }
 function saveCloseAppt(id){
@@ -1267,7 +1322,8 @@ function openApptDetail(id){
   const al=emp(alanOf(a));
   openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+(a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>Sonuç</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
     (log.length?'<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+log.map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('')+'</ul></section>':''),
-    '<button class="btn" data-act="close">Kapat</button>'));
+    (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
+    '<button class="btn primary" data-act="close">Kapat</button>'));
 }
 
 function viewPersonel(){
@@ -2133,6 +2189,7 @@ const actions={
   'open-target'(el){openTarget(el.dataset.emp,el.dataset.kat);},
   'save-target'(){saveTarget();},
   cust(el){openCustomer(el.dataset.id);},
+  'cust-info'(el){openCustomerInfo(el.dataset.id);},
   'open-cust'(el){openCustomer(el.dataset.id||null);},
   'save-cust'(){saveCustomer();},
   'open-appt'(){openAppointment(null);},
