@@ -88,7 +88,7 @@ tr.total td{font-weight:600;border-top:1px solid var(--line)}
 .btn.danger{color:var(--out);border-color:var(--out)}
 .btn.sm{padding:4px 9px;font-size:13px}
 .btn:focus-visible,.nav:focus-visible,input:focus-visible,select:focus-visible,.bar-row:focus-visible,.chip:focus-visible,tr.click:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%;min-width:0}
+input,select,textarea{font:inherit;font-size:15px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;min-width:0}
 .tools select,.tools input{width:auto}
 tr.sel{background:var(--accent-soft)}
 .preview{background:var(--accent-soft);border-radius:8px;padding:10px 12px;font-weight:500}
@@ -140,17 +140,17 @@ textarea{resize:vertical}
 .empty{padding:28px 16px;text-align:center;color:var(--muted)}
 .hint{color:var(--muted);font-size:12.5px;margin-top:10px}
 
-dialog{border:1px solid var(--line);border-radius:12px;padding:0;background:var(--surface);color:var(--ink);width:min(580px,calc(100vw - 24px));max-height:calc(100vh - 32px)}
-dialog[open]{display:flex;flex-direction:column}
+dialog{border:1px solid var(--line);border-radius:12px;padding:0;background:var(--surface);color:var(--ink);width:min(840px,calc(100vw - 24px));max-height:none}
+dialog[open]{display:block}
 dialog::backdrop{background:rgba(10,18,28,.55)}
-.dlg-h{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px 18px;border-bottom:1px solid var(--line)}
+.dlg-h{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px 20px;border-bottom:1px solid var(--line)}
 .dlg-h h2{font-size:19px;font-weight:600}
-.dlg-b{padding:16px 18px;overflow:auto;flex:1}
-.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
-.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dlg-b{padding:18px 22px;overflow-y:auto;max-height:calc(100vh - 210px)}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .field.full{grid-column:1/-1}
-.field label{font-weight:500;font-size:13px}
+.field label{font-weight:500;font-size:13.5px}
 .err{color:var(--out);font-size:13px;min-height:18px;margin-top:10px}
 .dsec{padding:12px 0;border-bottom:1px solid var(--line)}
 .dsec:last-child{border-bottom:0}
@@ -208,7 +208,7 @@ const SUPABASE_URL='https://kmyggdrwvymvucalgdbp.supabase.co';
 const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtteWdnZHJ3dnltdnVjYWxnZGJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NzY0ODgsImV4cCI6MjEwNTQ1MjQ4OH0.NZKU3uk4amHDKb9IV6rqRB9RC6zU8dasjRfKWaHqqWA';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
 /* Aşama 1: veri yalnızca okunur. Yazma Aşama 2'de açılacak. */
-const WRITE_ENABLED=false;
+const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
@@ -833,20 +833,33 @@ function saveSale(){
     amount=parseFloat(String(g('sl-amount')).replace(',','.'))||0;
     if(!(amount>0))return err('Satış tutarını 0’dan büyük girin.');
   }
-  let custId=null,customer=norm(g('sl-customer'));
-  if(custSel===NEW_CUST){
-    const res=quickCreateCustomer('sl','slDup');
-    if(res.error)return err(res.error);
-    custId=res.customer.id;customer=res.customer.unvan;
-  }else if(custSel){
-    custId=custSel;
-  }
   const calc=p.calcType||'sabit';
   const prim=calc==='yuzde'?amount*(p.primPct||0)/100:qty*(p.prim||0);
   const puan=calc==='yuzde'?amount*(p.puanPct||0)/100:qty*(p.puan||0);
-  const s={id:uid('y'),date,employeeId:empId,departmentId:e.departmentId,companyId:e.companyId,customerId:custId,customer,productId:pid,qty,amount,calcType:calc,hedefKat:p.hedefKat||'',unitPrim:calc==='yuzde'?(p.primPct||0):(p.prim||0),unitPuan:calc==='yuzde'?(p.puanPct||0):(p.puan||0),prim,puan,items:[]};
-  units.forEach(u=>{s.items.push({unitId:u.id,fromWh:u.warehouseId||null,fromHolder:u.status==='Personelde'?u.holderId:null});u.warehouseId=null;u.holderId=null;u.status='Satıldı';u.note=customer;u.saleId=s.id;u.log.push({date,text:'Satış: '+customer+' ('+e.name+')'});});
-  db.sales.push(s);save();closeDlg();toast('Satış kaydedildi: '+nf.format(s.puan)+' puan, '+money(s.prim)+' prim'+(units.length?', '+units.length+' adet stoktan düştü':''));render();
+  run('sl-err',async()=>{
+    let custId=custSel&&custSel!==NEW_CUST?custSel:null;
+    let customer=norm(g('sl-customer'));
+    if(custSel===NEW_CUST){
+      const res=await quickCreateCustomer('sl','slDup');
+      if(res.error)throw new Error(res.error);
+      custId=res.customer.id;customer=res.customer.unvan;
+    }
+    const sale=await ins('sales',{date,employee_id:empId,department_id:nz(e.departmentId),
+      company_id:nz(e.companyId),customer_id:custId,customer,product_id:pid,qty,amount,
+      calc_type:calc,hedef_kat:p.hedefKat||'',
+      unit_prim:calc==='yuzde'?(p.primPct||0):(p.prim||0),
+      unit_puan:calc==='yuzde'?(p.puanPct||0):(p.puan||0),prim,puan});
+    if(units.length){
+      const ir=await sb.from('sale_items').insert(units.map(u=>({sale_id:sale.id,unit_id:u.id,
+        from_wh:u.warehouseId||null,from_holder:u.status==='Personelde'?u.holderId:null})));
+      if(ir.error)throw ir.error;
+      for(const u of units){
+        await upd('stock_units',u.id,{warehouse_id:null,holder_id:null,status:'Satıldı',
+          note:customer,sale_id:sale.id});
+        await ins('stock_logs',{unit_id:u.id,date,text:'Satış: '+customer+' ('+e.name+')'});
+      }
+    }
+  },'Satış kaydedildi: '+nf.format(puan)+' puan, '+money(prim)+' prim'+(units.length?', '+units.length+' adet stoktan düştü':''));
 }
 function openSaleDetail(id){
   const s=byId(db.sales,id);if(!s)return;const p=byId(db.products,s.productId),e=emp(s.employeeId),kat=hedefKat(s.hedefKat);dlgState={kind:'saledetail',id};
@@ -910,10 +923,12 @@ function saveTarget(){
   const exempt=!!$('#tg-exempt').checked,val=parseFloat(String($('#tg-val').value).replace(',','.'))||0,err=m=>{$('#tg-err').textContent=m;};
   if(!exempt&&val<0)return err('Hedef negatif olamaz.');
   const {emp:empId,kat:katId}=dlgState;
-  let t=db.targets.find(x=>x.employeeId===empId&&x.kat===katId);
-  if(!t){t={id:uid('h'),employeeId:empId,kat:katId,value:0,exempt:false};db.targets.push(t);}
-  t.exempt=exempt;t.value=exempt?0:val;
-  save();closeDlg();toast('Hedef kaydedildi');render();
+  run('tg-err',async()=>{
+    const r=await sb.from('targets').upsert({employee_id:empId,kat:katId,
+      value:exempt?0:val,exempt,updated_by:me.userId,updated_at:new Date().toISOString()},
+      {onConflict:'employee_id,kat'});
+    if(r.error)throw r.error;
+  },'Hedef kaydedildi');
 }
 
 /* ----- Müşteriler ----- */
@@ -999,7 +1014,7 @@ function quickCustomerFields(pre){
     '<div class="field"><label for="'+pre+'-cilce">İlçe</label><select id="'+pre+'-cilce">'+ilceOptions('','')+'</select></div>'+
     '</div><p class="hint">Diğer bilgileri (VKN, hizmetler) sonra Müşteriler sayfasından tamamlayabilirsiniz.</p></div>';
 }
-function quickCreateCustomer(pre,dupKey){
+async function quickCreateCustomer(pre,dupKey){
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
   const unvan=g(pre+'-cu'),yetkili=g(pre+'-cy'),tel=g(pre+'-ct');
   if(!unvan)return {error:'Yeni müşterinin ünvanını girin.'};
@@ -1010,10 +1025,7 @@ function quickCreateCustomer(pre,dupKey){
     if(!dlgState[dupKey]){dlgState[dupKey]=true;return {error:'“'+dup.c.unvan+'” ünvanı veya telefonuyla kayıtlı bir müşteri var. Mükerrer değilse tekrar basın.'};}
   }
   const il=$('#'+pre+'-cil')?$('#'+pre+'-cil').value:'',ilce=$('#'+pre+'-cilce')?$('#'+pre+'-cilce').value:'';
-  const c={id:uid('m'),unvan,yetkili,telefon:tel,vkn:'',il,ilce,adres:'',
-    mobilAdet:0,mobilTaahhutAy:'',mobilTaahhutYil:'',dslVar:false,dslHizmetNo:'',dslAdet:0,dslTaahhutAy:'',dslTaahhutYil:'',
-    pstnVar:false,pstnHizmetNo:'',pstnAdet:0,pstnTaahhutAy:'',pstnTaahhutYil:'',metroVar:false,metroHizmetNo:'',metroAdet:0,metroTaahhutAy:'',metroTaahhutYil:''};
-  db.customers.push(c);
+  const c=await ins('customers',{unvan,yetkili,telefon:tel,vkn:'',il,ilce,adres:''});
   return {customer:c};
 }
 function saveCustomer(){
@@ -1036,8 +1048,16 @@ function saveCustomer(){
     pstnVar,pstnHizmetNo:pstnVar?g('c-pstnno'):'',pstnAdet:pstnVar?num('c-pstnadet'):0,pstnTaahhutAy:pstnVar?($('#c-pstnay').value||''):'',pstnTaahhutYil:pstnVar?g('c-pstnyil'):'',
     metroVar,metroHizmetNo:metroVar?g('c-metrono'):'',metroAdet:metroVar?num('c-metroadet'):0,metroTaahhutAy:metroVar?($('#c-metroay').value||''):'',metroTaahhutYil:metroVar?g('c-metroyil'):''
   };
-  if(id)Object.assign(byId(db.customers,id),rec);else db.customers.push({id:uid('m'),...rec});
-  save();closeDlg();toast('Müşteri kaydedildi');render();
+  const row={unvan:rec.unvan,yetkili:rec.yetkili,telefon:rec.telefon,vkn:rec.vkn,
+    il:rec.il,ilce:rec.ilce,adres:rec.adres,
+    mobil_adet:rec.mobilAdet,mobil_taahhut_ay:rec.mobilTaahhutAy,mobil_taahhut_yil:rec.mobilTaahhutYil,
+    dsl_var:rec.dslVar,dsl_hizmet_no:rec.dslHizmetNo,dsl_adet:rec.dslAdet,
+    dsl_taahhut_ay:rec.dslTaahhutAy,dsl_taahhut_yil:rec.dslTaahhutYil,
+    pstn_var:rec.pstnVar,pstn_hizmet_no:rec.pstnHizmetNo,pstn_adet:rec.pstnAdet,
+    pstn_taahhut_ay:rec.pstnTaahhutAy,pstn_taahhut_yil:rec.pstnTaahhutYil,
+    metro_var:rec.metroVar,metro_hizmet_no:rec.metroHizmetNo,metro_adet:rec.metroAdet,
+    metro_taahhut_ay:rec.metroTaahhutAy,metro_taahhut_yil:rec.metroTaahhutYil};
+  run('c-err',()=>id?upd('customers',id,row):ins('customers',row),'Müşteri kaydedildi');
 }
 
 /* ----- Randevular ----- */
@@ -1098,14 +1118,17 @@ function saveAppointment(){
   const custSel=$('#ap-cust').value,date=$('#ap-date').value,desc=$('#ap-desc').value.trim(),err=m=>{$('#ap-err').textContent=m;};
   if(!custSel)return err('Müşteri seçin.');if(!date)return err('Tarih seçin.');if(!desc)return err('Açıklama girin.');
   const bm=bayiMuduru();if(!bm)return err('Bayi Müdürü tanımlı değil. Önce Personel sayfasından bir Bayi Müdürü belirleyin.');
-  let custId=custSel;
-  if(custSel===NEW_CUST){
-    const res=quickCreateCustomer('ap','apDup');
-    if(res.error)return err(res.error);
-    custId=res.customer.id;
-  }
-  db.appointments.push({id:uid('r'),customerId:custId,employeeId:bm.id,date,desc,status:'Açık',closeDesc:'',closeDate:'',log:[{date:TODAY,text:'Randevu oluşturuldu, Bayi Müdürü\u2019ne atandı: '+bm.name}]});
-  save();closeDlg();toast(custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');render();
+  run('ap-err',async()=>{
+    let custId=custSel;
+    if(custSel===NEW_CUST){
+      const res=await quickCreateCustomer('ap','apDup');
+      if(res.error)throw new Error(res.error);
+      custId=res.customer.id;
+    }
+    const a=await ins('appointments',{customer_id:custId,employee_id:bm.id,date,descr:desc,status:'Açık'});
+    await ins('appointment_logs',{appt_id:a.id,date:TODAY,
+      text:'Randevu oluşturuldu, Bayi Müdürü\u2019ne atandı: '+bm.name});
+  },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
 function openTransferAppt(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),cur=emp(a.employeeId);dlgState={kind:'transferappt',id};
@@ -1118,10 +1141,11 @@ function saveTransferAppt(id){
   if(!to)return err('Devredilecek personeli seçin.');
   const a=byId(db.appointments,id);if(!a)return;
   const from=emp(a.employeeId),toE=emp(to);
-  a.employeeId=to;
-  if(!a.log)a.log=[];
-  a.log.push({date:TODAY,text:'Devredildi: '+(from?from.name:'—')+' → '+(toE?toE.name:'—')});
-  save();closeDlg();toast('Randevu devredildi');render();
+  run('tr-err',async()=>{
+    await upd('appointments',id,{employee_id:to});
+    await ins('appointment_logs',{appt_id:id,date:TODAY,
+      text:'Devredildi: '+(from?from.name:'—')+' → '+(toE?toE.name:'—')});
+  },'Randevu devredildi');
 }
 function openCloseAppt(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId);dlgState={kind:'closeappt',id};
@@ -1132,11 +1156,10 @@ function openCloseAppt(id){
 function saveCloseAppt(id){
   const desc=$('#cl-desc').value.trim(),date=$('#cl-date').value,err=m=>{$('#cl-err').textContent=m;};
   if(!desc)return err('Sonuç açıklaması girin.');if(!date)return err('Tarih seçin.');
-  const a=byId(db.appointments,id);if(!a)return;
-  a.status='Kapandı';a.closeDesc=desc;a.closeDate=date;
-  if(!a.log)a.log=[];
-  a.log.push({date,text:'Randevu kapatıldı'});
-  save();closeDlg();toast('Randevu kapatıldı');render();
+  run('cl-err',async()=>{
+    await upd('appointments',id,{status:'Kapandı',close_descr:desc,close_date:date});
+    await ins('appointment_logs',{appt_id:id,date,text:'Randevu kapatıldı'});
+  },'Randevu kapatıldı');
 }
 function openApptDetail(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=isConverted(a.customerId,a.date);dlgState={kind:'apptdetail',id};
@@ -1233,7 +1256,10 @@ function saveTx(){
   const o={date:g('f-date'),dir:g('f-dir'),accountId:g('f-acc'),category:g('f-cat'),amount,companyId:g('f-company'),departmentId:g('f-dept'),employeeId:g('f-emp'),desc:g('f-desc').trim()};
   const err=m=>{$('#f-err').textContent=m;};
   if(!o.date)return err('Tarih seçin.');if(!o.category)return err('Kategori seçin.');if(!(amount>0))return err('Tutarı 0’dan büyük girin.');if(!o.companyId)return err('Şirket seçin.');
-  addTx(o);save();closeDlg();toast('Hareket kaydedildi');render();
+  run('f-err',()=>ins('transactions',{date:o.date,dir:o.dir,account_id:o.accountId,
+    category:o.category,amount:o.amount,company_id:nz(o.companyId),
+    department_id:nz(o.departmentId),employee_id:nz(o.employeeId),
+    descr:o.desc,source:'manuel'}),'Hareket kaydedildi');
 }
 function openTransfer(){
   if(db.accounts.length<2)return needDlg('Virman','Virman için en az iki hesap gerekir. “Hesap ekle” ile ikinci hesabı tanımlayın.');
@@ -1246,7 +1272,16 @@ function openTransfer(){
 function saveTransfer(){
   const g=id=>$('#'+id).value,amount=parseFloat(String(g('f-amt')).replace(',','.')),err=m=>{$('#f-err').textContent=m;};
   if(g('f-from')===g('f-to'))return err('Çıkış ve giriş hesabı farklı olmalı.');if(!(amount>0))return err('Tutarı 0’dan büyük girin.');if(!g('f-date'))return err('Tarih seçin.');
-  addTransfer(g('f-date'),g('f-from'),g('f-to'),amount,g('f-desc').trim());save();closeDlg();toast('Virman kaydedildi');render();
+  const from=g('f-from'),to=g('f-to'),date=g('f-date'),desc=g('f-desc').trim();
+  run('f-err',async()=>{
+    const ref=crypto.randomUUID();
+    const rows=[
+      {date,dir:'out',account_id:from,category:'Virman',amount,company_id:acct(from).companyId,
+       descr:desc||('Virman: '+acct(to).name),source:'virman',ref_id:ref,created_by:me.userId},
+      {date,dir:'in',account_id:to,category:'Virman',amount,company_id:acct(to).companyId,
+       descr:desc||('Virman: '+acct(from).name),source:'virman',ref_id:ref,created_by:me.userId}];
+    const r=await sb.from('transactions').insert(rows);if(r.error)throw r.error;
+  },'Virman kaydedildi');
 }
 function openPay(empId){
   if(!db.accounts.length)return needDlg('Maaş öde','Önce bir kasa veya banka hesabı ekleyin. Ödeme bu hesaptan düşülecek.');
@@ -1260,7 +1295,19 @@ function openPay(empId){
 function savePay(){
   const d=dlgState,ded=clamp(parseFloat($('#f-ded').value)||0,0,d.maxDed),date=$('#f-date').value;
   if(!date){$('#f-err').textContent='Ödeme tarihi seçin.';return;}
-  payPayroll(d.empId,state.payMonth,ded,$('#f-acc').value,date);save();closeDlg();toast('Maaş ödemesi kaydedildi');render();
+  const accId=$('#f-acc').value,month=state.payMonth,e=emp(d.empId);
+  const paid=e.salary-ded;
+  run('f-err',async()=>{
+    let txId=null;
+    if(paid>0){
+      const t=await ins('transactions',{date,dir:'out',account_id:accId,category:'Maaş',amount:paid,
+        company_id:e.companyId,department_id:e.departmentId,employee_id:e.id,
+        descr:monthLabel(month)+' maaşı'+(ded?' (avans mahsubu '+money(ded)+')':''),source:'maas'});
+      txId=t.id;
+    }
+    await ins('payrolls',{employee_id:e.id,month,salary:e.salary,advance_deducted:ded,
+      paid,date,tx_id:txId,account_id:accId});
+  },'Maaş ödemesi kaydedildi');
 }
 function openAdv(){
   if(!db.employees.length)return needDlg('Avans ver','Önce personel ekleyin.');
@@ -1274,7 +1321,12 @@ function openAdv(){
 function saveAdv(){
   const amount=parseFloat(String($('#f-amt').value).replace(',','.')),date=$('#f-date').value;
   if(!(amount>0)){$('#f-err').textContent='Tutarı 0’dan büyük girin.';return;}if(!date){$('#f-err').textContent='Tarih seçin.';return;}
-  addAdvance($('#a-emp').value,amount,date,$('#f-acc').value,$('#f-desc').value.trim());save();closeDlg();toast('Avans kaydedildi');render();
+  const empId=$('#a-emp').value,accId=$('#f-acc').value,desc=$('#f-desc').value.trim();
+  const e=emp(empId);
+  run('f-err',()=>ins('transactions',{date,dir:'out',account_id:accId,
+    category:'Personel avansı',amount,company_id:e?e.companyId:null,
+    department_id:e?e.departmentId:null,employee_id:empId,
+    descr:desc||'Personel avansı',source:'avans'}),'Avans kaydedildi');
 }
 
 function openAsset(id){
@@ -1306,13 +1358,21 @@ function openAddAsset(){
 function saveAsset(){
   const cat=canonCat(assetCats(),$('#n-cat').value),model=norm($('#n-model').value),serial=norm($('#n-serial').value),note=$('#n-note').value.trim(),holder=$('#n-emp').value||null,err=m=>{$('#n-err').textContent=m;};
   if(!cat)return err('Kategori girin.');if(!model)return err('Model girin.');if(serialTaken(serial,null))return err('Bu seri numarası başka bir cihazda kayıtlı.');
-  const a={id:uid('s'),category:cat,model,serial,note,companyId:$('#n-company').value,holderId:null,status:'Depoda',log:[{date:TODAY,text:'Envantere eklendi'}]};
-  db.assets.push(a);if(holder)assignAsset(a.id,holder,TODAY);save();closeDlg();toast('Cihaz envantere eklendi');render();
+  const cid=$('#n-company').value;
+  run('n-err',async()=>{
+    const a=await ins('assets',{category:cat,model,serial,note,company_id:cid,
+      holder_id:nz(holder),status:holder?'Kullanımda':'Depoda'});
+    await ins('asset_logs',{asset_id:a.id,date:TODAY,
+      text:holder?('Zimmetlendi: '+emp(holder).name):'Envantere eklendi'});
+  },'Cihaz envantere eklendi');
 }
 function saveAssetInfo(id){
   const a=asset(id),cat=canonCat(assetCats(),$('#i-cat').value),model=norm($('#i-model').value),serial=norm($('#i-serial').value),note=$('#i-note').value.trim(),err=m=>{$('#i-err').textContent=m;};
   if(!cat)return err('Kategori girin.');if(!model)return err('Model girin.');if(serialTaken(serial,id))return err('Bu seri numarası başka bir cihazda kayıtlı.');
-  Object.assign(a,{category:cat,model,serial,note});assetLog(a,TODAY,'Cihaz bilgileri güncellendi');save();toast('Cihaz bilgileri kaydedildi');openAsset(id);render();
+  run('i-err',async()=>{
+    await upd('assets',id,{category:cat,model,serial,note});
+    await ins('asset_logs',{asset_id:id,date:TODAY,text:'Cihaz bilgileri güncellendi'});
+  },'Cihaz bilgileri kaydedildi',()=>openAsset(id));
 }
 function prodCalcFields(v){
   if(v.calcType==='yuzde')return '<div class="field"><label for="pr-primpct">Satış primi (satış tutarının %’si)</label><input id="pr-primpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.primPct==null?'':v.primPct)+'" placeholder="0"></div>'+
@@ -1376,8 +1436,14 @@ function saveStockIn(){
   if(dups.length)return err('Listede tekrar eden seri no var: '+missingText(dups));
   const taken=list.filter(x=>stockBySerial(x));
   if(taken.length)return err(taken.length+' seri no zaten kayıtlı: '+missingText(taken));
-  list.forEach(x=>db.stock.push({id:uid('k'),productId:pid,serial:x,warehouseId:wid,status:'Depoda',holderId:null,note:'',log:[{date:TODAY,text:'Stok girişi: '+wh(wid).name}]}));
-  save();closeDlg();toast(list.length+' adet stok girişi yapıldı');render();
+  run('sg-err',async()=>{
+    const r=await sb.from('stock_units').insert(list.map(x=>({product_id:pid,serial:x,
+      warehouse_id:wid,status:'Depoda',created_by:me.userId}))).select();
+    if(r.error)throw r.error;
+    const lr=await sb.from('stock_logs').insert(r.data.map(u=>({unit_id:u.id,date:TODAY,
+      text:'Stok girişi: '+wh(wid).name,created_by:me.userId})));
+    if(lr.error)throw lr.error;
+  },list.length+' adet stok girişi yapıldı');
 }
 function openStockTransfer(){
   if(db.warehouses.length<2)return needDlg('Depolar arası transfer','Transfer için en az iki depo gerekir. “Depoları düzenle” ile ikinci depoyu ekleyin.');
@@ -1391,7 +1457,13 @@ function saveStockTransfer(){
   if(from===to)return err('Çıkış ve giriş deposu farklı olmalı.');if(!list.length)return err('En az bir seri numarası girin.');
   const units=[],missing=[];list.forEach(x=>{const u=stockBySerial(x);if(!u||u.status!=='Depoda'||u.warehouseId!==from)missing.push(x);else if(!units.includes(u))units.push(u);});
   if(missing.length)return err(missing.length+' seri no '+wh(from).name+' içinde bulunamadı: '+missingText(missing));
-  units.forEach(u=>moveUnit(u,to));save();closeDlg();toast(units.length+' adet '+wh(to).name+' deposuna taşındı');render();
+  run('st-err',async()=>{
+    for(const u of units){
+      await upd('stock_units',u.id,{warehouse_id:to,status:'Depoda',holder_id:null,note:''});
+      await ins('stock_logs',{unit_id:u.id,date:TODAY,
+        text:'Transfer: çıkış '+wh(from).name+', giriş '+wh(to).name});
+    }
+  },units.length+' adet '+wh(to).name+' deposuna taşındı');
 }
 function soExtra(reason){
   if(reason==='give')return '<div class="field full"><label for="so-emp">Personel</label><select id="so-emp">'+empOptions('','','','Personel seçin')+'</select></div>';
@@ -1409,7 +1481,17 @@ function saveStockOut(){
   if(reason==='give'&&!empId)return err('Personel seçin.');if(!list.length)return err('En az bir seri numarası girin.');
   const units=[],bad=[];list.forEach(x=>{const u=stockBySerial(x);if(!u||u.status!=='Depoda')bad.push(x);else if(!units.includes(u))units.push(u);});
   if(bad.length)return err(bad.length+' seri no depoda bulunamadı: '+missingText(bad));
-  units.forEach(u=>reason==='give'?giveUnit(u,empId):outUnit(u,reason,note));save();closeDlg();toast(units.length+' adet stok çıkışı kaydedildi');render();
+  run('so-err',async()=>{
+    for(const u of units){
+      if(reason==='give'){
+        await upd('stock_units',u.id,{warehouse_id:null,status:'Personelde',holder_id:empId,note:''});
+        await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Personele teslim: '+emp(empId).name});
+      }else{
+        await upd('stock_units',u.id,{warehouse_id:null,status:'Fire',holder_id:null,note});
+        await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Arıza / fire'+(note?': '+note:'')});
+      }
+    }
+  },units.length+' adet stok çıkışı kaydedildi');
 }
 function openUnit(id){
   const u=byId(db.stock,id);if(!u)return;const p=byId(db.products,u.productId);dlgState={kind:'unit',id};
@@ -1597,13 +1679,14 @@ function dbErr(e){
   if(/Load failed|Failed to fetch|NetworkError/i.test(m))return 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.';
   return m;
 }
+const nz=v=>(v===''||v===undefined)?null:v;
 async function ins(t,row){const r=await sb.from(t).insert({...row,created_by:me.userId}).select().single();if(r.error)throw r.error;return r.data;}
 async function upd(t,id,row){const r=await sb.from(t).update(row).eq('id',id);if(r.error)throw r.error;}
 async function del(t,id){const r=await sb.from(t).delete().eq('id',id);if(r.error)throw r.error;}
 
 let busy=false;
 /* İşi çalıştırır, veriyi tazeler, diyaloğu kapatır. Hata olursa diyalogda gösterir. */
-async function run(errId,work,okMsg){
+async function run(errId,work,okMsg,after){
   if(busy)return;busy=true;
   const setErr=m=>{const el=errId&&$('#'+errId);if(el)el.textContent=m;else if(m)toast(m);};
   try{
@@ -1613,6 +1696,7 @@ async function run(errId,work,okMsg){
     closeDlg();
     if(okMsg)toast(okMsg);
     render();
+    if(after)after();
   }catch(e){
     setErr(dbErr(e));
   }finally{busy=false;}
@@ -1674,12 +1758,7 @@ async function reloadData(){
   catch(e){toast('Yenilenemedi: '+(e&&e.message?e.message:e));}
 }
 
-function roBanner(){
-  const eksik=db.companies.length&&db.departments.length&&db.employees.length&&db.accounts.length&&db.products.length;
-  return '<div class="ro-banner"><b>Kurulum aşaması.</b> Şirket, departman, personel, kasa/banka hesabı, ürün ve depo kayıtlarını girebilirsiniz; bunlar ortak veritabanına yazılır ve herkes aynı kayıtları görür. '+
-    (eksik?'Kasa hareketleri, maaş, satış, stok, müşteri ve randevu girişi bir sonraki aşamada açılacak.'
-          :'Önce yukarıdaki kurulum adımlarını tamamlayın.')+'</div>';
-}
+function roBanner(){return '';}
 
 async function boot(){
   const {data:{session}}=await sb.auth.getSession();
@@ -1712,9 +1791,12 @@ const actions={
   'save-transfer'(){saveTransfer();},
   'del-tx'(el){confirmDlg('Hareketi sil','Bu hareket silinecek ve hesap bakiyesi yeniden hesaplanacak.','confirm-del-tx',el.dataset.id,'Hareketi sil');},
   'confirm-del-tx'(el){
-    const t=byId(db.transactions,el.dataset.id);
-    if(t){if(t.source==='virman'&&t.refId)db.transactions=db.transactions.filter(x=>x.refId!==t.refId);else db.transactions=db.transactions.filter(x=>x.id!==t.id);}
-    save();closeDlg();toast('Hareket silindi');render();
+    const t=byId(db.transactions,el.dataset.id);if(!t)return;
+    run(null,async()=>{
+      if(t.source==='virman'&&t.refId){
+        const r=await sb.from('transactions').delete().eq('ref_id',t.refId);if(r.error)throw r.error;
+      }else await del('transactions',t.id);
+    },'Hareket silindi');
   },
   'open-pay'(el){openPay(el.dataset.id);},
   'save-pay'(){savePay();},
@@ -1723,14 +1805,49 @@ const actions={
   asset(el){openAsset(el.dataset.id);},
   'add-asset'(){openAddAsset();},
   'save-asset'(){saveAsset();},
-  assign(el){const v=$('#as-emp').value;if(!v){toast('Önce bir personel seçin');return;}assignAsset(el.dataset.id,v,TODAY);save();toast('Zimmet güncellendi');openAsset(el.dataset.id);render();},
-  unassign(el){assignAsset(el.dataset.id,null,TODAY);save();toast('Zimmet geri alındı');openAsset(el.dataset.id);render();},
-  'to-service'(el){const a=asset(el.dataset.id);a.status='Serviste';assetLog(a,TODAY,'Servise gönderildi');save();toast('Cihaz serviste olarak işaretlendi');openAsset(a.id);render();},
-  'from-service'(el){const a=asset(el.dataset.id);a.status=a.holderId?'Kullanımda':'Depoda';assetLog(a,TODAY,'Servisten teslim alındı');save();toast('Cihaz servisten alındı');openAsset(a.id);render();},
+  assign(el){
+    const id=el.dataset.id,v=$('#as-emp').value;
+    if(!v){toast('Önce bir personel seçin');return;}
+    const a=asset(id);
+    run(null,async()=>{
+      await upd('assets',id,{holder_id:v,status:a.status==='Serviste'?'Serviste':'Kullanımda'});
+      await ins('asset_logs',{asset_id:id,date:TODAY,text:'Zimmetlendi: '+emp(v).name});
+    },'Zimmet güncellendi',()=>openAsset(id));
+  },
+  unassign(el){
+    const id=el.dataset.id,a=asset(id);
+    run(null,async()=>{
+      await upd('assets',id,{holder_id:null,status:a.status==='Serviste'?'Serviste':'Depoda'});
+      await ins('asset_logs',{asset_id:id,date:TODAY,text:'Depoya alındı'});
+    },'Zimmet geri alındı',()=>openAsset(id));
+  },
+  'to-service'(el){
+    const id=el.dataset.id;
+    run(null,async()=>{
+      await upd('assets',id,{status:'Serviste'});
+      await ins('asset_logs',{asset_id:id,date:TODAY,text:'Servise gönderildi'});
+    },'Cihaz serviste olarak işaretlendi',()=>openAsset(id));
+  },
+  'from-service'(el){
+    const id=el.dataset.id,a=asset(id);
+    run(null,async()=>{
+      await upd('assets',id,{status:a.holderId?'Kullanımda':'Depoda'});
+      await ins('asset_logs',{asset_id:id,date:TODAY,text:'Servisten teslim alındı'});
+    },'Cihaz servisten alındı',()=>openAsset(id));
+  },
   'save-repair'(el){
     const cost=parseFloat(String($('#r-cost').value).replace(',','.')),desc=$('#r-desc').value.trim(),date=$('#r-date').value;
     if(!desc){$('#r-err').textContent='Yapılan işlemi yazın.';return;}if(!(cost>0)){$('#r-err').textContent='Tutarı 0’dan büyük girin.';return;}if(!date){$('#r-err').textContent='Tarih seçin.';return;}
-    addRepair(el.dataset.id,date,desc,cost,$('#r-acc').value);save();toast('Tamir masrafı kaydedildi ve finansa yazıldı');openAsset(el.dataset.id);render();
+    const id=el.dataset.id,a=asset(id),accId=$('#r-acc').value;
+    const h=a.holderId?emp(a.holderId):null;
+    run('r-err',async()=>{
+      const t=await ins('transactions',{date,dir:'out',account_id:accId,
+        category:same(a.category,'Araç')?'Araç bakım ve tamir':'Cihaz tamir',amount:cost,
+        company_id:h?h.companyId:a.companyId,department_id:h?h.departmentId:null,
+        employee_id:h?h.id:null,descr:a.model+' – '+desc,source:'tamir'});
+      await ins('repairs',{asset_id:id,date,descr:desc,cost,account_id:accId,
+        tx_id:t.id,employee_id:h?h.id:null});
+    },'Tamir masrafı kaydedildi ve finansa yazıldı',()=>openAsset(id));
   },
   'save-asset-info'(el){saveAssetInfo(el.dataset.id);},
   'open-prod'(el){openProd(el.dataset.id||null);},
@@ -1743,15 +1860,57 @@ const actions={
   'open-stockin'(){openStockIn();},'save-stockin'(){saveStockIn();},
   'open-stocktransfer'(){openStockTransfer();},'save-stocktransfer'(){saveStockTransfer();},
   'open-stockout'(){openStockOut();},'save-stockout'(){saveStockOut();},
-  'unit-move'(el){const u=byId(db.stock,el.dataset.id),to=$('#u-wh').value;if(!to)return;moveUnit(u,to);save();toast('Depo değiştirildi');openUnit(u.id);render();},
-  'unit-give'(el){const u=byId(db.stock,el.dataset.id),e=$('#u-emp').value;if(!e){toast('Önce bir personel seçin');return;}giveUnit(u,e);save();toast('Personele teslim edildi');openUnit(u.id);render();},
-  'unit-out'(el){const u=byId(db.stock,el.dataset.id);outUnit(u,'fire',$('#u-note').value.trim());save();toast('Çıkış kaydedildi');openUnit(u.id);render();},
-  'unit-return'(el){const u=byId(db.stock,el.dataset.id),to=$('#u-wh').value;if(u.saleId&&byId(db.sales,u.saleId)){toast('Bu seri no bir satışa bağlı, satışı iptal edin');return;}if(!to)return;moveUnit(u,to);save();toast('Depoya geri alındı');openUnit(u.id);render();},
+  'unit-move'(el){
+    const u=byId(db.stock,el.dataset.id),to=$('#u-wh').value;if(!to)return;
+    const from=u.warehouseId?wh(u.warehouseId).name:'';
+    run(null,async()=>{
+      await upd('stock_units',u.id,{warehouse_id:to,status:'Depoda',holder_id:null,note:''});
+      await ins('stock_logs',{unit_id:u.id,date:TODAY,
+        text:from?('Transfer: çıkış '+from+', giriş '+wh(to).name):('Depoya alındı: '+wh(to).name)});
+    },'Depo değiştirildi',()=>openUnit(u.id));
+  },
+  'unit-give'(el){
+    const u=byId(db.stock,el.dataset.id),e=$('#u-emp').value;
+    if(!e){toast('Önce bir personel seçin');return;}
+    run(null,async()=>{
+      await upd('stock_units',u.id,{warehouse_id:null,status:'Personelde',holder_id:e,note:''});
+      await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Personele teslim: '+emp(e).name});
+    },'Personele teslim edildi',()=>openUnit(u.id));
+  },
+  'unit-out'(el){
+    const u=byId(db.stock,el.dataset.id),note=$('#u-note').value.trim();
+    run(null,async()=>{
+      await upd('stock_units',u.id,{warehouse_id:null,status:'Fire',holder_id:null,note});
+      await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Arıza / fire'+(note?': '+note:'')});
+    },'Çıkış kaydedildi',()=>openUnit(u.id));
+  },
+  'unit-return'(el){
+    const u=byId(db.stock,el.dataset.id),to=$('#u-wh').value;
+    if(u.saleId&&byId(db.sales,u.saleId)){toast('Bu seri no bir satışa bağlı, satışı iptal edin');return;}
+    if(!to)return;
+    run(null,async()=>{
+      await upd('stock_units',u.id,{warehouse_id:to,status:'Depoda',holder_id:null,note:''});
+      await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Depoya alındı: '+wh(to).name});
+    },'Depoya geri alındı',()=>openUnit(u.id));
+  },
   'open-wh'(){openWh();},'save-wh'(){saveWh();},
   'open-sale'(){openSale();},'save-sale'(){saveSale();},
   sale(el){openSaleDetail(el.dataset.id);},
   'del-sale'(el){const s=byId(db.sales,el.dataset.id);if(!s)return;confirmDlg('Satışı iptal et','Bu satış silinecek'+(s.items.length?' ve '+s.items.length+' adet seri numarası stoğa geri alınacak':'')+'. Puan ve prim de düşer.','confirm-del-sale',s.id,'Satışı iptal et');},
-  'confirm-del-sale'(el){cancelSale(el.dataset.id);save();closeDlg();toast('Satış iptal edildi');render();},
+  'confirm-del-sale'(el){
+    const s=byId(db.sales,el.dataset.id);if(!s)return;
+    run(null,async()=>{
+      for(const it of s.items){
+        const u=byId(db.stock,it.unitId);if(!u)continue;
+        const geri=it.fromHolder&&emp(it.fromHolder)
+          ?{status:'Personelde',holder_id:it.fromHolder,warehouse_id:null}
+          :{status:'Depoda',holder_id:null,warehouse_id:wh(it.fromWh)?it.fromWh:((db.warehouses[0]||{}).id||null)};
+        await upd('stock_units',u.id,{...geri,note:'',sale_id:null});
+        await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Satış iptal edildi, stoğa geri alındı'});
+      }
+      await del('sales',s.id);
+    },'Satış iptal edildi');
+  },
   satgroup(el){state.sat.group=el.dataset.v;render();},
   'open-target'(el){openTarget(el.dataset.emp,el.dataset.kat);},
   'save-target'(){saveTarget();},
@@ -1790,17 +1949,8 @@ function defaultState(){
   return {view:'ozet',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
-/* Sunucuya bağlanmış, açık olan yazma eylemleri */
-const ACIK_YAZMA=new Set(['save-company','save-dept','save-emp','save-acct',
-  'del-acct','confirm-del-acct','save-prod','save-prod-next','del-prod',
-  'confirm-del-prod','save-wh']);
-/* Henüz bağlanmamış yazma eylemleri */
-const WRITE_ACTS=new Set(['assign','unassign','to-service','from-service',
-  'unit-move','unit-give','unit-out','unit-return']);
-function isWriteAct(a){
-  if(ACIK_YAZMA.has(a))return false;
-  return /^(save|del|confirm)-/.test(a)||WRITE_ACTS.has(a);
-}
+/* Tüm yazma eylemleri sunucuya bağlandı */
+function isWriteAct(){return false;}
 
 function init(){
   emptyDb();
@@ -1808,7 +1958,6 @@ function init(){
   document.addEventListener('click',e=>{
     const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;
     const act=el.dataset.act;
-    if(!WRITE_ENABLED&&isWriteAct(act)){toast('Kayıt işlemleri bir sonraki aşamada açılacak');return;}
     const fn=actions[act];if(fn)fn(el,e);
   });
   document.addEventListener('keydown',e=>{
