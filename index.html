@@ -346,7 +346,22 @@ const coShort=id=>{const c=comp(id);return c?c.short:'';};
 
 /* ---------- Veri katmanı (Supabase) ---------- */
 const num=v=>v==null?0:Number(v);
-async function q(t){const r=await sb.from(t).select('*');if(r.error)throw new Error(t+': '+r.error.message);return r.data||[];}
+/* Supabase tek istekte en fazla 1000 satır döndürür. Tabloyu
+   sıralı sayfalar hâlinde, sonuna kadar okuruz. */
+const PK_KOLON={profiles:'user_id',employee_salaries:'employee_id'};
+async function q(t){
+  const N=1000,key=PK_KOLON[t]||'id';
+  let out=[],from=0;
+  for(;;){
+    const r=await sb.from(t).select('*').order(key,{ascending:true}).range(from,from+N-1);
+    if(r.error)throw new Error(t+': '+r.error.message);
+    const d=r.data||[];
+    out=out.length?out.concat(d):d;
+    if(d.length<N)break;
+    from+=d.length;
+  }
+  return out;
+}
 /* Aşama 1'de yazma kapalı; save() yerel önbelleği korur, sunucuya yazmaz. */
 function save(){}
 
@@ -1723,8 +1738,17 @@ function potTable(){
     return a.unvan.localeCompare(b.unvan,'tr');
   });
   if(!list.length)return '<div class="empty">Bu filtrelerle eşleşen potansiyel müşteri yok.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Firma</th><th>Yetkili</th><th>Telefon</th><th>İl / İlçe</th><th>Atanan</th><th>Durum</th><th>Son arama</th><th></th></tr></thead><tbody>'+
-  list.slice(0,300).map(l=>'<tr><td class="click" tabindex="0" data-act="lead" data-id="'+l.id+'"><b>'+esc(l.unvan)+'</b>'+
+  const SAYFA=100,sayfaAdet=Math.ceil(list.length/SAYFA);
+  if(f.page>=sayfaAdet)f.page=sayfaAdet-1;
+  if(f.page<0)f.page=0;
+  const bas=f.page*SAYFA,gosterilen=list.slice(bas,bas+SAYFA);
+  const nav=sayfaAdet<=1?'':'<div class="panel-b" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">'+
+    '<span class="muted sm">'+(bas+1)+'\u2013'+(bas+gosterilen.length)+' / '+list.length+' kayıt</span>'+
+    '<div class="tools"><button class="btn sm" data-act="pot-page" data-v="-1"'+(f.page===0?' disabled':'')+'>\u2039 Önceki</button>'+
+    '<span class="muted sm">Sayfa '+(f.page+1)+' / '+sayfaAdet+'</span>'+
+    '<button class="btn sm" data-act="pot-page" data-v="1"'+(f.page>=sayfaAdet-1?' disabled':'')+'>Sonraki \u203a</button></div></div>';
+  return nav+'<div class="scroll"><table><thead><tr><th>Firma</th><th>Yetkili</th><th>Telefon</th><th>İl / İlçe</th><th>Atanan</th><th>Durum</th><th>Son arama</th><th></th></tr></thead><tbody>'+
+  gosterilen.map(l=>'<tr><td class="click" tabindex="0" data-act="lead" data-id="'+l.id+'"><b>'+esc(l.unvan)+'</b>'+
     (l.kaynak?'<div class="muted sm">'+esc(l.kaynak)+'</div>':'')+'</td>'+
     '<td>'+esc(l.yetkili||'—')+'</td>'+
     '<td class="nowrap">'+esc(l.telefon||'—')+'</td>'+
@@ -1733,7 +1757,7 @@ function potTable(){
     '<td><span class="badge '+LEAD_ROZET[l.durum]+'">'+esc(l.durum)+'</span></td>'+
     '<td class="nowrap muted sm">'+(l.sonArama?fmtDate(l.sonArama):'—')+'</td>'+
     '<td class="nowrap">'+telBtn(l.telefon)+' <button class="btn sm" data-act="lead" data-id="'+l.id+'">Aç</button></td></tr>').join('')+
-  '</tbody></table></div>'+(list.length>300?'<p class="hint">İlk 300 kayıt gösteriliyor, aramayla daraltın.</p>':'');
+  '</tbody></table></div>'+nav;
 }
 function viewPotansiyel(){
   const all=db.leads,f=state.pot;
@@ -2354,6 +2378,7 @@ function dialogChange(el){
 function setPath(path,val){const parts=path.split('.');let o=state;for(let i=0;i<parts.length-1;i++)o=o[parts[i]];o[parts[parts.length-1]]=val;}
 function afterSet(path){
   const r=state.rep;
+  if(path==='pot.durum'||path==='pot.emp')state.pot.page=0;
   if(path==='rep.company'){
     if(r.dept&&r.dept!=='__none'&&r.company&&dept(r.dept).companyId!==r.company)r.dept='';
     if(r.emp&&r.emp!=='__none'&&r.company&&emp(r.emp).companyId!==r.company)r.emp='';
@@ -2637,6 +2662,8 @@ const actions={
   'save-lead'(){saveLead();},
   'del-lead'(el){const id=el.dataset.id;run('l-err',()=>del('leads',id),'Potansiyel müşteri silindi');},
   'lead-next'(){leadSiradaki();},
+  'pot-page'(el){state.pot.page=Math.max(0,state.pot.page+(+el.dataset.v||0));
+    const box=$('#potlist');if(box){box.innerHTML=potTable();window.scrollTo(0,0);}},
   'lead-convert'(el){openLeadConvert(el.dataset.id);},
   'lead-conv-go'(el){leadConvertGo(el.dataset.id,el.dataset.cid||null);},
   'lead-import'(){openLeadImport();},
@@ -2713,7 +2740,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:isAdmin()?'ozet':'satis',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},pot:{q:'',durum:'',emp:''},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:isAdmin()?'ozet':'satis',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},pot:{q:'',durum:'',emp:'',page:0},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -2755,7 +2782,7 @@ function init(){
     else if(el.id==='iq'){state.inv.q=el.value;const box=$('#invlist');if(box)box.innerHTML=invTable();}
     else if(el.id==='pq'){state.prod.q=el.value;const box=$('#prodlist');if(box)box.innerHTML=prodTable();}
     else if(el.id==='cq'){state.cust.q=el.value;const box=$('#custlist');if(box)box.innerHTML=custTable();}
-    else if(el.id==='potq'){state.pot.q=el.value;const box=$('#potlist');if(box)box.innerHTML=potTable();}
+    else if(el.id==='potq'){state.pot.q=el.value;state.pot.page=0;const box=$('#potlist');if(box)box.innerHTML=potTable();}
     else if(dlgState.kind==='lead'&&['l-unvan','l-tel','l-vkn','l-yetkili','l-adres'].indexOf(el.id)>=0){
       dlgState.leadConfirmed=false;leadBenzerYenile();}
     else if(el.id==='rq'){state.rand.q=el.value;const box=$('#randlist');if(box)box.innerHTML=apptTable();}
