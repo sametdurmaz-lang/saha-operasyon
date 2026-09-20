@@ -426,7 +426,7 @@ async function loadAll(){
       closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:pLog[r.id]||[]})),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
-      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',durum:r.durum||'Yeni',
+      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',kaynakTip:r.kaynak_tip||'elle',durum:r.durum||'Yeni',
       atananId:r.atanan_id||null,sonArama:r.son_arama||'',deneme:r.deneme||0,note:r.note||'',
       customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null})),
     havuz:havuz
@@ -507,7 +507,14 @@ function setupPanel(){
 const inPeriod=(t,p)=>p==='all'||t.date.startsWith(p);
 const expenses=p=>db.transactions.filter(t=>t.dir==='out'&&t.source!=='virman'&&inPeriod(t,p));
 const incomes=p=>db.transactions.filter(t=>t.dir==='in'&&t.source!=='virman'&&inPeriod(t,p));
-function monthsList(){const s=new Set(db.transactions.map(t=>t.date.slice(0,7)));s.add(TODAY.slice(0,7));return [...s].sort().reverse();}
+function monthsList(){
+  const s=new Set(db.transactions.map(t=>t.date.slice(0,7)));
+  db.sales.forEach(x=>x.date&&s.add(x.date.slice(0,7)));
+  db.appointments.forEach(x=>x.date&&s.add(x.date.slice(0,7)));
+  (db.leads||[]).forEach(x=>x.createdAt&&s.add(String(x.createdAt).slice(0,7)));
+  s.add(TODAY.slice(0,7));
+  return [...s].sort().reverse();
+}
 function defaultPeriod(){
   const cur=TODAY.slice(0,7);
   if(db.transactions.some(t=>t.date.startsWith(cur)))return cur;
@@ -1475,6 +1482,82 @@ function saveUser(){
     if(r.error)throw r.error;
   },'Kullanıcı kaydedildi');
 }
+/* ---------------------------------------------------------------
+   POTANSİYEL MÜŞTERİ GİRİŞ RAPORU
+   Süreç: potansiyel giriş -> telesatış randevu -> saha satış
+----------------------------------------------------------------*/
+const girisTarihi=l=>String(l.createdAt||'').slice(0,10);
+const girisDonemde=(l,p)=>p==='all'||girisTarihi(l).startsWith(p);
+function kullaniciEmp(userId){
+  if(!userId)return null;
+  const u=(db.users||[]).find(x=>x.userId===userId);
+  return u?u.employeeId:null;
+}
+function leadSatisaDondu(l){
+  return !!l.customerId&&db.sales.some(s=>s.customerId===l.customerId);
+}
+function girisRaporRows(period){
+  const m={};
+  (db.leads||[]).filter(l=>girisDonemde(l,period)).forEach(l=>{
+    const eid=kullaniciEmp(l.createdBy);
+    const key=eid||('u:'+(l.createdBy||'yok'));
+    const g=m[key]||(m[key]={key:key,eid:eid,userId:l.createdBy,
+      elle:0,excel:0,toplam:0,aranan:0,randevu:0,musteri:0,satis:0});
+    g.toplam++;
+    if(l.kaynakTip==='excel')g.excel++;else g.elle++;
+    if(l.sonArama)g.aranan++;
+    if(l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı')g.randevu++;
+    if(l.customerId)g.musteri++;
+    if(leadSatisaDondu(l))g.satis++;
+  });
+  return Object.keys(m).map(k=>m[k]).map(g=>{
+    const e=g.eid?emp(g.eid):null;
+    const u=(db.users||[]).find(x=>x.userId===g.userId);
+    g.ad=e?e.name:(u&&u.email?u.email:'Bilinmeyen kullanıcı');
+    g.altAd=e?((dept(e.departmentId)||{}).name||''):'Personel kaydına bağlı değil';
+    return g;
+  }).sort((a,b)=>b.elle-a.elle||b.toplam-a.toplam);
+}
+function girisRaporToplam(rows){
+  const t={elle:0,excel:0,toplam:0,aranan:0,randevu:0,musteri:0,satis:0};
+  rows.forEach(r=>Object.keys(t).forEach(k=>{t[k]+=r[k];}));
+  return t;
+}
+function girisRaporBolum(){
+  const p=state.period,rows=girisRaporRows(p),t=girisRaporToplam(rows);
+  const huni=[['Girilen kayıt',t.toplam,t.toplam],['Aranan',t.aranan,t.toplam],
+    ['Randevuya dönen',t.randevu,t.aranan],['Müşteri olan',t.musteri,t.randevu],
+    ['Satışa dönen',t.satis,t.musteri]];
+  return '<section class="panel"><div class="panel-h"><h2>Potansiyel müşteri girişi</h2>'+
+    '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+' · kaydı giren kişiye göre</span></div>'+
+    (rows.length?
+      '<div class="panel-b"><div class="kpis">'+huni.map(([l,n,onceki])=>
+        '<div class="kpi"><span>'+l+'</span><b>'+n+'</b>'+
+        (onceki&&onceki!==n?'<span class="muted sm">önceki adımdan %'+pct(n,onceki)+' geçti</span>':'')+'</div>').join('')+'</div></div>'+
+      '<div class="scroll"><table><thead><tr><th>Kaydı giren</th><th class="num">Elle girilen</th>'+
+      '<th class="num">Excel ile</th><th class="num">Toplam</th><th class="num">Aranan</th>'+
+      '<th class="num">Randevu</th><th class="num">Müşteri</th><th class="num">Satış</th>'+
+      '<th class="num">Randevu oranı</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><td><div>'+esc(r.ad)+'</div><div class="muted sm">'+esc(r.altAd)+'</div></td>'+
+        '<td class="num"><b>'+r.elle+'</b></td><td class="num'+(r.excel?'':' muted')+'">'+(r.excel||'-')+'</td>'+
+        '<td class="num">'+r.toplam+'</td><td class="num">'+r.aranan+'</td>'+
+        '<td class="num">'+r.randevu+'</td><td class="num">'+r.musteri+'</td>'+
+        '<td class="num"><b>'+r.satis+'</b></td>'+
+        '<td class="num">%'+pct(r.randevu,r.aranan)+'</td></tr>').join('')+
+      '<tr class="total"><td>Toplam</td><td class="num">'+t.elle+'</td><td class="num">'+t.excel+'</td>'+
+      '<td class="num">'+t.toplam+'</td><td class="num">'+t.aranan+'</td><td class="num">'+t.randevu+'</td>'+
+      '<td class="num">'+t.musteri+'</td><td class="num">'+t.satis+'</td>'+
+      '<td class="num">%'+pct(t.randevu,t.aranan)+'</td></tr></tbody></table></div>'
+      :'<div class="empty">Bu dönemde potansiyel müşteri kaydı girilmemiş.</div>')+
+    '<div class="panel-b"><p class="hint">“Elle girilen” tek tek yazılan kayıtlardır; toplu Excel yüklemeleri ayrı sütunda durur, böylece giriş performansı karışmaz. Randevu oranı, <b>aranan</b> kayıtlar üzerinden hesaplanır — henüz aranmamış kayıt kimseyi aşağı çekmez.</p></div></section>';
+}
+function girisExportRows(){
+  const rows=girisRaporRows(state.period);
+  const head=['Kaydı giren','Departman','Elle girilen','Excel ile','Toplam',
+              'Aranan','Randevuya dönen','Müşteri olan','Satışa dönen','Randevu oranı %'];
+  return [head].concat(rows.map(r=>[r.ad,r.altAd,r.elle,r.excel,r.toplam,
+    r.aranan,r.randevu,r.musteri,r.satis,pct(r.randevu,r.aranan)]));
+}
 function viewRapor(){
   const r=state.rep,p=state.period,list=expenses(p).filter(t=>repMatch(t,r)),total=sum(list);
   const groups=groupExp(list,r.group),max=Math.max(1,...groups.map(g=>g.total));
@@ -1490,8 +1573,9 @@ function viewRapor(){
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
-    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('hepsi','Satışlar + randevular')+
+    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
+  girisRaporBolum()+
   '<div>'+filt+'</div>'+
   '<div class="kpis"><div class="kpi"><span>Filtrelenen toplam gider</span><b>'+money(total)+'</b></div><div class="kpi"><span>Hareket sayısı</span><b>'+list.length+'</b></div><div class="kpi"><span>Ortalama hareket</span><b>'+money(list.length?total/list.length:0)+'</b></div></div>'+
   '<section class="panel"><div class="panel-h"><h2>Gruplama</h2><div class="seg" role="group" aria-label="Gruplama">'+groupDims.map(([k,l])=>'<button data-act="repgroup" data-v="'+k+'" aria-pressed="'+(r.group===k)+'">'+l+'</button>').join('')+'</div></div>'+
@@ -1556,9 +1640,13 @@ function exportExcel(which){
     XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,26,16,14,8,12,10,12,22,26,20,14]),'Satışlar');
     ad='satislar';
   }
-  if(which!=='satis'){
+  if(which==='randevu'||which==='hepsi'){
     XLSX.utils.book_append_sheet(wb,sheetOf(randevuExportRows(),[0,11],[14,30,20,16,12,14,34,20,20,10,34,16,34,14]),'Randevular');
     ad=which==='randevu'?'randevular':'satis-randevu';
+  }
+  if(which==='giris'||which==='hepsi'){
+    XLSX.utils.book_append_sheet(wb,sheetOf(girisExportRows(),[],[26,20,14,12,10,10,16,14,14,14]),'Potansiyel girişi');
+    if(which==='giris')ad='potansiyel-girisi';
   }
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
   XLSX.writeFile(wb,'saha-'+ad+'-'+t.getFullYear()+iki(t.getMonth()+1)+iki(t.getDate())+'.xlsx');
@@ -1727,7 +1815,7 @@ function saveLead(){
   }
   const at=$('#l-atanan');
   const row={unvan:x.unvan,yetkili:x.yetkili,telefon:x.telefon,vkn:x.vkn,il:x.il,ilce:x.ilce,
-    adres:x.adres,kaynak:x.kaynak,durum:x.durum,note:x.note,son_arama:nz(x.son),
+    adres:x.adres,kaynak:x.kaynak,kaynak_tip:'elle',durum:x.durum,note:x.note,son_arama:nz(x.son),
     atanan_id:nz(at?at.value:(me.employeeId||''))};
   const id=dlgState.id;
   run('l-err',()=>id?upd('leads',id,row):ins('leads',row),'Potansiyel müşteri kaydedildi');
@@ -1953,7 +2041,7 @@ function leadImportGo(){
   const sec=rows.filter(r=>!r.sorun&&(dahil||!r.benzer.length));
   if(!sec.length)return err('Yüklenecek kayıt kalmadı. Benzeşenleri de yüklemek için kutuyu işaretleyin.');
   const payload=sec.map(r=>({unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn,
-    il:r.il,ilce:r.ilce,adres:r.adres,kaynak:kaynak,durum:'Yeni',atanan_id:atanan}));
+    il:r.il,ilce:r.ilce,adres:r.adres,kaynak:kaynak,kaynak_tip:'excel',durum:'Yeni',atanan_id:atanan}));
   run('li-err',()=>insMany('leads',payload),sec.length+' potansiyel müşteri yüklendi');
 }
 function leadSablon(){
