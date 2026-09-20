@@ -203,6 +203,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -769,7 +770,7 @@ function viewSatis(){
   const st=state.sat,list=salesIn(state.period);
   const qty=list.reduce((a,x)=>a+x.qty,0),puan=list.reduce((a,x)=>a+x.puan,0),prim=list.reduce((a,x)=>a+x.prim,0),people=new Set(list.map(x=>x.employeeId)).size;
   const groups=satGroups(list,st.group),gl={personel:'Personel',departman:'Departman',urun:'Ürün',kategori:'Kategori'};
-  return head('Satışlar','Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',periodSel()+'<button class="btn primary" data-act="open-sale">Satış ekle</button>')+
+  return head('Satışlar','Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',periodSel()+xlBtn('satis','Excel’e aktar')+'<button class="btn primary" data-act="open-sale">Satış ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div><div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div><div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>'+
   '<div class="stack"><section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
   (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th><th class="num">Prim</th></tr></thead><tbody>'+
@@ -1247,7 +1248,7 @@ function viewRandevu(){
   const iptalSayi=inPeriodList.filter(iptalMi).length;
   const gecerliList=inPeriodList.filter(a=>!iptalMi(a));
   const convCount=gecerliList.filter(a=>isConverted(a.customerId,a.date)).length;
-  return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
+  return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
   '<div class="stack">'+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
@@ -1462,12 +1463,86 @@ function viewRapor(){
     '<select data-set="rep.cat" aria-label="Kategori">'+opt(CAT_OUT.map(c=>[c,c]),r.cat,'Tüm kategoriler')+'</select>'+
     '<button class="btn" data-act="clear-rep">Filtreleri temizle</button></div>';
   const detail=list.slice().sort((a,b)=>a.date<b.date?1:-1).slice(0,60);
-  return head('Gider raporu','Filtreleri birleştirin, sonucu istediğiniz kırılımda gruplayın.','')+
-  '<div class="stack"><div>'+filt+'</div>'+
+  return head('Raporlar','Gider raporunu filtreleyin; satış ve randevu kayıtlarının tamamını Excel\u2019e aktarın.','')+
+  '<div class="stack">'+
+  '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
+  '<div class="panel-b"><div class="tools">'+
+    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('hepsi','Satışlar + randevular')+
+  '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
+  '<div>'+filt+'</div>'+
   '<div class="kpis"><div class="kpi"><span>Filtrelenen toplam gider</span><b>'+money(total)+'</b></div><div class="kpi"><span>Hareket sayısı</span><b>'+list.length+'</b></div><div class="kpi"><span>Ortalama hareket</span><b>'+money(list.length?total/list.length:0)+'</b></div></div>'+
   '<section class="panel"><div class="panel-h"><h2>Gruplama</h2><div class="seg" role="group" aria-label="Gruplama">'+groupDims.map(([k,l])=>'<button data-act="repgroup" data-v="'+k+'" aria-pressed="'+(r.group===k)+'">'+l+'</button>').join('')+'</div></div>'+
   (groups.length?'<div class="panel-b">'+groups.map(g=>'<button class="bar-row" '+(r.group==='ay'?'':'data-act="repdrill" data-dim="'+r.group+'" data-key="'+esc(g.key||'__none')+'"')+'><span>'+esc(g.label)+'<div class="muted sm">'+g.count+' hareket</div></span><span class="bar-track"><span class="bar-fill'+(g.key?'':' none')+'" style="width:'+Math.max(2,g.total/max*100)+'%"></span></span><span class="bar-val">'+money(g.total)+'<small>%'+pct(g.total,total)+'</small></span></button>').join('')+'</div>':'<div class="empty">Bu filtrelerle eşleşen gider yok.</div>')+'</section>'+
   '<section class="panel"><div class="panel-h"><h2>Hareketler</h2><span class="muted sm">'+(list.length>60?'İlk 60 hareket gösteriliyor':list.length+' hareket')+'</span></div>'+(detail.length?'<div class="scroll"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Bağlı olduğu</th><th class="num">Tutar</th></tr></thead><tbody>'+detail.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+'</div></td><td>'+relCell(t)+'</td><td class="num out"><b>'+money(t.amount)+'</b></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Gösterilecek hareket yok.</div>')+'</section></div>';
+}
+
+/* ---------------------------------------------------------------
+   Excel dışa aktarma — yalnızca yönetim
+   Dönem filtresinden bağımsız: her zaman TÜM kayıtlar aktarılır.
+----------------------------------------------------------------*/
+const XL_HAZIR=()=>typeof XLSX!=='undefined';
+const dIso=iso=>{const p=String(iso||'').split('-');return p.length===3?new Date(+p[0],+p[1]-1,+p[2]):'';};
+const adOf=(o,k)=>(o&&o[k])||'';
+function seriOf(sale){
+  return (sale.items||[]).map(it=>(byId(db.stock,it.unitId)||{}).serial).filter(Boolean).join(', ');
+}
+function satisExportRows(){
+  const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Kategori','Marka',
+              'Adet','Tutar','Puan','Prim','Abone no','Seri no','Hedef kategorisi','Satış no'];
+  const rows=db.sales.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(x=>{
+    const e=emp(x.employeeId)||{},p=byId(db.products,x.productId)||{},
+          c=x.customerId?(byId(db.customers,x.customerId)||{}):{};
+    return [dIso(x.date),adOf(e,'name'),adOf(dept(x.departmentId),'name'),adOf(comp(x.companyId),'name'),
+      c.unvan||x.customer||'',adOf(p,'name'),adOf(p,'category'),adOf(p,'brand'),
+      x.qty||0,x.amount||0,x.puan||0,x.prim||0,
+      (x.abone||[]).join(', '),seriOf(x),adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id];
+  });
+  return [head].concat(rows);
+}
+function randevuExportRows(){
+  const head=['Randevu tarihi','Müşteri','Yetkili','Telefon','İl','İlçe','Adres',
+              'Randevuyu alan','Atanan personel','Durum','Açıklama',
+              'Kapanış / iptal tarihi','Kapanış / iptal açıklaması','Satışa döndü mü'];
+  const rows=db.appointments.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(a=>{
+    const c=byId(db.customers,a.customerId)||{};
+    return [dIso(a.date),c.unvan||'',c.yetkili||'',c.telefon||'',c.il||'',c.ilce||'',c.adres||'',
+      adOf(emp(alanOf(a)),'name'),adOf(emp(a.employeeId),'name'),a.status||'',a.desc||'',
+      a.closeDate?dIso(a.closeDate):'',a.closeDesc||'',
+      (!iptalMi(a)&&isConverted(a.customerId,a.date))?'Evet':'Hayır'];
+  });
+  return [head].concat(rows);
+}
+function sheetOf(aoa,dateCols,widths){
+  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
+  const ref=XLSX.utils.decode_range(ws['!ref']);
+  for(let r=1;r<=ref.e.r;r++)dateCols.forEach(c=>{
+    const cell=ws[XLSX.utils.encode_cell({r:r,c:c})];
+    if(cell&&cell.t==='d')cell.z='dd.mm.yyyy';
+  });
+  ws['!cols']=widths.map(w=>({wch:w}));
+  ws['!autofilter']={ref:ws['!ref']};
+  ws['!freeze']={xSplit:0,ySplit:1};
+  return ws;
+}
+function exportExcel(which){
+  if(!isAdmin())return;
+  if(!XL_HAZIR())return needDlg('Excel dışa aktarma','Excel bileşeni yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.');
+  const wb=XLSX.utils.book_new();
+  let ad='saha';
+  if(which!=='randevu'){
+    XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,26,16,14,8,12,10,12,22,26,20,14]),'Satışlar');
+    ad='satislar';
+  }
+  if(which!=='satis'){
+    XLSX.utils.book_append_sheet(wb,sheetOf(randevuExportRows(),[0,11],[14,30,20,16,12,14,34,20,20,10,34,16,34,14]),'Randevular');
+    ad=which==='randevu'?'randevular':'satis-randevu';
+  }
+  const t=new Date(),iki=n=>String(n).padStart(2,'0');
+  XLSX.writeFile(wb,'saha-'+ad+'-'+t.getFullYear()+iki(t.getMonth()+1)+iki(t.getDate())+'.xlsx');
+  toast('Excel dosyası indirildi');
+}
+function xlBtn(which,label){
+  return isAdmin()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
 }
 
 const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici};
@@ -1478,7 +1553,7 @@ const NAV=[
   {g:'Müşteri',items:[['musteri','Müşteriler'],['randevu','Randevular']]},
   {g:'Ürün ve envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve departmanlar'],['kullanici','Kullanıcılar']]},
-  {g:'Analiz',items:[['rapor','Gider raporu']]}
+  {g:'Analiz',items:[['rapor','Raporlar']]}
 ];
 const LATER=[['Yıllık izin','Faz 3']];
 function sidebar(){
@@ -2221,6 +2296,7 @@ const actions={
     },'Depoya geri alındı',()=>openUnit(u.id));
   },
   'open-wh'(){openWh();},'save-wh'(){saveWh();},
+  'export-xl'(el){exportExcel(el.dataset.v);},
   'open-sale'(){openSale();},'save-sale'(){saveSale();},
   'sl-add'(){slRead();dlgState.lines.push(newLine());renderLines();},
   'sl-del'(el){slRead();dlgState.lines=dlgState.lines.filter(L=>L.id!==el.dataset.id);
