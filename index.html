@@ -375,6 +375,8 @@ async function loadAll(){
     q('sales'),q('sale_items'),q('targets'),q('customers'),q('appointments'),q('appointment_logs')]);
   const subs=await q('sale_subscriptions');
   const leads=await q('leads');
+  let havuz=0;
+  try{const hr=await sb.rpc('havuz_sayisi');if(!hr.error)havuz=hr.data||0;}catch(e){}
   const users=await q('profiles');
 
   const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
@@ -426,7 +428,8 @@ async function loadAll(){
     leads:leads.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',durum:r.durum||'Yeni',
       atananId:r.atanan_id||null,sonArama:r.son_arama||'',deneme:r.deneme||0,note:r.note||'',
-      customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null}))
+      customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null})),
+    havuz:havuz
   };
 }
 
@@ -478,7 +481,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[]};
+    assets:[],repairs:[],users:[],leads:[],havuz:0};
   save();
 }
 function setupSteps(){
@@ -1268,7 +1271,7 @@ function viewRandevu(){
   const iptalSayi=inPeriodList.filter(iptalMi).length;
   const gecerliList=inPeriodList.filter(a=>!iptalMi(a));
   const convCount=gecerliList.filter(a=>isConverted(a.customerId,a.date)).length;
-  return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
+  return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+havuzBtn(10)+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
   '<div class="stack">'+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
@@ -1634,11 +1637,54 @@ function telBtn(tel,label){
   const d=String(tel||'').replace(/[^0-9+]/g,'');
   return d?'<a class="btn sm" href="tel:'+esc(d)+'">'+(label||'Ara')+'</a>':'';
 }
+/* Telesatış departmanında mı? Havuzdan kayıt çekme buna göre açılır. */
+function telesatisMi(){
+  if(!me||!me.employeeId)return false;
+  const d=dept((emp(me.employeeId)||{}).departmentId);
+  return !!d&&trl(d.name).indexOf('telesat')>=0;
+}
+const havuzBtn=n=>(isAdmin()||telesatisMi())
+  ?'<button class="btn" data-act="pot-pull">Potansiyel müşteri al ('+(n||10)+')</button>':'';
+function potansiyelAl(){
+  if(!me.employeeId)return needDlg('Potansiyel müşteri al','Kullanıcınız bir personel kaydına bağlı değil. Yöneticinizden eşleştirme isteyin.');
+  let alinan=0;
+  run(null,async()=>{
+    const r=await sb.rpc('potansiyel_al',{adet:10});
+    if(r.error)throw r.error;
+    alinan=r.data||0;
+  },null,()=>{
+    state.view='potansiyel';state.pot.sekme='bende';state.pot.page=0;state.pot.q='';render();
+    toast(alinan?alinan+' potansiyel müşteri listenize eklendi':'Havuzda aranacak kayıt kalmadı');
+    window.scrollTo(0,0);
+  });
+}
+/* Arama sonucunu işler: tarih ve deneme sayısı otomatik yazılır. */
+function leadSonuc(id,kind){
+  const l=lead(id);if(!l)return;
+  const notu=($('#l-not')||{}).value;
+  const ortak={son_arama:TODAY,deneme:(l.deneme||0)+1,note:notu===undefined?l.note:notu};
+  let row=null,msg='';
+  if(kind==='tekrar'){row=Object.assign({durum:'Tekrar aranacak'},ortak);msg='Tekrar aranacak olarak işaretlendi';}
+  else if(kind==='ulasilamadi'){row=Object.assign({durum:'Ulaşılamadı',atanan_id:null},ortak);msg='Havuza geri gönderildi';}
+  else if(kind==='ilgilenmiyor'){row=Object.assign({durum:'İlgilenmiyor'},ortak);msg='İlgilenmiyor olarak kapatıldı';}
+  if(!row)return;
+  run('l-err',()=>upd('leads',id,row),msg);
+}
+function sonucDugmeleri(id){
+  return '<div class="dsec"><h3>Arama sonucu</h3>'+
+  '<p class="hint">Seçtiğinizde bugünün tarihi ve arama sayısı otomatik işlenir.</p>'+
+  '<div class="tools">'+
+  '<button class="btn" data-act="lead-convert" data-id="'+id+'">Randevu alındı</button>'+
+  '<button class="btn" data-act="lead-sonuc" data-id="'+id+'" data-v="tekrar">Tekrar aranacak</button>'+
+  '<button class="btn" data-act="lead-sonuc" data-id="'+id+'" data-v="ulasilamadi">Ulaşılamadı — havuza dön</button>'+
+  '<button class="btn" data-act="lead-sonuc" data-id="'+id+'" data-v="ilgilenmiyor">İlgilenmiyor</button>'+
+  '</div></div>';
+}
 function openLead(id){
   const v=id?(lead(id)||{}):{durum:'Yeni',atananId:me.employeeId||''};
   dlgState={kind:'lead',id:id||null};
   const atanabilir=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name]);
-  const silinebilir=id&&(isAdmin()||v.createdBy===me.userId);
+  const silinebilir=id&&(isAdmin()||v.atananId===me.employeeId||v.createdBy===me.userId);
   openDlg(dlgHtml(id?'Potansiyel müşteri':'Potansiyel müşteri ekle','<div class="fields">'+
     '<div class="field full"><label for="l-unvan">Firma ünvanı</label><input id="l-unvan" type="text" value="'+esc(v.unvan||'')+'" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
     '<div class="field"><label for="l-yetkili">Yetkili adı soyadı</label><input id="l-yetkili" type="text" value="'+esc(v.yetkili||'')+'" placeholder="Örn. Ahmet Yılmaz"></div>'+
@@ -1656,12 +1702,12 @@ function openLead(id){
     '<div class="field full"><label for="l-not">Arama notu</label><textarea id="l-not" rows="2" placeholder="Görüşmede konuşulanlar">'+esc(v.note||'')+'</textarea></div>'+
     '</div>'+
     (id&&v.telefon?'<p class="hint">Aramak için: '+telBtn(v.telefon,'☎ '+esc(v.telefon)+' — ara')+'</p>':'')+
+    (id&&!v.customerId?sonucDugmeleri(id):'')+
     (id&&v.deneme?'<p class="hint">'+v.deneme+' kez arandı.</p>':'')+
     (v.customerId?'<p class="hint">Bu kayıt müşteri listesine aktarıldı.</p>':'')+
     '<div id="l-benzer"></div><p class="err" id="l-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+
-    (silinebilir?'<button class="btn danger" data-act="del-lead" data-id="'+id+'">Sil</button>':'')+
-    (id&&!v.customerId?'<button class="btn" data-act="lead-convert" data-id="'+id+'">Randevu al, müşteriye aktar</button>':'')+
+    (silinebilir?'<button class="btn danger" data-act="del-lead" data-id="'+id+'">Yanlış kayıt — sil</button>':'')+
     '<button class="btn primary" data-act="save-lead">Kaydet</button>'));
 }
 function saveLead(){
@@ -1717,8 +1763,10 @@ function leadConvertGo(id,cid){
   },'Müşteriye aktarıldı',()=>{if(yeni)openAppointment(yeni);});
 }
 function leadSiradaki(){
-  const benim=db.leads.filter(l=>LEAD_ACIK.has(l.durum)&&(isAdmin()||l.atananId===me.employeeId||l.createdBy===me.userId));
-  if(!benim.length)return needDlg('Sıradaki','Aranacak potansiyel müşteri kalmadı. Listeye yeni kayıt ekleyin veya yöneticinizden atama isteyin.');
+  const benim=potFiltre('bende').concat(potFiltre('tekrar'));
+  if(!benim.length)return needDlg('Sıradaki',(isAdmin()||telesatisMi())
+    ?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekin.'
+    :'Listenizde aranacak kayıt yok. Yöneticinizden atama isteyin.');
   benim.sort((a,b)=>{
     const sa=a.sonArama||'',sb2=b.sonArama||'';
     if(sa!==sb2)return sa<sb2?-1:1;
@@ -1726,10 +1774,28 @@ function leadSiradaki(){
   });
   openLead(benim[0].id);
 }
+const POT_KAPALI=new Set(['İlgilenmiyor','Randevu alındı','Müşteriye aktarıldı']);
+function potSekmeler(){
+  const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length,
+        kapali=potFiltre('kapali').length;
+  const t=[['bende','Bende',bende],['tekrar','Tekrar aranacak',tekrar],['kapali','Sonuçlanan',kapali]];
+  if(isAdmin())t.push(['havuz','Havuz',db.leads.filter(l=>!l.atananId).length],['hepsi','Tümü',db.leads.length]);
+  return '<div class="seg" role="group" aria-label="Liste">'+
+    t.map(([k,l,n])=>'<button data-act="pot-sekme" data-v="'+k+'" aria-pressed="'+(state.pot.sekme===k)+'">'+l+' ('+n+')</button>').join('')+'</div>';
+}
+function potFiltre(sekme){
+  const benim=me.employeeId||'__yok__';
+  const l=db.leads;
+  if(sekme==='bende')  return l.filter(x=>x.atananId===benim&&(x.durum==='Yeni'||x.durum==='Ulaşılamadı'));
+  if(sekme==='tekrar') return l.filter(x=>x.atananId===benim&&x.durum==='Tekrar aranacak');
+  if(sekme==='kapali') return l.filter(x=>POT_KAPALI.has(x.durum)&&(isAdmin()||x.atananId===benim));
+  if(sekme==='havuz')  return l.filter(x=>!x.atananId);
+  return l.slice();
+}
 function potTable(){
   const f=state.pot,q=trl(f.q).trim();
-  let list=db.leads.slice();
-  if(f.durum)list=list.filter(l=>l.durum===f.durum);
+  let list=potFiltre(f.sekme);
+  if(f.sekme==='hepsi'&&f.durum)list=list.filter(l=>l.durum===f.durum);
   if(f.emp)list=list.filter(l=>l.atananId===f.emp);
   if(q)list=list.filter(l=>trl([l.unvan,l.yetkili,l.telefon,l.vkn,l.il,l.ilce,l.adres,l.kaynak].join(' ')).includes(q));
   list.sort((a,b)=>{
@@ -1737,7 +1803,11 @@ function potTable(){
     if(aa!==bb)return aa-bb;
     return a.unvan.localeCompare(b.unvan,'tr');
   });
-  if(!list.length)return '<div class="empty">Bu filtrelerle eşleşen potansiyel müşteri yok.</div>';
+  if(!list.length)return '<div class="empty">'+
+    (f.sekme==='bende'?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekebilirsiniz.'
+    :f.sekme==='tekrar'?'Tekrar aranacak kaydınız yok.'
+    :f.sekme==='kapali'?'Henüz sonuçlanmış kayıt yok.'
+    :'Bu filtrelerle eşleşen potansiyel müşteri yok.')+'</div>';
   const SAYFA=100,sayfaAdet=Math.ceil(list.length/SAYFA);
   if(f.page>=sayfaAdet)f.page=sayfaAdet-1;
   if(f.page<0)f.page=0;
@@ -1760,22 +1830,24 @@ function potTable(){
   '</tbody></table></div>'+nav;
 }
 function viewPotansiyel(){
-  const all=db.leads,f=state.pot;
-  const aranacak=all.filter(l=>LEAD_ACIK.has(l.durum)).length;
-  const randevu=all.filter(l=>l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı').length;
-  const aktarilan=all.filter(l=>l.durum==='Müşteriye aktarıldı').length;
+  const f=state.pot;
+  const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length;
+  const randevu=db.leads.filter(l=>(l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı')&&(isAdmin()||l.atananId===me.employeeId)).length;
   return head('Potansiyel müşteriler',
-    'Aranacak firma listesi. Randevu alındığında kayıt müşteri listesine aktarılır. Kayıt eklerken mevcut müşteri ve potansiyel listesi ünvan, telefon, VKN, yetkili ve adres üzerinden kontrol edilir.',
+    'Havuzdaki en eski kayıtlar sırayla dağıtılır. Arama sonucuna göre kayıt listenizde kalır, kapanır veya havuza geri döner.',
+    havuzBtn(10)+
     (isAdmin()?'<button class="btn" data-act="lead-import">Excel listesi yükle</button>':'')+
     '<button class="btn" data-act="lead-next">Sıradaki</button>'+
     '<button class="btn primary" data-act="open-lead">Potansiyel ekle</button>')+
-  '<div class="kpis"><div class="kpi"><span>Listedeki firma</span><b>'+all.length+'</b></div>'+
-  '<div class="kpi"><span>Aranacak</span><b>'+aranacak+'</b></div>'+
+  '<div class="kpis">'+
+  '<div class="kpi"><span>Sizde aranacak</span><b>'+bende+'</b></div>'+
+  '<div class="kpi"><span>Tekrar aranacak</span><b>'+tekrar+'</b></div>'+
   '<div class="kpi"><span>Randevuya dönen</span><b>'+randevu+'</b></div>'+
-  '<div class="kpi"><span>Müşteriye aktarılan</span><b>'+aktarilan+'</b></div></div>'+
-  '<section class="panel"><div class="panel-h">'+
+  '<div class="kpi"><span>Havuzda bekleyen</span><b>'+(db.havuz||0)+'</b></div></div>'+
+  '<section class="panel"><div class="panel-h">'+potSekmeler()+'</div><div class="panel-h">'+
   '<input id="potq" type="search" placeholder="Ünvan, yetkili, telefon, VKN veya adres ara" value="'+esc(f.q)+'" style="max-width:340px" aria-label="Ara">'+
-  '<div class="tools"><select data-set="pot.durum" aria-label="Durum">'+opt(LEAD_DURUM.map(d=>[d,d]),f.durum,'Tüm durumlar')+'</select>'+
+  '<div class="tools">'+
+  (f.sekme==='hepsi'?'<select data-set="pot.durum" aria-label="Durum">'+opt(LEAD_DURUM.map(d=>[d,d]),f.durum,'Tüm durumlar')+'</select>':'')+
   (isAdmin()?'<select data-set="pot.emp" aria-label="Personel">'+opt(db.employees.map(e=>[e.id,e.name]),f.emp,'Tüm personel')+'</select>':'')+
   '</div></div><div id="potlist">'+potTable()+'</div></section>';
 }
@@ -2662,6 +2734,9 @@ const actions={
   'save-lead'(){saveLead();},
   'del-lead'(el){const id=el.dataset.id;run('l-err',()=>del('leads',id),'Potansiyel müşteri silindi');},
   'lead-next'(){leadSiradaki();},
+  'pot-pull'(){potansiyelAl();},
+  'pot-sekme'(el){state.pot.sekme=el.dataset.v;state.pot.page=0;state.pot.durum='';render();},
+  'lead-sonuc'(el){leadSonuc(el.dataset.id,el.dataset.v);},
   'pot-page'(el){state.pot.page=Math.max(0,state.pot.page+(+el.dataset.v||0));
     const box=$('#potlist');if(box){box.innerHTML=potTable();window.scrollTo(0,0);}},
   'lead-convert'(el){openLeadConvert(el.dataset.id);},
@@ -2740,7 +2815,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:isAdmin()?'ozet':'satis',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},pot:{q:'',durum:'',emp:'',page:0},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:isAdmin()?'ozet':'satis',period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
