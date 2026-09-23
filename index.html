@@ -393,7 +393,7 @@ async function loadAll(){
     birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null})),
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
       name:r.name,title:r.title||'',salary:salMap[r.id]||0,bayiMuduru:!!r.bayi_muduru,
-      birimId:r.birim_id||null})),
+      birimId:r.birim_id||null,cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     accounts:accounts.map(r=>({id:r.id,name:r.name,type:r.type,companyId:r.company_id,opening:num(r.opening)})),
     transactions:transactions.map(r=>({id:r.id,date:r.date,dir:r.dir,accountId:r.account_id,category:r.category,
       amount:num(r.amount),companyId:r.company_id,departmentId:r.department_id,employeeId:r.employee_id,
@@ -1356,7 +1356,7 @@ function openAppointment(customerId){
     '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div>'+
     '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
       (isUst()||isBirim()||isDestek()
-        ?'<select id="ap-alan">'+opt(db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')]),me.employeeId||'','Personel seçin')+'</select>'
+        ?'<select id="ap-alan">'+opt(aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')]),me.employeeId||'','Personel seçin')+'</select>'
         :'<input id="ap-alan" type="hidden" value="'+esc(me.employeeId||'')+'"><div style="padding:10px 0;font-weight:500">'+esc((emp(me.employeeId)||{}).name||'')+'</div>')+
     '</div></div>'+
     '<p class="hint">'+(bm?'Bu randevu otomatik olarak Bayi Müdürü <b>'+esc(bm.name)+'</b>\u2019ye atanacak. Kaydettikten sonra istediğiniz personele devredebilirsiniz.':'Bayi Müdürü tanımlı değil, randevu size en yakın yönetici personele atanamayabilir. Personel sayfasından bir Bayi Müdürü belirleyin.')+'</p>'+
@@ -1459,10 +1459,15 @@ function openApptDetail(id){
 function viewPersonel(){
   const p=state.period,exp=expenses(p),ss=salesIn(p);
   if(!db.employees.length)return emptyView('Personel','Çalışanlar, bağlı oldukları şirket ve departman, zimmetleri ve dönem maliyetleri.','<button class="btn primary" data-act="open-emp">Personel ekle</button>','Henüz personel eklenmedi. Şirket ve departmanı tanımladıktan sonra buradan personel ekleyin.');
-  return head('Personel','Çalışanlar, bağlı oldukları şirket ve departman, zimmetleri ve dönem maliyetleri.',periodSel()+'<button class="btn primary" data-act="open-emp">Personel ekle</button>')+
+  const ayrilan=db.employees.filter(ayrildi).length;
+  const goster=state.perAyrilan?db.employees.slice():aktifPersonel();
+  return head('Personel','Çalışanlar, bağlı oldukları şirket ve departman, zimmetleri ve dönem maliyetleri. İşten ayrılanların kayıtları silinmez.',
+    periodSel()+
+    (ayrilan?'<button class="btn" data-act="per-ayrilan" aria-pressed="'+(!!state.perAyrilan)+'">Ayrılanları göster ('+ayrilan+')</button>':'')+
+    '<button class="btn primary" data-act="open-emp">Personel ekle</button>')+
   '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th><th>Şirket ve departman</th><th class="num">Net maaş</th><th>Zimmet</th><th class="num">Dönem puanı</th><th class="num">Satış primi</th><th class="num">Dönem gideri</th><th></th></tr></thead><tbody>'+
-  db.employees.map(e=>{const as=db.assets.filter(a=>a.holderId===e.id),cost=sum(exp.filter(t=>t.employeeId===e.id)),my=ss.filter(x=>x.employeeId===e.id),pt=my.reduce((a,x)=>a+x.puan,0),pr=my.reduce((a,x)=>a+x.prim,0);
-    return '<tr><td><div>'+esc(e.name)+(e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</div><div class="muted sm">'+esc(e.title)+'</div></td><td><div>'+esc((dept(e.departmentId)||{}).name)+'</div><div class="muted sm">'+esc(coShort(e.companyId))+'</div></td><td class="num">'+money(e.salary)+'</td><td>'+(as.length?esc(as.map(a=>a.category).join(', ')):'<span class="muted">Yok</span>')+'</td><td class="num">'+(pt?nf.format(pt):'-')+'</td><td class="num">'+(pr?money(pr):'-')+'</td><td class="num">'+(cost?'<b>'+money(cost)+'</b>':'-')+'</td><td class="num"><button class="btn sm" data-act="drill" data-dim="personel" data-key="'+e.id+'">Gider detayı</button> <button class="btn sm" data-act="open-emp" data-id="'+e.id+'">Düzenle</button></td></tr>';}).join('')+
+  goster.map(e=>{const as=db.assets.filter(a=>a.holderId===e.id),cost=sum(exp.filter(t=>t.employeeId===e.id)),my=ss.filter(x=>x.employeeId===e.id),pt=my.reduce((a,x)=>a+x.puan,0),pr=my.reduce((a,x)=>a+x.prim,0);
+    return '<tr'+(ayrildi(e)?' class="muted"':'')+'><td><div>'+esc(e.name)+(e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+ayrilmaRozet(e)+'</div><div class="muted sm">'+esc(e.title)+'</div></td><td><div>'+esc((dept(e.departmentId)||{}).name)+'</div><div class="muted sm">'+esc(coShort(e.companyId))+'</div></td><td class="num">'+money(e.salary)+'</td><td>'+(as.length?esc(as.map(a=>a.category).join(', ')):'<span class="muted">Yok</span>')+'</td><td class="num">'+(pt?nf.format(pt):'-')+'</td><td class="num">'+(pr?money(pr):'-')+'</td><td class="num">'+(cost?'<b>'+money(cost)+'</b>':'-')+'</td><td class="num"><button class="btn sm" data-act="drill" data-dim="personel" data-key="'+e.id+'">Gider detayı</button> <button class="btn sm" data-act="open-emp" data-id="'+e.id+'">Düzenle</button></td></tr>';}).join('')+
   '</tbody></table></div></section>';
 }
 
@@ -1516,7 +1521,8 @@ function openUser(uid){
   dlgState={kind:'user',id:uid};
   const bagli={};(db.users||[]).forEach(x=>{if(x.employeeId&&x.userId!==uid)bagli[x.employeeId]=x.email;});
   const empOpts=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'))
-    .map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')+(bagli[e.id]?' (kullanımda: '+bagli[e.id]+')':'')]);
+    .filter(e=>!ayrildi(e)||e.id===u.employeeId)
+    .map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')+(ayrildi(e)?' (ayrıldı)':'')+(bagli[e.id]?' (kullanımda: '+bagli[e.id]+')':'')]);
   const roller=(isMaster()
     ?['master','muhasebe','bayi_muduru','birim_muduru','destek','saha']
     :['birim_muduru','destek','saha']).map(k=>[k,ROL_ADI[k]]);
@@ -1878,7 +1884,7 @@ function sonucDugmeleri(id){
 function openLead(id){
   const v=id?(lead(id)||{}):{durum:'Yeni',atananId:me.employeeId||''};
   dlgState={kind:'lead',id:id||null};
-  const atanabilir=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name]);
+  const atanabilir=personelSecenek(v.atananId||'');
   const silinebilir=id&&(isUst()||(isBirim()&&ayniBirim(v))||v.atananId===me.employeeId||v.createdBy===me.userId);
   openDlg(dlgHtml(id?'Potansiyel müşteri':'Potansiyel müşteri ekle','<div class="fields">'+
     '<div class="field full"><label for="l-unvan">Firma ünvanı</label><input id="l-unvan" type="text" value="'+esc(v.unvan||'')+'" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
@@ -2110,7 +2116,7 @@ function liOnizleme(rows){
 function openLeadImport(){
   if(!isMudur())return needDlg('Excel listesi yükle','Toplu yükleme yalnızca birim müdürü veya üstü tarafından yapılabilir.');
   dlgState={kind:'leadimp',rows:null};
-  const atanabilir=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name]);
+  const atanabilir=personelSecenek('');
   openDlg(dlgHtml('Excel listesi yükle',
     '<p class="hint">Şablondaki başlıkları koruyun: Ünvan, Yetkili, Telefon, VKN, İl, İlçe, Adres. Ünvan ve Telefon zorunlu, diğerleri boş kalabilir. Dosya bilgisayarınızda okunur, hiçbir yere gönderilmez.</p>'+
     '<div class="fields">'+
@@ -2665,8 +2671,15 @@ function openEmp(id){
       '</select></div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
-    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar.</p><p class="err" id="p-err"></p>',
-    '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-emp">Kaydet</button>'));
+    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar.</p>'+
+    (e&&ayrildi(e)?'<div class="ro-banner"><b>Bu personel işten ayrıldı.</b><div class="sm">Çıkış tarihi: '+fmtDate(e.cikisTarihi)+(e.cikisNedeni?' · '+esc(e.cikisNedeni):'')+'</div>'+
+      '<div class="sm">Kayıtları duruyor, yeni satış ve randevu listelerinde görünmüyor.</div></div>':'')+
+    '<p class="err" id="p-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    (e?(ayrildi(e)
+        ?'<button class="btn" data-act="emp-geri" data-id="'+e.id+'">İşe geri al</button>'
+        :'<button class="btn danger" data-act="emp-cikis" data-id="'+e.id+'">İşten çıkış</button>'):'')+
+    '<button class="btn primary" data-act="save-emp">Kaydet</button>'));
 }
 function saveEmp(){
   const name=$('#p-name').value.trim(),deptId=$('#p-dept').value;
@@ -2694,6 +2707,73 @@ function saveEmp(){
   },'Personel kaydedildi');
 }
 const ACCT_TYPES=[['kasa','Kasa'],['banka','Banka']];
+/* İşten ayrılan personel kaydı silinmez; yalnızca listelerden çıkar. */
+const ayrildi=e=>!!e&&!!e.cikisTarihi;
+const aktifPersonel=()=>db.employees.filter(e=>!ayrildi(e));
+/* Seçim listeleri: ayrılanlar gizlenir, ama seçili olan kayıt görünür
+   kalır ki eski kayıtlar düzenlenirken kişi kaybolmasın. */
+function personelSecenek(secili,liste){
+  const ls=(liste||db.employees).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  return ls.filter(e=>!ayrildi(e)||e.id===secili)
+           .map(e=>[e.id,e.name+(ayrildi(e)?' (ayrıldı)':'')]);
+}
+function ayrilmaRozet(e){
+  return ayrildi(e)?' <span class="badge bad">Ayrıldı '+fmtDate(e.cikisTarihi)+'</span>':'';
+}
+function openCikis(id){
+  const e=emp(id);if(!e)return;
+  dlgState={kind:'cikis',id:id};
+  const hesap=(db.users||[]).find(u=>u.employeeId===id);
+  const as=db.assets.filter(a=>a.holderId===id);
+  const acikRnd=db.appointments.filter(a=>a.employeeId===id&&a.status==='Açık');
+  const pot=db.leads.filter(l=>l.atananId===id&&LEAD_ACIK.has(l.durum));
+  const mudur=(db.birimler||[]).find(b=>b.mudurId===id);
+  openDlg(dlgHtml('İşten çıkış — '+esc(e.name),
+    '<p>Personel kaydı <b>silinmez</b>. Satışları, randevu ve ziyaretleri, zimmet ve maaş geçmişi olduğu gibi kalır; geçmiş raporlarda görünmeye devam eder.</p>'+
+    '<p class="hint">Yalnızca yeni kayıt açılırken seçilemez olur: satış, randevu ve potansiyel müşteri listelerinden çıkar.</p>'+
+    '<div class="fields">'+
+    '<div class="field"><label for="ck-date">Çıkış tarihi</label><input id="ck-date" type="date" value="'+TODAY+'"></div>'+
+    '<div class="field"><label for="ck-neden">Çıkış nedeni</label><input id="ck-neden" type="text" placeholder="Örn. İstifa"></div>'+
+    '</div>'+
+    ((as.length||acikRnd.length||pot.length||hesap||mudur)
+      ?'<div class="ro-banner"><b>Çıkıştan önce bakılması gerekenler</b>'+
+        (mudur?'<div class="sm">• <b>'+esc(mudur.name)+'</b> biriminin müdürü. Çıkıştan sonra birime yeni müdür atayın.</div>':'')+
+        (as.length?'<div class="sm">• Üzerinde <b>'+as.length+' zimmet</b> var. Envanter sayfasından iade alın.</div>':'')+
+        (acikRnd.length?'<div class="sm">• <b>'+acikRnd.length+' açık randevu</b> üzerinde. Randevular sayfasından devredin.</div>':'')+
+        (pot.length?'<div class="sm">• <b>'+pot.length+' potansiyel müşteri</b> üzerinde. Aşağıdaki kutuyu işaretlerseniz havuza geri döner.</div>':'')+
+        (hesap?'<div class="sm">• Uygulama hesabı var: '+esc(hesap.email)+'</div>':'')+
+      '</div>':'')+
+    '<div class="dsec">'+
+    (pot.length?'<label style="display:flex;gap:8px;align-items:center;font-weight:500"><input id="ck-pot" type="checkbox" style="width:auto" checked> Üzerindeki '+pot.length+' potansiyel müşteriyi havuza geri gönder</label>':'')+
+    (hesap?'<label style="display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input id="ck-eris" type="checkbox" style="width:auto" checked> Uygulama erişimini kapat ('+esc(hesap.email)+')</label>'+
+      '<p class="hint">Hesap silinmez, yalnızca personel kaydıyla bağı kesilir; giriş yapsa bile hiçbir veriye ulaşamaz. Hesabı tamamen silmek isterseniz Supabase üzerinden yapmalısınız.</p>':'')+
+    '</div><p class="err" id="ck-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn danger" data-act="save-cikis" data-id="'+id+'">İşten çıkışı kaydet</button>'));
+}
+function saveCikis(id){
+  const e=emp(id);if(!e)return;
+  const date=$('#ck-date').value,neden=$('#ck-neden').value.trim();
+  const err=m=>{$('#ck-err').textContent=m;};
+  if(!date)return err('Çıkış tarihini seçin.');
+  const potGeri=!!($('#ck-pot')||{}).checked,erisKapat=!!($('#ck-eris')||{}).checked;
+  const hesap=(db.users||[]).find(u=>u.employeeId===id);
+  run('ck-err',async()=>{
+    await upd('employees',id,{cikis_tarihi:date,cikis_nedeni:neden,bayi_muduru:false});
+    if(potGeri){
+      const r=await sb.from('leads').update({atanan_id:null}).eq('atanan_id',id).in('durum',['Yeni','Ulaşılamadı','Tekrar aranacak']);
+      if(r.error)throw r.error;
+    }
+    if(erisKapat&&hesap){
+      const r=await sb.from('profiles').update({employee_id:null}).eq('user_id',hesap.userId);
+      if(r.error)throw r.error;
+    }
+  },e.name+' için işten çıkış kaydedildi');
+}
+function geriAl(id){
+  const e=emp(id);if(!e)return;
+  run('p-err',()=>upd('employees',id,{cikis_tarihi:null,cikis_nedeni:''}),e.name+' yeniden çalışan olarak işaretlendi');
+}
 function birimEkip(bid){return db.employees.filter(e=>e.birimId===bid);}
 function birimlerBolumu(){
   if(!(isFinans()||isUst()))return '';
@@ -2718,7 +2798,7 @@ function openBirim(id){
   const v=b||{name:'',companyId:(db.companies[0]||{}).id||'',mudurId:''};
   dlgState={kind:'birim',id:id||null};
   const ekip=b?birimEkip(b.id):[];
-  const mudurOpts=db.employees.slice().sort((a,b2)=>a.name.localeCompare(b2.name,'tr'))
+  const mudurOpts=aktifPersonel().sort((a,b2)=>a.name.localeCompare(b2.name,'tr'))
     .map(e=>[e.id,e.name+((dept(e.departmentId)||{}).name?' — '+(dept(e.departmentId)||{}).name:'')]);
   openDlg(dlgHtml(b?'Birimi düzenle':'Birim ekle','<div class="fields">'+
     '<div class="field full"><label for="bi-name">Birim adı</label><input id="bi-name" type="text" value="'+esc(v.name)+'" placeholder="Örn. İzmir 1. Bölge"></div>'+
@@ -2954,7 +3034,7 @@ function ekipte(eid){
 }
 /* Satış kaydı hangi personeller adına girilebilir */
 function satisYazabilecekler(){
-  const hepsi=db.employees.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const hepsi=aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   if(isUst()||isMuhasebe())return hepsi;
   if(isBirim()||isDestek())return hepsi.filter(e=>ekipte(e.id));
   return hepsi.filter(e=>e.id===me.employeeId);
@@ -3268,6 +3348,10 @@ const actions={
   'save-transferappt'(el){saveTransferAppt(el.dataset.id);},
   'open-emp'(el){openEmp(el.dataset.id||null);},
   'save-emp'(){saveEmp();},
+  'emp-cikis'(el){openCikis(el.dataset.id);},
+  'save-cikis'(el){saveCikis(el.dataset.id);},
+  'emp-geri'(el){geriAl(el.dataset.id);},
+  'per-ayrilan'(){state.perAyrilan=!state.perAyrilan;render();},
   'open-acct'(el){openAccount(el.dataset.id||null);},
   'save-acct'(){saveAccount();},
   'del-acct'(el){confirmDlg('Hesabı sil','Bu hesap listeden silinecek. Hesaba bağlı hareket varsa silinemez.','confirm-del-acct',el.dataset.id,'Hesabı sil');},
@@ -3300,7 +3384,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
