@@ -1078,7 +1078,7 @@ function custTable(){
   const act2=c=>duzenlenebilirMusteri(c)?'cust':'cust-info';
   return '<div class="scroll"><table><thead><tr><th>Ünvan</th><th>Yetkili</th><th>İrtibat</th><th>İl / İlçe</th><th>Hizmetler</th><th></th></tr></thead><tbody>'+
   list.map(c=>{const svc=custSummary(c);
-    return '<tr class="click" tabindex="0" data-act="'+act2(c)+'" data-id="'+c.id+'"><td><b>'+esc(c.unvan)+'</b>'+(c.onay!=='onayli'?' '+onayRozet(c):'')+(c.vkn?'<div class="muted sm">VKN: '+esc(c.vkn)+'</div>':'<div class="muted sm">VKN girilmedi</div>')+'</td><td>'+esc(c.yetkili)+'</td><td>'+esc(c.telefon)+'</td><td>'+esc([c.il,c.ilce].filter(Boolean).join(' / '))+'</td><td>'+(svc.length?svc.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join(''):'<span class="muted">—</span>')+'</td><td class="num"><button class="btn sm" data-act="'+act+'" data-id="'+c.id+'">Detay</button></td></tr>';}).join('')+
+    return '<tr class="click" tabindex="0" data-act="'+act2(c)+'" data-id="'+c.id+'"><td><b>'+esc(c.unvan)+'</b>'+(c.onay!=='onayli'?' '+onayRozet(c):'')+(c.vkn?'<div class="muted sm">VKN: '+esc(c.vkn)+'</div>':'<div class="muted sm">VKN girilmedi</div>')+'</td><td>'+esc(c.yetkili)+'</td><td>'+esc(c.telefon)+'</td><td>'+esc([c.il,c.ilce].filter(Boolean).join(' / '))+'</td><td>'+(svc.length?svc.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join(''):'<span class="muted">—</span>')+'</td><td class="num"><button class="btn sm" data-act="'+act2(c)+'" data-id="'+c.id+'">Detay</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 function viewMusteri(){
@@ -2921,7 +2921,7 @@ async function afterLogin(){
     if(!user)return renderLogin('Oturum açılamadı, tekrar deneyin.');
     const pr=await sb.from('profiles').select('role,employee_id').eq('user_id',user.id).maybeSingle();
     if(pr.error)return renderLogin('Profil okunamadı: '+pr.error.message);
-    me={userId:user.id,email:user.email,role:pr.data?pr.data.role:'personel',employeeId:pr.data?pr.data.employee_id:null};
+    me={userId:user.id,email:user.email,role:pr.data?pr.data.role:'saha',employeeId:pr.data?pr.data.employee_id:null};
     await loadAll();
     state=defaultState();
     render();
