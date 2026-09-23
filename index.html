@@ -486,7 +486,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[]};
+    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[]};
   save();
 }
 function setupSteps(){
@@ -1701,6 +1701,10 @@ function exportExcel(which){
     XLSX.utils.book_append_sheet(wb,sheetOf(randevuExportRows(),[0,11],[14,30,20,16,12,14,34,20,20,10,34,16,34,14]),'Randevular');
     ad=which==='randevu'?'randevular':'satis-randevu';
   }
+  if(which==='denetim'){
+    XLSX.utils.book_append_sheet(wb,sheetOf(denetimExportRows(),[0],[18,26,16,12,18,28,14,60]),'Hareket kaydı');
+    ad='hareket-kaydi';
+  }
   if(which==='giris'||which==='hepsi'){
     XLSX.utils.book_append_sheet(wb,sheetOf(girisExportRows(),[],[26,20,14,12,10,10,16,14,14,14]),'Potansiyel girişi');
     if(which==='giris')ad='potansiyel-girisi';
@@ -2190,7 +2194,136 @@ function leadSablon(){
   toast('Şablon indirildi');
 }
 
-const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici};
+/* ---------------------------------------------------------------
+   DENETİM KAYDI — kim neyi ne zaman değiştirdi
+   Yalnızca master görür. Veriler istendiğinde sunucudan çekilir.
+----------------------------------------------------------------*/
+const TABLO_ADI={companies:'Şirket',departments:'Departman',birimler:'Birim',
+  employees:'Personel',employee_salaries:'Maaş',accounts:'Hesap',
+  transactions:'Kasa hareketi',payrolls:'Maaş ödemesi',repairs:'Tamir/bakım',
+  products:'Ürün',warehouses:'Depo',stock_units:'Stok',stock_logs:'Stok hareketi',
+  assets:'Envanter',asset_logs:'Zimmet hareketi',sales:'Satış',sale_items:'Satış kalemi',
+  sale_subscriptions:'Abone no',targets:'Hedef',customers:'Müşteri',
+  appointments:'Randevu',appointment_logs:'Randevu notu',leads:'Potansiyel müşteri',
+  profiles:'Kullanıcı yetkisi'};
+const ISLEM_ADI={INSERT:'Ekledi',UPDATE:'Değiştirdi',DELETE:'Sildi'};
+const ISLEM_RENK={INSERT:'ok',UPDATE:'warn',DELETE:'bad'};
+const FINANS_TABLO=new Set(['accounts','transactions','payrolls','repairs','employee_salaries']);
+const ALAN_ADI={amount:'Tutar',salary:'Maaş',paid:'Ödenen',cost:'Maliyet',date:'Tarih',
+  status:'Durum',unvan:'Ünvan',name:'Ad',descr:'Açıklama',telefon:'Telefon',vkn:'VKN',
+  adres:'Adres',qty:'Adet',prim:'Prim',puan:'Puan',role:'Yetki',employee_id:'Personel',
+  atanan_id:'Atanan',durum:'Durum',onay_durumu:'Onay',birim_id:'Birim',mudur_id:'Müdür',
+  son_arama:'Son arama',deneme:'Arama sayısı',note:'Not',category:'Kategori',
+  close_descr:'Kapanış açıklaması',close_date:'Kapanış tarihi',alan_id:'Randevuyu alan'};
+const alanAdi=k=>ALAN_ADI[k]||k;
+const GIZLI_ALAN=new Set(['id','created_at','created_by','updated_at','updated_by','onay_tarihi','onaylayan']);
+
+function denetimDegisiklik(d){
+  const g=d.degisen||{};
+  if(d.islem==='UPDATE'){
+    const ks=Object.keys(g).filter(k=>!GIZLI_ALAN.has(k));
+    if(!ks.length)return '<span class="muted">—</span>';
+    return ks.slice(0,6).map(k=>{
+      const v=g[k]||{};
+      const es=v.eski===null||v.eski===undefined||v.eski===''?'(boş)':String(v.eski);
+      const ye=v.yeni===null||v.yeni===undefined||v.yeni===''?'(boş)':String(v.yeni);
+      return '<div class="sm"><b>'+esc(alanAdi(k))+':</b> <span class="muted">'+esc(es.slice(0,40))+'</span> → '+esc(ye.slice(0,40))+'</div>';
+    }).join('')+(ks.length>6?'<div class="muted sm">+'+(ks.length-6)+' alan daha</div>':'');
+  }
+  const ks=Object.keys(g).filter(k=>!GIZLI_ALAN.has(k)&&g[k]!==null&&g[k]!=='');
+  if(!ks.length)return '<span class="muted">—</span>';
+  return '<div class="sm muted">'+esc(ks.slice(0,8).map(k=>alanAdi(k)+': '+String(g[k]).slice(0,30)).join(' · '))+'</div>';
+}
+async function denetimYukle(){
+  const f=state.den;
+  try{
+    let r=sb.from('denetim').select('*').order('ts',{ascending:false}).limit(1000);
+    if(f.tablo)r=r.eq('tablo',f.tablo);
+    if(f.islem)r=r.eq('islem',f.islem);
+    if(f.kul)r=r.eq('kullanici',f.kul);
+    if(f.bas)r=r.gte('ts',f.bas+'T00:00:00');
+    if(f.bit)r=r.lte('ts',f.bit+'T23:59:59');
+    const res=await r;
+    if(res.error)throw res.error;
+    db.denetim=(res.data||[]).map(x=>({id:x.id,ts:x.ts,kullanici:x.kullanici,eposta:x.eposta||'',
+      rol:x.rol||'',tablo:x.tablo,islem:x.islem,kayitId:x.kayit_id,ozet:x.ozet||'',
+      tutar:x.tutar==null?null:num(x.tutar),degisen:x.degisen||{}}));
+    state.den.yuklendi=true;state.den.hata='';
+  }catch(e){
+    state.den.hata=dbErr(e);state.den.yuklendi=true;db.denetim=[];
+  }
+  render();
+}
+function denetimSatirlari(){
+  const f=state.den,q=trl(f.q).trim();
+  let list=(db.denetim||[]).slice();
+  if(f.finans)list=list.filter(d=>FINANS_TABLO.has(d.tablo));
+  if(q)list=list.filter(d=>trl([d.eposta,d.ozet,TABLO_ADI[d.tablo]||d.tablo,JSON.stringify(d.degisen)].join(' ')).includes(q));
+  return list;
+}
+function denetimTablo(){
+  const list=denetimSatirlari();
+  if(!list.length)return '<div class="empty">Bu filtrelerle eşleşen hareket yok.</div>';
+  const fmtTs=t=>{const d=new Date(t);const i=n=>String(n).padStart(2,'0');
+    return i(d.getDate())+'.'+i(d.getMonth()+1)+'.'+d.getFullYear()+' '+i(d.getHours())+':'+i(d.getMinutes());};
+  return '<div class="scroll"><table><thead><tr><th>Zaman</th><th>Kullanıcı</th><th>İşlem</th><th>Kayıt</th><th>Değişiklik</th><th class="num">Tutar</th></tr></thead><tbody>'+
+  list.slice(0,300).map(d=>'<tr>'+
+    '<td class="nowrap muted sm">'+fmtTs(d.ts)+'</td>'+
+    '<td><div>'+esc(d.eposta||'(bilinmiyor)')+'</div><div class="muted sm">'+esc(ROL_ADI[rolAdi(d.rol)]||d.rol||'')+'</div></td>'+
+    '<td class="nowrap"><span class="badge '+(ISLEM_RENK[d.islem]||'')+'">'+esc(ISLEM_ADI[d.islem]||d.islem)+'</span></td>'+
+    '<td><div>'+esc(TABLO_ADI[d.tablo]||d.tablo)+'</div>'+(d.ozet?'<div class="muted sm">'+esc(d.ozet)+'</div>':'')+'</td>'+
+    '<td>'+denetimDegisiklik(d)+'</td>'+
+    '<td class="num">'+(d.tutar==null?'<span class="muted">—</span>':'<b>'+money(d.tutar)+'</b>')+'</td>'+
+  '</tr>').join('')+'</tbody></table></div>'+
+  (list.length>300?'<p class="hint">İlk 300 hareket gösteriliyor, filtreleri daraltın.</p>':'');
+}
+function denetimExportRows(){
+  const list=denetimSatirlari();
+  const head=['Zaman','Kullanıcı','Yetki','İşlem','Kayıt türü','Kayıt','Tutar','Değişiklik'];
+  const metin=d=>{
+    const g=d.degisen||{};
+    if(d.islem==='UPDATE')return Object.keys(g).filter(k=>!GIZLI_ALAN.has(k))
+      .map(k=>alanAdi(k)+': '+String((g[k]||{}).eski??'')+' → '+String((g[k]||{}).yeni??'')).join(' | ');
+    return Object.keys(g).filter(k=>!GIZLI_ALAN.has(k)&&g[k]!==null&&g[k]!=='')
+      .map(k=>alanAdi(k)+': '+String(g[k])).join(' | ');
+  };
+  return [head].concat(list.map(d=>[new Date(d.ts),d.eposta,ROL_ADI[rolAdi(d.rol)]||d.rol,
+    ISLEM_ADI[d.islem]||d.islem,TABLO_ADI[d.tablo]||d.tablo,d.ozet,d.tutar==null?'':d.tutar,metin(d)]));
+}
+function viewDenetim(){
+  const f=state.den;
+  if(!f.yuklendi&&!f.hata){denetimYukle();return head('Hareket kaydı','Yükleniyor…','')+'<div class="empty">Hareketler yükleniyor…</div>';}
+  const list=denetimSatirlari();
+  const kullanicilar=[];const gor={};
+  (db.denetim||[]).forEach(d=>{if(d.kullanici&&!gor[d.kullanici]){gor[d.kullanici]=1;kullanicilar.push([d.kullanici,d.eposta||d.kullanici]);}});
+  const tablolar=Object.keys(TABLO_ADI).map(k=>[k,TABLO_ADI[k]]).sort((a,b)=>a[1].localeCompare(b[1],'tr'));
+  const silinen=list.filter(d=>d.islem==='DELETE').length;
+  const degisen=list.filter(d=>d.islem==='UPDATE').length;
+  const finans=list.filter(d=>FINANS_TABLO.has(d.tablo)).length;
+  return head('Hareket kaydı',
+    'Hangi kullanıcı neyi ne zaman ekledi, değiştirdi veya sildi. Kayıt değiştirilemez; yalnızca siz görürsünüz.',
+    '<button class="btn" data-act="den-yenile">Yenile</button>'+
+    (raporcu()?'<button class="btn" data-act="export-xl" data-v="denetim">Excel’e aktar</button>':''))+
+  (f.hata?'<div class="ro-banner"><b>Hareket kaydı okunamadı.</b><div class="sm">'+esc(f.hata)+'</div><div class="sm">11-denetim.sql çalıştırılmamış olabilir.</div></div>':'')+
+  '<div class="kpis"><div class="kpi"><span>Gösterilen hareket</span><b>'+list.length+'</b></div>'+
+  '<div class="kpi"><span>Değişiklik</span><b>'+degisen+'</b></div>'+
+  '<div class="kpi"><span>Silme</span><b>'+silinen+'</b></div>'+
+  '<div class="kpi"><span>Parasal işlem</span><b>'+finans+'</b></div></div>'+
+  '<section class="panel"><div class="panel-h">'+
+  '<input id="denq" type="search" placeholder="Kullanıcı, kayıt veya değişiklik ara" value="'+esc(f.q)+'" style="max-width:300px" aria-label="Ara">'+
+  '<div class="tools">'+
+  '<select data-set="den.kul" aria-label="Kullanıcı">'+opt(kullanicilar,f.kul,'Tüm kullanıcılar')+'</select>'+
+  '<select data-set="den.tablo" aria-label="Kayıt türü">'+opt(tablolar,f.tablo,'Tüm kayıtlar')+'</select>'+
+  '<select data-set="den.islem" aria-label="İşlem">'+opt([['INSERT','Ekleme'],['UPDATE','Değişiklik'],['DELETE','Silme']],f.islem,'Tüm işlemler')+'</select>'+
+  '</div></div><div class="panel-b"><div class="tools">'+
+  '<label class="muted sm">Başlangıç <input type="date" data-set="den.bas" value="'+esc(f.bas)+'"></label>'+
+  '<label class="muted sm">Bitiş <input type="date" data-set="den.bit" value="'+esc(f.bit)+'"></label>'+
+  '<button class="btn sm" data-act="den-finans" aria-pressed="'+(!!f.finans)+'">Yalnızca parasal işlemler</button>'+
+  '<button class="btn sm" data-act="den-temizle">Filtreleri temizle</button>'+
+  '</div></div><div id="denlist">'+denetimTablo()+'</div></section>';
+}
+
+const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim};
 const NAV=[
   {g:'',items:[['ozet','Genel bakış']]},
   {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
@@ -2198,7 +2331,7 @@ const NAV=[
   {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular']]},
   {g:'Ürün ve envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve birimler'],['kullanici','Kullanıcılar']]},
-  {g:'Analiz',items:[['rapor','Raporlar']]}
+  {g:'Analiz',items:[['rapor','Raporlar'],['denetim','Hareket kaydı']]}
 ];
 const LATER=[['Yıllık izin','Faz 3']];
 function sidebar(){
@@ -2726,6 +2859,7 @@ function setPath(path,val){const parts=path.split('.');let o=state;for(let i=0;i
 function afterSet(path){
   const r=state.rep;
   if(path==='pot.durum'||path==='pot.emp')state.pot.page=0;
+  if(path.indexOf('den.')===0){state.den.yuklendi=false;denetimYukle();}
   if(path==='rep.company'){
     if(r.dept&&r.dept!=='__none'&&r.company&&dept(r.dept).companyId!==r.company)r.dept='';
     if(r.emp&&r.emp!=='__none'&&r.company&&emp(r.emp).companyId!==r.company)r.emp='';
@@ -2840,6 +2974,7 @@ const EKRAN_YETKI={
   org      :()=>isFinans()||isUst(),
   kullanici:()=>isMaster()||isUst(),
   rapor    :()=>raporcu(),
+  denetim  :()=>isMaster(),
   satis    :()=>true,
   hedef    :()=>true,
   musteri  :()=>!isMuhasebe()||true,
@@ -3072,6 +3207,9 @@ const actions={
   },
   'open-wh'(){openWh();},'save-wh'(){saveWh();},
   'export-xl'(el){exportExcel(el.dataset.v);},
+  'den-yenile'(){state.den.yuklendi=false;state.den.hata='';denetimYukle();},
+  'den-finans'(){state.den.finans=!state.den.finans;const b=$('#denlist');if(b)b.innerHTML=denetimTablo();render();},
+  'den-temizle'(){state.den=Object.assign(state.den,{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false});denetimYukle();},
   'cust-onay'(el){musteriOnayla(el.dataset.id,el.dataset.v);},
   'open-birim'(el){openBirim(el.dataset.id||null);},
   'save-birim'(){saveBirim();},
@@ -3162,7 +3300,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -3204,6 +3342,7 @@ function init(){
     else if(el.id==='iq'){state.inv.q=el.value;const box=$('#invlist');if(box)box.innerHTML=invTable();}
     else if(el.id==='pq'){state.prod.q=el.value;const box=$('#prodlist');if(box)box.innerHTML=prodTable();}
     else if(el.id==='cq'){state.cust.q=el.value;const box=$('#custlist');if(box)box.innerHTML=custTable();}
+    else if(el.id==='denq'){state.den.q=el.value;const box=$('#denlist');if(box)box.innerHTML=denetimTablo();}
     else if(el.id==='potq'){state.pot.q=el.value;state.pot.page=0;const box=$('#potlist');if(box)box.innerHTML=potTable();}
     else if(dlgState.kind==='lead'&&['l-unvan','l-tel','l-vkn','l-yetkili','l-adres'].indexOf(el.id)>=0){
       dlgState.leadConfirmed=false;leadBenzerYenile();}
