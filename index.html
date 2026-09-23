@@ -1923,6 +1923,10 @@ function openLead(id){
       :'<input id="l-atanan" type="hidden" value="'+esc(v.atananId||me.employeeId||'')+'">')+
     '<div class="field full"><label for="l-not">Arama notu</label><textarea id="l-not" rows="2" placeholder="Görüşmede konuşulanlar">'+esc(v.note||'')+'</textarea></div>'+
     '</div>'+
+    (!id&&!isMudur()&&!telesatisMi()
+      ?'<p class="hint">Bu kayıt <b>birim havuzuna</b> eklenecek; telesatış sırası geldiğinde arayacak.'+
+        (isSaha()?' Randevu alınırsa randevu otomatik olarak <b>size</b> atanır.':'')+'</p>'
+      :'')+
     (id&&v.telefon?'<p class="hint">Aramak için: '+telBtn(v.telefon,'☎ '+esc(v.telefon)+' — ara')+'</p>':'')+
     (id&&!v.customerId?sonucDugmeleri(id):'')+
     (id&&v.deneme?'<p class="hint">'+v.deneme+' kez arandı.</p>':'')+
@@ -1933,6 +1937,7 @@ function openLead(id){
     '<button class="btn primary" data-act="save-lead">Kaydet</button>'));
 }
 function saveLead(){
+  if(dlgState.kind!=='lead')return;   /* diyalog kapandıysa tekrar kaydetme */
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
   const err=m=>{$('#l-err').textContent=m;};
   const x={unvan:g('l-unvan'),yetkili:g('l-yetkili'),telefon:g('l-tel'),
@@ -1959,7 +1964,9 @@ function saveLead(){
   const at=$('#l-atanan');
   const row={unvan:x.unvan,yetkili:x.yetkili,telefon:x.telefon,vkn:x.vkn,il:x.il,ilce:x.ilce,
     adres:x.adres,kaynak:x.kaynak,kaynak_tip:'elle',durum:x.durum,note:x.note,son_arama:nz(x.son),
-    atanan_id:nz(at?at.value:(me.employeeId||''))};
+    atanan_id:(!dlgState.id&&!isMudur()&&!telesatisMi())
+      ? null                                  /* saha ve satış destek: havuza */
+      : nz(at?at.value:(me.employeeId||''))}; /* telesatış ve yönetim: seçilen kişi */
   const id=dlgState.id;
   run('l-err',()=>id?upd('leads',id,row):ins('leads',row),'Potansiyel müşteri kaydedildi');
 }
@@ -2014,7 +2021,9 @@ const POT_KAPALI=new Set(['İlgilenmiyor','Randevu alındı','Müşteriye aktar�
 function potSekmeler(){
   const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length,
         kapali=potFiltre('kapali').length;
+  const ekledigim=potFiltre('ekledigim').length;
   const t=[['bende','Bende',bende],['tekrar','Tekrar aranacak',tekrar],['kapali','Sonuçlanan',kapali]];
+  if(ekledigim)t.splice((isSaha()||!telesatisMi())?0:3,0,['ekledigim','Eklediklerim',ekledigim]);
   if(isMudur())t.push(['havuz','Havuz',db.leads.filter(l=>!l.atananId).length],['hepsi','Tümü',db.leads.length]);
   return '<div class="seg" role="group" aria-label="Liste">'+
     t.map(([k,l,n])=>'<button data-act="pot-sekme" data-v="'+k+'" aria-pressed="'+(state.pot.sekme===k)+'">'+l+' ('+n+')</button>').join('')+'</div>';
@@ -2022,6 +2031,7 @@ function potSekmeler(){
 function potFiltre(sekme){
   const benim=me.employeeId||'__yok__';
   const l=db.leads;
+  if(sekme==='ekledigim')return l.filter(x=>x.createdBy===me.userId||(x.sahaId&&x.sahaId===benim));
   if(sekme==='bende')  return l.filter(x=>x.atananId===benim&&(x.durum==='Yeni'||x.durum==='Ulaşılamadı'));
   if(sekme==='tekrar') return l.filter(x=>x.atananId===benim&&x.durum==='Tekrar aranacak');
   if(sekme==='kapali') return l.filter(x=>POT_KAPALI.has(x.durum)&&(isMudur()||x.atananId===benim));
@@ -2040,7 +2050,8 @@ function potTable(){
     return a.unvan.localeCompare(b.unvan,'tr');
   });
   if(!list.length)return '<div class="empty">'+
-    (f.sekme==='bende'?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekebilirsiniz.'
+    (f.sekme==='ekledigim'?'Henüz potansiyel müşteri eklemediniz. “Potansiyel ekle” ile başlayın; kayıtlarınız birim havuzuna düşer ve telesatış arar.'
+    :f.sekme==='bende'?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekebilirsiniz.'
     :f.sekme==='tekrar'?'Tekrar aranacak kaydınız yok.'
     :f.sekme==='kapali'?'Henüz sonuçlanmış kayıt yok.'
     :'Bu filtrelerle eşleşen potansiyel müşteri yok.')+'</div>';
@@ -2076,8 +2087,11 @@ function viewPotansiyel(){
     '<button class="btn" data-act="lead-next">Sıradaki</button>'+
     '<button class="btn primary" data-act="open-lead">Potansiyel ekle</button>')+
   '<div class="kpis">'+
-  '<div class="kpi"><span>Sizde aranacak</span><b>'+bende+'</b></div>'+
-  '<div class="kpi"><span>Tekrar aranacak</span><b>'+tekrar+'</b></div>'+
+  ((isSaha()||!telesatisMi())&&!isMudur()
+    ?'<div class="kpi"><span>Eklediğiniz kayıt</span><b>'+potFiltre('ekledigim').length+'</b></div>'+
+     '<div class="kpi"><span>Henüz aranmamış</span><b>'+potFiltre('ekledigim').filter(x=>!x.sonArama).length+'</b></div>'
+    :'<div class="kpi"><span>Sizde aranacak</span><b>'+bende+'</b></div>'+
+     '<div class="kpi"><span>Tekrar aranacak</span><b>'+tekrar+'</b></div>')+
   '<div class="kpi"><span>Randevuya dönen</span><b>'+randevu+'</b></div>'+
   '<div class="kpi"><span>Havuzda bekleyen</span><b>'+(db.havuz||0)+'</b></div></div>'+
   '<section class="panel"><div class="panel-h">'+potSekmeler()+'</div><div class="panel-h">'+
@@ -3412,7 +3426,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
