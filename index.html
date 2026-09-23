@@ -418,7 +418,7 @@ async function loadAll(){
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
     targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
     customers:customers.map(r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
-      birimId:r.birim_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
+      birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
       unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',
       mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
@@ -431,7 +431,7 @@ async function loadAll(){
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',kaynakTip:r.kaynak_tip||'elle',
-      birimId:r.birim_id||null,durum:r.durum||'Yeni',
+      birimId:r.birim_id||null,sahaId:r.saha_id||null,durum:r.durum||'Yeni',
       atananId:r.atanan_id||null,sonArama:r.son_arama||'',deneme:r.deneme||0,note:r.note||'',
       customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null})),
     havuz:havuz
@@ -1345,9 +1345,9 @@ function acikRandevuUyari(cid){
       esc((emp(a.employeeId)||{}).name||'—')+' üzerinde'+(a.desc?' — '+esc(a.desc):'')).join('<br>')+
     '<div class="sm" style="margin-top:6px">Mükerrer randevu olmadığından eminseniz kaydedebilirsiniz; onay için kaydet düğmesine ikinci kez basmanız istenecek.</div></div>';
 }
-function openAppointment(customerId){
+function openAppointment(customerId,sahaId){
   if(!db.employees.length)return needDlg('Randevu ekle','Önce personel ekleyin ve içlerinden birini Bayi Müdürü olarak işaretleyin.');
-  dlgState={kind:'appt'};
+  dlgState={kind:'appt',sahaId:sahaId||null};
   const cust=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr')),bm=bayiMuduru();
   openDlg(dlgHtml('Randevu ekle','<div class="fields">'+
     '<div class="field full"><label for="ap-cust">Müşteri</label><select id="ap-cust"><option value="">Müşteri seçin</option><option value="'+NEW_CUST+'">+ Yeni müşteri ekle</option>'+cust.map(c=>'<option value="'+c.id+'"'+(c.id===customerId?' selected':'')+'>'+esc(c.unvan+' — '+c.yetkili)+'</option>').join('')+'</select></div>'+
@@ -1359,9 +1359,27 @@ function openAppointment(customerId){
         ?'<select id="ap-alan">'+opt(aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>[e.id,e.name+' — '+((dept(e.departmentId)||{}).name||'')]),me.employeeId||'','Personel seçin')+'</select>'
         :'<input id="ap-alan" type="hidden" value="'+esc(me.employeeId||'')+'"><div style="padding:10px 0;font-weight:500">'+esc((emp(me.employeeId)||{}).name||'')+'</div>')+
     '</div></div>'+
-    '<p class="hint">'+(bm?'Bu randevu otomatik olarak Bayi Müdürü <b>'+esc(bm.name)+'</b>\u2019ye atanacak. Kaydettikten sonra istediğiniz personele devredebilirsiniz.':'Bayi Müdürü tanımlı değil, randevu size en yakın yönetici personele atanamayabilir. Personel sayfasından bir Bayi Müdürü belirleyin.')+'</p>'+
+    '<div id="ap-sahip">'+sahibiNotu(customerId)+'</div>'+
     '<div class="fields"><div class="field full"><label for="ap-desc">Açıklama</label><textarea id="ap-desc" rows="2" placeholder="Örn. Fiber yükseltme teklifi görüşülecek"></textarea></div></div><p class="err" id="ap-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-appt">Randevuyu kaydet</button>'));
+}
+/* Randevu kime atanacak?
+   Potansiyeli veya müşteriyi ekleyen saha satışçısıysa doğrudan ona,
+   yoksa Bayi Müdürü'ne. Ayrılmış personele atama yapılmaz. */
+function randevuSahibi(custId){
+  const c=custId?byId(db.customers,custId):null;
+  const sid=c&&c.sahaId?c.sahaId:(dlgState.sahaId||null);
+  const e=sid?emp(sid):null;
+  if(e&&!ayrildi(e))return {emp:e,saha:true};
+  const bm=bayiMuduru();
+  return bm?{emp:bm,saha:false}:null;
+}
+function sahibiNotu(custId){
+  const h=randevuSahibi(custId);
+  if(!h)return '<p class="hint">Bayi Müdürü tanımlı değil, randevu atanamaz. Personel sayfasından bir Bayi Müdürü belirleyin.</p>';
+  return h.saha
+    ?'<p class="hint">Bu randevu doğrudan <b>'+esc(h.emp.name)+'</b> üzerine açılacak — potansiyel müşteri kaydını o ekledi.</p>'
+    :'<p class="hint">Bu randevu otomatik olarak Bayi Müdürü <b>'+esc(h.emp.name)+'</b>\u2019ye atanacak. Kaydettikten sonra istediğiniz personele devredebilirsiniz.</p>';
 }
 function saveAppointment(){
   const custSel=$('#ap-cust').value,date=$('#ap-date').value,desc=$('#ap-desc').value.trim(),err=m=>{$('#ap-err').textContent=m;};
@@ -1372,7 +1390,8 @@ function saveAppointment(){
     dlgState.apOpenConfirmed=true;
     return err('Bu müşterinin açık randevusu var. Yine de oluşturmak için “Randevuyu kaydet” düğmesine tekrar basın.');
   }
-  const bm=bayiMuduru();if(!bm)return err('Bayi Müdürü tanımlı değil. Önce Personel sayfasından bir Bayi Müdürü belirleyin.');
+  if(!randevuSahibi(custSel===NEW_CUST?null:custSel))
+    return err('Bayi Müdürü tanımlı değil. Önce Personel sayfasından bir Bayi Müdürü belirleyin.');
   run('ap-err',async()=>{
     let custId=custSel;
     if(custSel===NEW_CUST){
@@ -1380,10 +1399,12 @@ function saveAppointment(){
       if(res.error)throw new Error(res.error);
       custId=res.customer.id;
     }
-    const a=await ins('appointments',{customer_id:custId,employee_id:bm.id,alan_id:alan,
+    const h=randevuSahibi(custId);
+    const a=await ins('appointments',{customer_id:custId,employee_id:h.emp.id,alan_id:alan,
       date,descr:desc,status:'Açık'});
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
-      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Bayi Müdürü\u2019ne atandı: '+bm.name});
+      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · '+
+        (h.saha?'Potansiyeli ekleyen saha personeline atandı: ':'Bayi Müdürü\u2019ne atandı: ')+h.emp.name});
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
 function openTransferAppt(id){
@@ -1960,17 +1981,22 @@ function openLeadConvert(id){
 }
 function leadConvertGo(id,cid){
   const l=lead(id);if(!l)return;
-  let yeni=null;
+  let yeni=null,sahaSahibi=null;
   run('lc-err',async()=>{
     let hedef=cid;
     if(!hedef){
       const c=await ins('customers',{unvan:l.unvan,yetkili:l.yetkili||l.unvan,telefon:l.telefon,
-        vkn:l.vkn||'',il:l.il||'',ilce:l.ilce||'',adres:l.adres||''});
+        vkn:l.vkn||'',il:l.il||'',ilce:l.ilce||'',adres:l.adres||'',
+        birim_id:l.birimId||null,saha_id:l.sahaId||null});
       hedef=c.id;
     }
     await upd('leads',id,{durum:'Müşteriye aktarıldı',customer_id:hedef});
-    yeni=hedef;
-  },'Müşteriye aktarıldı',()=>{if(yeni)openAppointment(yeni);});
+    if(cid&&l.sahaId){
+      const mevcut=byId(db.customers,cid);
+      if(mevcut&&!mevcut.sahaId)await upd('customers',cid,{saha_id:l.sahaId});
+    }
+    yeni=hedef;sahaSahibi=l.sahaId||null;
+  },'Müşteriye aktarıldı',()=>{if(yeni)openAppointment(yeni,sahaSahibi);});
 }
 function leadSiradaki(){
   const benim=potFiltre('bende').concat(potFiltre('tekrar'));
@@ -2044,7 +2070,7 @@ function viewPotansiyel(){
   const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length;
   const randevu=db.leads.filter(l=>(l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı')&&(isMudur()||l.atananId===me.employeeId)).length;
   return head('Potansiyel müşteriler',
-    'Havuzdaki en eski kayıtlar sırayla dağıtılır. Arama sonucuna göre kayıt listenizde kalır, kapanır veya havuza geri döner.',
+    'Havuzdan çekerken her kayıt ekleyenden sırayla birer adet alınır; böylece her saha satışçısının kayıtları aynı hızda aranır. Arama sonucuna göre kayıt listenizde kalır, kapanır veya havuza geri döner.',
     havuzBtn(10)+
     (isMudur()?'<button class="btn" data-act="lead-import">Excel listesi yükle</button>':'')+
     '<button class="btn" data-act="lead-next">Sıradaki</button>'+
@@ -2912,6 +2938,8 @@ function dialogChange(el){
   if(k==='appt'){
     if(id==='ap-cil'){const w=$('#ap-cilce');if(w)w.innerHTML=ilceOptions(el.value,'');return;}
     if(id==='ap-cust'){
+      const sn=$('#ap-sahip');
+      if(sn)sn.innerHTML=sahibiNotu(el.value===NEW_CUST?null:el.value);
       const w=$('#ap-newcust');if(w)w.style.display=(el.value===NEW_CUST)?'block':'none';
       const u=$('#ap-openwarn');if(u)u.innerHTML=acikRandevuUyari(el.value);
       dlgState.apOpenConfirmed=false;
