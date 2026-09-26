@@ -379,6 +379,9 @@ async function loadAll(){
   const birimler=await q('birimler');
   let carpanlar=[];
   try{carpanlar=await q('mobil_carpan');}catch(e){}  /* tablo yoksa varsayılan çarpanlar kullanılır */
+  let ayarlar=[],bugunku=0;
+  try{ayarlar=await q('ayarlar');}catch(e){}
+  try{const br=await sb.rpc('bugunku_potansiyel');if(!br.error)bugunku=br.data||0;}catch(e){}
   let havuz=0;
   try{const hr=await sb.rpc('havuz_sayisi');if(!hr.error)havuz=hr.data||0;}catch(e){}
   const users=await q('profiles');
@@ -395,6 +398,8 @@ async function loadAll(){
     departments:departments.map(r=>({id:r.id,companyId:r.company_id,name:r.name})),
     birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null})),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
+    ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
+    bugunkuPotansiyel:bugunku,
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
       name:r.name,title:r.title||'',salary:salMap[r.id]||0,bayiMuduru:!!r.bayi_muduru,
       birimId:r.birim_id||null,cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
@@ -492,7 +497,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1}};
+    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   save();
 }
 function setupSteps(){
@@ -1385,7 +1390,7 @@ function apptTable(){
     return [c?c.unvan:'',c?c.yetkili:'',a.desc,al?al.name:''].join(' ').toLocaleLowerCase('tr').includes(q);});
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Kaydı giren saha</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
   list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
     void 0;
     const custBtn=c?'<button class="btn sm" data-act="cust-info" data-id="'+c.id+'">Müşteri</button> ':'';
@@ -1394,13 +1399,54 @@ function apptTable(){
        '<button class="btn sm danger" data-act="cancel-appt" data-id="'+a.id+'">İptal</button> '+
        '<button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>'
       :'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>');
-    const al=emp(alanOf(a));
-    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':a.status==='İptal'?'<span class="badge bad">İptal</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
+    const al=emp(alanOf(a)),sh=apptSaha(a);
+    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td>'+
+      '<td>'+(sh?esc(sh.name):'<span class="muted">—</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':a.status==='İptal'?'<span class="badge bad">İptal</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 const alanOf=a=>a.alanId||a.employeeId;
 const iptalMi=a=>a.status==='İptal';
 const acikRandevular=cid=>db.appointments.filter(a=>a.customerId===cid&&a.status==='Açık');
+/* Atanan personele göre randevu dağılımı — bayi müdürünün kontrolü */
+function atamaDagilimi(period){
+  const m={};
+  db.appointments.filter(a=>inPeriod(a,period)).forEach(a=>{
+    const k=a.employeeId||'__yok__';
+    const g=m[k]||(m[k]={eid:a.employeeId,acik:0,kapali:0,iptal:0,satis:0,toplam:0});
+    g.toplam++;
+    if(iptalMi(a))g.iptal++;
+    else if(a.status==='Açık')g.acik++;
+    else {g.kapali++;if(isConverted(a.customerId,a.date))g.satis++;}
+  });
+  return Object.keys(m).map(k=>m[k]).map(g=>{
+    const e=g.eid?emp(g.eid):null;
+    g.ad=e?e.name:'Atanmamış';
+    g.alt=e?((dept(e.departmentId)||{}).name||''):'';
+    g.bayi=!!(e&&e.bayiMuduru);
+    return g;
+  }).sort((a,b)=>b.acik-a.acik||b.toplam-a.toplam);
+}
+function atamaBolumu(){
+  if(!isMudur())return '';
+  const rows=atamaDagilimi(state.period);
+  if(!rows.length)return '';
+  const t=rows.reduce((o,r)=>({acik:o.acik+r.acik,kapali:o.kapali+r.kapali,iptal:o.iptal+r.iptal,
+    satis:o.satis+r.satis,toplam:o.toplam+r.toplam}),{acik:0,kapali:0,iptal:0,satis:0,toplam:0});
+  return '<section class="panel"><div class="panel-h"><h2>Kime kaç randevu gitti</h2>'+
+    '<span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+' · atanan personele göre</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Atanan personel</th><th class="num">Açık</th>'+
+    '<th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th>'+
+    '<th class="num">Toplam</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><div>'+esc(r.ad)+(r.bayi?' <span class="badge">Bayi Müdürü</span>':'')+'</div>'+
+      (r.alt?'<div class="muted sm">'+esc(r.alt)+'</div>':'')+'</td>'+
+      '<td class="num"><b>'+r.acik+'</b></td><td class="num">'+r.kapali+'</td>'+
+      '<td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td>'+
+      '<td class="num">'+r.satis+'</td><td class="num">'+r.toplam+'</td></tr>').join('')+
+    '<tr class="total"><td>Toplam</td><td class="num">'+t.acik+'</td><td class="num">'+t.kapali+'</td>'+
+    '<td class="num">'+t.iptal+'</td><td class="num">'+t.satis+'</td><td class="num">'+t.toplam+'</td></tr>'+
+    '</tbody></table></div>'+
+    '<div class="panel-b"><p class="hint">Bayi Müdürü satırındaki açık randevular henüz dağıtılmamış olanlardır. Listeden <b>Devret</b> diyerek ilgili saha personeline aktarın.</p></div></section>';
+}
 function apptStatsRows(period){
   const emps=db.employees.filter(e=>db.appointments.some(a=>alanOf(a)===e.id));
   return emps.map(e=>{
@@ -1421,7 +1467,7 @@ function viewRandevu(){
   const convCount=gecerliList.filter(a=>isConverted(a.customerId,a.date)).length;
   return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+havuzBtn(10)+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div></div>'+
-  '<div class="stack">'+
+  '<div class="stack">'+atamaBolumu()+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
@@ -1455,23 +1501,28 @@ function openAppointment(customerId,sahaId){
     '<div class="fields"><div class="field full"><label for="ap-desc">Açıklama</label><textarea id="ap-desc" rows="2" placeholder="Örn. Fiber yükseltme teklifi görüşülecek"></textarea></div></div><p class="err" id="ap-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-appt">Randevuyu kaydet</button>'));
 }
-/* Randevu kime atanacak?
-   Potansiyeli veya müşteriyi ekleyen saha satışçısıysa doğrudan ona,
-   yoksa Bayi Müdürü'ne. Ayrılmış personele atama yapılmaz. */
-function randevuSahibi(custId){
+/* Randevu her zaman Bayi Müdürü'ne atanır; dağıtımı o yapar.
+   Kaydı giren saha satışçısı bilgi olarak taşınır ve devir ekranında
+   tek tuşla ona aktarılabilir. */
+function sahaSahibiOf(custId){
   const c=custId?byId(db.customers,custId):null;
   const sid=c&&c.sahaId?c.sahaId:(dlgState.sahaId||null);
   const e=sid?emp(sid):null;
-  if(e&&!ayrildi(e))return {emp:e,saha:true};
+  return e&&!ayrildi(e)?e:null;
+}
+/* Bir randevunun kaydını giren saha personeli */
+const apptSaha=a=>{const c=a?byId(db.customers,a.customerId):null;
+  const e=c&&c.sahaId?emp(c.sahaId):null;return e&&!ayrildi(e)?e:null;};
+function randevuSahibi(custId){
   const bm=bayiMuduru();
   return bm?{emp:bm,saha:false}:null;
 }
 function sahibiNotu(custId){
-  const h=randevuSahibi(custId);
-  if(!h)return '<p class="hint">Bayi Müdürü tanımlı değil, randevu atanamaz. Personel sayfasından bir Bayi Müdürü belirleyin.</p>';
-  return h.saha
-    ?'<p class="hint">Bu randevu doğrudan <b>'+esc(h.emp.name)+'</b> üzerine açılacak — potansiyel müşteri kaydını o ekledi.</p>'
-    :'<p class="hint">Bu randevu otomatik olarak Bayi Müdürü <b>'+esc(h.emp.name)+'</b>\u2019ye atanacak. Kaydettikten sonra istediğiniz personele devredebilirsiniz.</p>';
+  const bm=bayiMuduru(),sh=sahaSahibiOf(custId);
+  if(!bm)return '<p class="hint">Bayi Müdürü tanımlı değil, randevu atanamaz. Personel sayfasından bir Bayi Müdürü belirleyin.</p>';
+  return (sh?'<div class="ro-banner"><b>Potansiyel müşteri kaydını '+esc(sh.name)+' girdi.</b>'+
+    '<div class="sm">Randevu önce Bayi Müdürü\u2019ne atanacak. Bayi Müdürü, randevular ekranından <b>Devret</b> diyerek tek tuşla '+esc(sh.name)+'\u2019e aktarabilir.</div></div>':'')+
+    '<p class="hint">Bu randevu Bayi Müdürü <b>'+esc(bm.name)+'</b>\u2019ye atanacak; dağıtımı o yapar.</p>';
 }
 function saveAppointment(){
   const custSel=$('#ap-cust').value,date=$('#ap-date').value,desc=$('#ap-desc').value.trim(),err=m=>{$('#ap-err').textContent=m;};
@@ -1494,20 +1545,28 @@ function saveAppointment(){
     const h=randevuSahibi(custId);
     const a=await ins('appointments',{customer_id:custId,employee_id:h.emp.id,alan_id:alan,
       date,descr:desc,status:'Açık'});
+    const sh=sahaSahibiOf(custId);
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
-      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · '+
-        (h.saha?'Potansiyeli ekleyen saha personeline atandı: ':'Bayi Müdürü\u2019ne atandı: ')+h.emp.name});
+      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Bayi Müdürü\u2019ne atandı: '+h.emp.name+
+        (sh?' · Potansiyel kaydını giren saha personeli: '+sh.name:'')});
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
 function openTransferAppt(id){
   if(!isMudur())return needDlg('Randevuyu devret','Randevu devri yalnızca birim müdürü veya üstü tarafından yapılabilir.');
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),cur=emp(a.employeeId);dlgState={kind:'transferappt',id};
+  const sh=apptSaha(a);
+  const sayi=sh?db.appointments.filter(x=>x.employeeId===sh.id&&x.status==='Açık').length:0;
   openDlg(dlgHtml('Randevuyu devret','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Şu an atanan</dt><dd>'+esc(cur?cur.name:'')+'</dd></dl>'+
+    (sh&&sh.id!==a.employeeId
+      ?'<div class="ro-banner"><b>Potansiyel müşteri kaydını '+esc(sh.name)+' girdi.</b>'+
+        '<div class="sm">Şu an üzerinde '+sayi+' açık randevu var.</div>'+
+        '<div class="tools" style="margin-top:8px"><button class="btn primary" data-act="save-transferappt" data-id="'+id+'" data-emp="'+sh.id+'">'+esc(sh.name)+'\u2019e aktar</button></div></div>'
+      :'')+
     '<div class="field full"><label for="tr-emp">Devredilecek personel</label><select id="tr-emp">'+empSecim('','Personel seçin',aktifPersonel().filter(e=>e.id!==a.employeeId))+'</select></div><p class="err" id="tr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-transferappt" data-id="'+id+'">Devret</button>'));
 }
-function saveTransferAppt(id){
-  const to=$('#tr-emp').value,err=m=>{$('#tr-err').textContent=m;};
+function saveTransferAppt(id,hedef){
+  const to=hedef||$('#tr-emp').value,err=m=>{$('#tr-err').textContent=m;};
   if(!to)return err('Devredilecek personeli seçin.');
   const a=byId(db.appointments,id);if(!a)return;
   const from=emp(a.employeeId),toE=emp(to);
@@ -1994,6 +2053,15 @@ function sonucDugmeleri(id){
   '<button class="btn" data-act="lead-sonuc" data-id="'+id+'" data-v="ilgilenmiyor">İlgilenmiyor</button>'+
   '</div></div>';
 }
+/* Saha satışçısı için günlük potansiyel giriş sınırı */
+const gunlukLimit=()=>{const v=(db.ayar||{}).saha_gunluk_potansiyel;return v===undefined?15:v;};
+const limitVarMi=()=>isSaha()&&gunlukLimit()>0;
+const kalanHak=()=>Math.max(0,gunlukLimit()-(db.bugunkuPotansiyel||0));
+function limitRozet(){
+  if(!limitVarMi())return '';
+  const k=kalanHak(),t=gunlukLimit();
+  return '<div class="kpi"><span>Bugün kalan giriş hakkı</span><b'+(k?'':' class="out"')+'>'+k+' / '+t+'</b></div>';
+}
 function openLead(id){
   const v=id?(lead(id)||{}):{durum:'Yeni',atananId:me.employeeId||''};
   dlgState={kind:'lead',id:id||null};
@@ -2015,6 +2083,9 @@ function openLead(id){
       :'<input id="l-atanan" type="hidden" value="'+esc(v.atananId||me.employeeId||'')+'">')+
     '<div class="field full"><label for="l-not">Arama notu</label><textarea id="l-not" rows="2" placeholder="Görüşmede konuşulanlar">'+esc(v.note||'')+'</textarea></div>'+
     '</div>'+
+    (!id&&limitVarMi()
+      ?'<p class="hint">Bugün <b>'+kalanHak()+'</b> kayıt hakkınız kaldı (günlük sınır '+gunlukLimit()+').</p>'
+      :'')+
     (!id&&!isMudur()&&!telesatisMi()
       ?'<p class="hint">Bu kayıt <b>birim havuzuna</b> eklenecek; telesatış sırası geldiğinde arayacak.'+
         (isSaha()?' Randevu alınırsa randevu otomatik olarak <b>size</b> atanır.':'')+'</p>'
@@ -2035,6 +2106,8 @@ function saveLead(){
   const x={unvan:g('l-unvan'),yetkili:g('l-yetkili'),telefon:g('l-tel'),
     vkn:g('l-vkn').replace(/\D/g,''),il:g('l-il'),ilce:g('l-ilce'),adres:g('l-adres'),
     kaynak:g('l-kaynak'),durum:g('l-durum')||'Yeni',note:g('l-not'),son:g('l-son')};
+  if(!dlgState.id&&limitVarMi()&&kalanHak()<=0)
+    return err('Bugünkü potansiyel müşteri giriş hakkınız doldu ('+gunlukLimit()+' kayıt). Yarın devam edebilirsiniz.');
   if(!x.unvan)return err('Firma ünvanını girin.');
   if(!x.telefon)return err('Telefon numarasını girin.');
   if(x.vkn&&x.vkn.length!==10&&x.vkn.length!==11)return err('VKN 10 haneli, TCKN 11 haneli rakamlardan oluşmalı.');
@@ -2181,7 +2254,8 @@ function viewPotansiyel(){
   '<div class="kpis">'+
   ((isSaha()||!telesatisMi())&&!isMudur()
     ?'<div class="kpi"><span>Eklediğiniz kayıt</span><b>'+potFiltre('ekledigim').length+'</b></div>'+
-     '<div class="kpi"><span>Henüz aranmamış</span><b>'+potFiltre('ekledigim').filter(x=>!x.sonArama).length+'</b></div>'
+     limitRozet()+
+     (limitVarMi()?'':'<div class="kpi"><span>Henüz aranmamış</span><b>'+potFiltre('ekledigim').filter(x=>!x.sonArama).length+'</b></div>')
     :'<div class="kpi"><span>Sizde aranacak</span><b>'+bende+'</b></div>'+
      '<div class="kpi"><span>Tekrar aranacak</span><b>'+tekrar+'</b></div>')+
   '<div class="kpi"><span>Randevuya dönen</span><b>'+randevu+'</b></div>'+
@@ -3554,7 +3628,7 @@ const actions={
   'save-closeappt'(el){saveCloseAppt(el.dataset.id);},
   'appt-detail'(el){openApptDetail(el.dataset.id);},
   'transfer-appt'(el){openTransferAppt(el.dataset.id);},
-  'save-transferappt'(el){saveTransferAppt(el.dataset.id);},
+  'save-transferappt'(el){saveTransferAppt(el.dataset.id,el.dataset.emp||null);},
   'open-emp'(el){openEmp(el.dataset.id||null);},
   'save-emp'(){saveEmp();},
   'emp-cikis'(el){openCikis(el.dataset.id);},
