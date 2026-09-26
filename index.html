@@ -217,6 +217,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
+const SURUM='26.09.2026';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -2480,7 +2481,7 @@ function sidebar(){
       items.map(([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>').join('')+'</div>';
   }).join('')+
   (isFinans()?'<div class="nav-group later"><div class="nav-title">Sonraki aşamalar</div>'+LATER.map(([l,f])=>'<button class="nav" disabled>'+l+'<span class="tag">'+f+'</span></button>').join('')+'</div>':'')+'</nav>'+
-  '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[me.role]||me.role)+'</span><b>'+esc(me.email)+'</b></div><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
+  '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
 }
 function render(){
   if(!me)return renderLogin();
