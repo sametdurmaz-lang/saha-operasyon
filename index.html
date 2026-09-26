@@ -403,7 +403,8 @@ async function loadAll(){
     repairs:repairs.map(r=>({id:r.id,assetId:r.asset_id,date:r.date,desc:r.descr,cost:num(r.cost),
       accountId:r.account_id,txId:r.tx_id,employeeId:r.employee_id})),
     assets:assets.map(r=>({id:r.id,category:r.category,model:r.model,serial:r.serial||'',note:r.note||'',
-      companyId:r.company_id,holderId:r.holder_id,status:r.status,log:aLog[r.id]||[]})),
+      companyId:r.company_id,holderId:r.holder_id,status:r.status,log:aLog[r.id]||[],
+      cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     products:products.map(r=>({id:r.id,category:r.category,brand:r.brand,name:r.name,stocked:!!r.stocked,
       hedefKat:r.hedef_kat||'',calcType:r.calc_type,prim:num(r.prim),puan:num(r.puan),
       primPct:num(r.prim_pct),puanPct:num(r.puan_pct)})),
@@ -710,22 +711,27 @@ function viewMaas(){
 
 function assetCost(id){return sum(db.repairs.filter(r=>r.assetId===id).map(r=>({amount:r.cost})));}
 function statusBadge(s){return '<span class="badge '+(s==='Kullanımda'?'ok':s==='Serviste'?'warn':'')+'">'+s+'</span>';}
+/* Envanterden çıkmış (satılan, hurda, kayıp) cihaz: kaydı durur, listelerde görünmez */
+const pasifCihaz=a=>!!a&&!!a.cikisTarihi;
+const aktifCihazlar=()=>db.assets.filter(a=>!pasifCihaz(a));
+const pasifRozet=a=>pasifCihaz(a)?' <span class="badge bad">Pasif '+fmtDate(a.cikisTarihi)+'</span>':'';
+const CIKIS_NEDEN=['Satıldı','Hurdaya ayrıldı','Kayboldu','Çalındı','Kiralama bitti','Diğer'];
 const assetCats=()=>uniq(DEFAULT_ASSET_CATS.concat(db.assets.map(a=>a.category)));
 function invTable(){
   const ty=state.assetType,q=state.inv.q.trim().toLocaleLowerCase('tr');
-  let list=db.assets.filter(a=>ty==='all'||a.category===ty);
+  let list=(state.invPasif?db.assets:aktifCihazlar()).filter(a=>ty==='all'||a.category===ty);
   if(q)list=list.filter(a=>[a.category,a.model,a.serial,a.note,(emp(a.holderId)||{}).name].join(' ').toLocaleLowerCase('tr').includes(q));
   if(!list.length)return '<div class="empty">Bu filtrede cihaz yok.</div>';
   return '<div class="scroll"><table><thead><tr><th>Model</th><th>Kategori</th><th>Zimmetli personel</th><th>Durum</th><th class="num">Tamir masrafı</th><th></th></tr></thead><tbody>'+
-  list.map(a=>{const h=emp(a.holderId);return '<tr class="click" tabindex="0" data-act="asset" data-id="'+a.id+'"><td><div>'+esc(a.model)+'</div><div class="muted sm">'+(a.serial?esc(a.serial):'Seri no yok')+'</div>'+(a.note?'<div class="muted sm clamp">'+esc(a.note)+'</div>':'')+'</td><td>'+esc(a.category)+'</td><td>'+(h?'<div>'+esc(h.name)+'</div><div class="muted sm">'+esc((dept(h.departmentId)||{}).name)+'</div>':'<span class="muted">Zimmetli değil</span>')+'</td><td>'+statusBadge(a.status)+'</td><td class="num">'+(assetCost(a.id)?money(assetCost(a.id)):'-')+'</td><td class="num"><button class="btn sm" data-act="asset" data-id="'+a.id+'">Detay</button></td></tr>';}).join('')+
+  list.map(a=>{const h=emp(a.holderId);return '<tr class="click'+(pasifCihaz(a)?' muted':'')+'" tabindex="0" data-act="asset" data-id="'+a.id+'"><td><div>'+esc(a.model)+pasifRozet(a)+'</div><div class="muted sm">'+(a.serial?esc(a.serial):'Seri no yok')+'</div>'+(a.note?'<div class="muted sm clamp">'+esc(a.note)+'</div>':'')+'</td><td>'+esc(a.category)+'</td><td>'+(h?'<div>'+esc(h.name)+'</div><div class="muted sm">'+esc((dept(h.departmentId)||{}).name)+'</div>':'<span class="muted">Zimmetli değil</span>')+'</td><td>'+statusBadge(a.status)+'</td><td class="num">'+(assetCost(a.id)?money(assetCost(a.id)):'-')+'</td><td class="num"><button class="btn sm" data-act="asset" data-id="'+a.id+'">Detay</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 function viewZimmet(){
-  const all=db.assets,cats=uniq(all.map(a=>a.category));
+  const all=state.invPasif?db.assets:aktifCihazlar(),pasifAdet=db.assets.filter(pasifCihaz).length,cats=uniq(all.map(a=>a.category));
   if(state.assetType!=='all'&&!cats.includes(state.assetType))state.assetType='all';
   const ty=state.assetType,cnt=s=>all.filter(a=>a.status===s).length,totRep=sum(db.repairs.map(r=>({amount:r.cost})));
   const tabs=[['all','Tümü']].concat(cats.map(t=>[t,t])).map(([k,l])=>'<button data-act="assettype" data-v="'+esc(k)+'" aria-pressed="'+(ty===k)+'">'+esc(l)+' ('+(k==='all'?all.length:all.filter(a=>a.category===k).length)+')</button>').join('');
-  return head('Envanter ve zimmet','Cihazlar kategori, model, seri no ve açıklamayla kaydedilir. Kimde olduğu ve tamir masrafları da buradan takip edilir.','<button class="btn primary" data-act="add-asset">Cihaz ekle</button>')+
+  return head('Envanter ve zimmet','Cihazlar kategori, model, seri no ve açıklamayla kaydedilir. Satılan veya hurdaya ayrılan cihaz silinmez, pasife alınır.',(pasifAdet?'<button class="btn" data-act="inv-pasif" aria-pressed="'+(!!state.invPasif)+'">Pasifleri göster ('+pasifAdet+')</button>':'')+'<button class="btn primary" data-act="add-asset">Cihaz ekle</button>')+
   '<div class="kpis"><div class="kpi"><span>Kullanımda</span><b>'+cnt('Kullanımda')+'</b></div><div class="kpi"><span>Depoda</span><b>'+cnt('Depoda')+'</b></div><div class="kpi"><span>Serviste</span><b>'+cnt('Serviste')+'</b></div><div class="kpi"><span>Toplam tamir masrafı</span><b>'+money(totRep)+'</b></div></div>'+
   '<div class="stack"><div class="seg" role="group" aria-label="Kategori">'+tabs+'</div><section class="panel"><div class="panel-h"><input id="iq" type="search" placeholder="Model, seri no, açıklama veya personel ara" value="'+esc(state.inv.q)+'" style="max-width:380px" aria-label="Ara"></div><div id="invlist">'+invTable()+'</div></section></div>';
 }
@@ -2535,7 +2541,9 @@ function openAsset(id){
   const h=emp(a.holderId),reps=db.repairs.filter(r=>r.assetId===id);
   const events=[].concat([...a.log].reverse().map(l=>({date:l.date,text:l.text})),reps.map(r=>({date:r.date,text:'Tamir masrafı: '+r.desc+' ('+money(r.cost)+')'}))).sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
   const defAcc=db.accounts.find(x=>x.companyId===a.companyId)||db.accounts[0]||null;
-  openDlg(dlgHtml(esc(a.model),
+  openDlg(dlgHtml(esc(a.model)+pasifRozet(a),
+    (pasifCihaz(a)?'<div class="ro-banner"><b>Bu cihaz envanterden çıkmış.</b><div class="sm">Çıkış tarihi: '+fmtDate(a.cikisTarihi)+(a.cikisNedeni?' · '+esc(a.cikisNedeni):'')+'</div>'+
+      '<div class="sm">Kaydı, tamir masrafları ve zimmet geçmişi duruyor; listelerde görünmüyor.</div></div>':'')+
     '<p class="muted" style="margin-bottom:6px">'+esc(a.category)+(a.serial?', '+esc(a.serial):'')+', '+esc(coShort(a.companyId))+'</p>'+(a.note?'<p style="margin-bottom:6px">'+esc(a.note)+'</p>':'')+
     '<section class="dsec"><h3>Zimmet</h3><p style="margin-bottom:8px">'+(h?'Şu an <b>'+esc(h.name)+'</b> üzerinde ('+esc((dept(h.departmentId)||{}).name)+').':'Şu an kimseye zimmetli değil.')+'</p><div class="row"><select id="as-emp" aria-label="Personel">'+opt(db.employees.map(e=>[e.id,e.name]),a.holderId||'','Personel seçin')+'</select><button class="btn primary" data-act="assign" data-id="'+id+'">'+(h?'Devret':'Zimmetle')+'</button>'+(h?'<button class="btn" data-act="unassign" data-id="'+id+'">Zimmeti geri al</button>':'')+'</div></section>'+
     '<section class="dsec"><h3>Durum</h3><div class="row"><span>'+statusBadge(a.status)+'</span>'+(a.status==='Serviste'?'<button class="btn" data-act="from-service" data-id="'+id+'">Servisten teslim al</button>':'<button class="btn" data-act="to-service" data-id="'+id+'">Servise gönder</button>')+'</div></section>'+
@@ -2544,9 +2552,75 @@ function openAsset(id){
     '<div class="row" style="margin-top:10px"><button class="btn" data-act="save-asset-info" data-id="'+id+'">Bilgileri kaydet</button></div><p class="err" id="i-err"></p></section>'+
     (defAcc?'<section class="dsec"><h3>Tamir masrafı ekle</h3><div class="fields"><div class="field"><label for="r-date">Tarih</label><input id="r-date" type="date" value="'+TODAY+'"></div><div class="field"><label for="r-cost">Tutar (₺)</label><input id="r-cost" type="number" min="0" step="0.01" inputmode="decimal"></div><div class="field full"><label for="r-desc">Yapılan işlem</label><input id="r-desc" type="text" placeholder="Örn. Ekran değişimi"></div><div class="field"><label for="r-acc">Ödeme hesabı</label><select id="r-acc">'+acctOptions(defAcc.id)+'</select></div><div class="field" style="justify-content:flex-end"><button class="btn primary" data-act="save-repair" data-id="'+id+'">Masrafı kaydet</button></div></div><p class="hint">Masraf, cihazın zimmetli olduğu personele ve departmana otomatik bağlanarak kasa veya bankaya gider yazılır.</p><p class="err" id="r-err"></p></section>':'<section class="dsec"><h3>Tamir masrafı ekle</h3><p class="muted">Tamir masrafı girebilmek için önce Kasa ve banka sayfasından bir hesap ekleyin.</p></section>')+
     '<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+events.map(ev=>'<li><span class="muted">'+fmtDate(ev.date)+'</span><span>'+esc(ev.text)+'</span></li>').join('')+'</ul></section>',
-    ''));
+    isFinans()
+      ?(pasifCihaz(a)
+         ?'<button class="btn" data-act="asset-geri" data-id="'+id+'">Yeniden aktif et</button>'
+         :'<button class="btn" data-act="asset-pasif" data-id="'+id+'">Envanterden çıkar</button>')+
+       '<button class="btn danger" data-act="del-asset" data-id="'+id+'">Cihazı sil</button>'
+      :''));
 }
-const serialTaken=(serial,exceptId)=>!!serial&&db.assets.some(a=>a.id!==exceptId&&a.serial&&same(a.serial,serial));
+/* Envanterden çıkarma: kayıt silinmez, listelerden çıkar */
+function openPasifAsset(id){
+  const a=asset(id);if(!a)return;
+  if(!isFinans())return needDlg('Envanterden çıkar','Bu işlemi yalnızca yönetim yapabilir.');
+  dlgState={kind:'pasifasset',id:id};
+  const h=emp(a.holderId);
+  openDlg(dlgHtml('Envanterden çıkar — '+esc(a.model),
+    '<p>Cihaz kaydı <b>silinmez</b>. Tamir masrafları, zimmet geçmişi ve kasa hareketleri olduğu gibi kalır; geçmiş raporlarda görünmeye devam eder.</p>'+
+    '<p class="hint">Cihaz yalnızca envanter listelerinden ve zimmet seçeneklerinden çıkar.</p>'+
+    '<div class="fields">'+
+    '<div class="field"><label for="pa-date">Çıkış tarihi</label><input id="pa-date" type="date" value="'+TODAY+'"></div>'+
+    '<div class="field"><label for="pa-neden">Çıkış nedeni</label><select id="pa-neden">'+opt(CIKIS_NEDEN.map(x=>[x,x]),'Satıldı')+'</select></div>'+
+    '<div class="field full"><label for="pa-not">Açıklama</label><input id="pa-not" type="text" placeholder="Örn. 2. el olarak satıldı, fatura no 1234"></div>'+
+    '</div>'+
+    (h?'<div class="ro-banner"><b>'+esc(h.name)+'</b> üzerinde zimmetli.<div class="sm">Çıkışla birlikte zimmet kaldırılır.</div></div>':'')+
+    '<p class="err" id="pa-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="save-asset-pasif" data-id="'+id+'">Envanterden çıkar</button>'));
+}
+function savePasifAsset(id){
+  const a=asset(id);if(!a)return;
+  const date=$('#pa-date').value,neden=$('#pa-neden').value,notu=$('#pa-not').value.trim();
+  if(!date)return void($('#pa-err').textContent='Çıkış tarihini seçin.');
+  const aciklama=neden+(notu?' — '+notu:'');
+  run('pa-err',async()=>{
+    await upd('assets',id,{cikis_tarihi:date,cikis_nedeni:aciklama,holder_id:null,status:'Depoda'});
+    await ins('asset_logs',{asset_id:id,date:date,text:'Envanterden çıkarıldı: '+aciklama});
+  },a.model+' envanterden çıkarıldı');
+}
+function aktifEtAsset(id){
+  const a=asset(id);if(!a)return;
+  run('i-err',async()=>{
+    await upd('assets',id,{cikis_tarihi:null,cikis_nedeni:''});
+    await ins('asset_logs',{asset_id:id,date:TODAY,text:'Envantere geri alındı'});
+  },a.model+' yeniden aktif edildi');
+}
+/* Envanter kaydını silme — sonuçları önce gösterilir */
+function openDelAsset(id){
+  const a=asset(id);if(!a)return;
+  if(!isFinans())return needDlg('Cihazı sil','Envanter kaydını yalnızca yönetim silebilir.');
+  const h=emp(a.holderId),reps=db.repairs.filter(r=>r.assetId===id);
+  const masraf=reps.reduce((t,r)=>t+r.cost,0);
+  dlgState={kind:'delasset',id:id};
+  openDlg(dlgHtml('Cihazı sil',
+    '<p><b>'+esc(a.model)+'</b>'+(a.serial?' ('+esc(a.serial)+')':'')+' envanterden tamamen silinecek.</p>'+
+    '<div class="ro-banner"><b>Bu işlem geri alınamaz.</b>'+
+      (h?'<div class="sm">• Cihaz şu an <b>'+esc(h.name)+'</b> üzerinde zimmetli.</div>':'')+
+      ((a.log||[]).length?'<div class="sm">• '+a.log.length+' zimmet hareketi kaydı birlikte silinir.</div>':'')+
+      (reps.length?'<div class="sm">• <b>'+reps.length+' tamir masrafı kaydı</b> ('+money(masraf)+') birlikte silinir. '+
+        'Kasadaki gider hareketleri yerinde kalır, yalnızca cihazla bağı kopar.</div>':'')+
+    '</div>'+
+    '<p class="hint">Cihaz satıldıysa, hurdaya ayrıldıysa veya kaybolduysa <b>silmeyin</b> — vazgeçip <b>Envanterden çıkar</b> deyin. Kayıt ve masraf geçmişi korunur, cihaz listelerden çıkar. Silme yalnızca <b>yanlış girilen</b> kayıt içindir.</p>'+
+    '<p class="err" id="da-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn danger" data-act="del-asset-go" data-id="'+id+'">Evet, sil</button>'));
+}
+function delAsset(id){
+  const a=asset(id);
+  run('da-err',()=>del('assets',id),(a?a.model:'Cihaz')+' envanterden silindi');
+}
+/* Pasif cihazın seri numarası yeni cihazda kullanılabilir */
+const serialTaken=(serial,exceptId)=>!!serial&&db.assets.some(a=>a.id!==exceptId&&!pasifCihaz(a)&&a.serial&&same(a.serial,serial));
 function openAddAsset(){
   if(!db.companies.length)return needDlg('Cihaz ekle','Önce bir şirket tanımlayın.');
   dlgState={kind:'asset-new'};
@@ -3256,6 +3330,12 @@ const actions={
   'open-adv'(){openAdv();},
   'save-adv'(){saveAdv();},
   asset(el){openAsset(el.dataset.id);},
+  'del-asset'(el){openDelAsset(el.dataset.id);},
+  'asset-pasif'(el){openPasifAsset(el.dataset.id);},
+  'save-asset-pasif'(el){savePasifAsset(el.dataset.id);},
+  'asset-geri'(el){aktifEtAsset(el.dataset.id);},
+  'inv-pasif'(){state.invPasif=!state.invPasif;render();},
+  'del-asset-go'(el){delAsset(el.dataset.id);},
   'add-asset'(){openAddAsset();},
   'save-asset'(){saveAsset();},
   assign(el){
@@ -3445,7 +3525,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
