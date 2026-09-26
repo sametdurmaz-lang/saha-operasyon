@@ -348,7 +348,7 @@ const coShort=id=>{const c=comp(id);return c?c.short:'';};
 const num=v=>v==null?0:Number(v);
 /* Supabase tek istekte en fazla 1000 satır döndürür. Tabloyu
    sıralı sayfalar hâlinde, sonuna kadar okuruz. */
-const PK_KOLON={profiles:'user_id',employee_salaries:'employee_id'};
+const PK_KOLON={profiles:'user_id',employee_salaries:'employee_id',mobil_carpan:'tip'};
 async function q(t){
   const N=1000,key=PK_KOLON[t]||'id';
   let out=[],from=0;
@@ -376,7 +376,8 @@ async function loadAll(){
   const subs=await q('sale_subscriptions');
   const leads=await q('leads');
   const birimler=await q('birimler');
-  const carpanlar=await q('mobil_carpan');
+  let carpanlar=[];
+  try{carpanlar=await q('mobil_carpan');}catch(e){}  /* tablo yoksa varsayılan çarpanlar kullanılır */
   let havuz=0;
   try{const hr=await sb.rpc('havuz_sayisi');if(!hr.error)havuz=hr.data||0;}catch(e){}
   const users=await q('profiles');
