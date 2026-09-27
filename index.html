@@ -79,6 +79,7 @@ th.num{text-align:right}
 tr.click{cursor:pointer}
 tr.click:hover{background:var(--accent-soft)}
 tr.total td{font-weight:600;border-top:1px solid var(--line)}
+tr.total-top td{font-weight:600;border-top:0;border-bottom:2px solid var(--line);background:var(--paper)}
 .plain td{padding:8px 16px}
 
 .btn{border:1px solid var(--line);background:var(--surface);padding:7px 12px;border-radius:8px;font-weight:500}
@@ -1160,10 +1161,10 @@ function hedefGrubu(baslik,altBaslik,list,period){
     '<span class="muted sm">'+sirali.length+' personel</span></div>'+
     '<div class="scroll"><table><thead><tr><th>Personel</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
+    '<tr class="total-top"><td>'+esc(baslik)+' toplamı</td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(sirali,k,period)+'</td>').join('')+'</tr>'+
     sirali.map(e=>'<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div></td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+hedefCell(e.id,k,period)+'</td>').join('')+'</tr>').join('')+
-    '<tr class="total"><td>'+esc(baslik)+' toplamı</td>'+
-      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(sirali,k,period)+'</td>').join('')+'</tr>'+
     '</tbody></table></div></section>';
 }
 /* Birimleri yan yana karşılaştıran özet tablo */
@@ -1175,10 +1176,10 @@ function genelToplamBolumu(gorunur,birimler,period){
     '<span class="muted sm">'+(period==='all'?'Tüm dönemler':monthLabel(period))+'</span></div>'+
     '<div class="scroll"><table><thead><tr><th>Birim</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
+    '<tr class="total-top"><td>Genel toplam</td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(gorunur,k,period)+'</td>').join('')+'</tr>'+
     gruplar.map(g=>'<tr><td><div>'+esc(g.ad)+'</div><div class="muted sm">'+g.list.length+' personel</div></td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(g.list,k,period)+'</td>').join('')+'</tr>').join('')+
-    '<tr class="total"><td>Genel toplam</td>'+
-      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(gorunur,k,period)+'</td>').join('')+'</tr>'+
     '</tbody></table></div></section>';
 }
 function viewHedef(){
@@ -1191,11 +1192,11 @@ function viewHedef(){
       (emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı',
       gorunur.filter(e=>e.birimId===b.id),p)).join('');
   const birimsiz=gorunur.filter(e=>!e.birimId||!byId(db.birimler,e.birimId));
-  return head('Satış hedefleri','Hedefler birim bazında listelenir; her birimin altında toplamı görünür. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
+  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
   '<div class="stack">'+
+  (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
   (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
   hedefGrubu('Birime bağlı olmayan personel','Bu kişileri Personel sayfasından bir birime bağlayın',birimsiz,p)+
-  (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
   '</div>'+
   '<p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır. Toplam satırında muaf tutulan personel sayılmaz.</p>';
 }
