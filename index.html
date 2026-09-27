@@ -1132,13 +1132,72 @@ function hedefCell(empId,kat,period){
   const pc=pct(r,t.value),fmt=kat.kind==='tutar'?money(r)+' / '+money(t.value):nf.format(r)+' / '+nf.format(t.value);
   return '<button class="hcell" data-act="open-target" data-emp="'+empId+'" data-kat="'+kat.id+'"><b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><span class="hbar"><span style="width:'+clamp(pc,0,100)+'%"></span></span><span class="muted sm">'+fmt+'</span></button>';
 }
+/* Bir grup personelin bir hedef kategorisindeki toplamı.
+   Muaf tutulanlar hedefe de gerçekleşmeye de katılmaz. */
+function hedefToplam(list,kat,period){
+  let hedef=0,gercek=0,sayi=0,muaf=0;
+  list.forEach(e=>{
+    const t=getTarget(e.id,kat.id);
+    if(t.exempt){muaf++;return;}
+    if(t.defined){hedef+=t.value;sayi++;}
+    gercek+=realizedFor(e.id,kat.id,period);
+  });
+  return {hedef,gercek,sayi,muaf};
+}
+function toplamHucre(list,kat,period){
+  const t=hedefToplam(list,kat,period);
+  if(!t.sayi)return '<span class="muted sm">—</span>';
+  const pc=pct(t.gercek,t.hedef);
+  const fmt=kat.kind==='tutar'?money(t.gercek)+' / '+money(t.hedef)
+                              :nf.format(t.gercek)+' / '+nf.format(t.hedef);
+  return '<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><div class="muted sm">'+fmt+'</div>';
+}
+function hedefGrubu(baslik,altBaslik,list,period){
+  if(!list.length)return '';
+  const sirali=list.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  return '<section class="panel"><div class="panel-h"><div><h2>'+esc(baslik)+'</h2>'+
+    (altBaslik?'<p class="muted sm">'+esc(altBaslik)+'</p>':'')+'</div>'+
+    '<span class="muted sm">'+sirali.length+' personel</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Personel</th>'+
+    HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
+    sirali.map(e=>'<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div></td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+hedefCell(e.id,k,period)+'</td>').join('')+'</tr>').join('')+
+    '<tr class="total"><td>'+esc(baslik)+' toplamı</td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(sirali,k,period)+'</td>').join('')+'</tr>'+
+    '</tbody></table></div></section>';
+}
+/* Birimleri yan yana karşılaştıran özet tablo */
+function genelToplamBolumu(gorunur,birimler,period){
+  const gruplar=birimler.map(b=>({ad:b.name,list:gorunur.filter(e=>e.birimId===b.id)}))
+    .filter(g=>g.list.length);
+  if(gruplar.length<2)return '';
+  return '<section class="panel"><div class="panel-h"><h2>Birim karşılaştırması</h2>'+
+    '<span class="muted sm">'+(period==='all'?'Tüm dönemler':monthLabel(period))+'</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Birim</th>'+
+    HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
+    gruplar.map(g=>'<tr><td><div>'+esc(g.ad)+'</div><div class="muted sm">'+g.list.length+' personel</div></td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(g.list,k,period)+'</td>').join('')+'</tr>').join('')+
+    '<tr class="total"><td>Genel toplam</td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(gorunur,k,period)+'</td>').join('')+'</tr>'+
+    '</tbody></table></div></section>';
+}
 function viewHedef(){
   if(!db.employees.length)return emptyView('Satış hedefleri','Her personelin kategori bazında aylık hedefi belirlenir; bazı personeller belirli hedeflerden muaf tutulabilir.','','Personel eklendiğinde hedef tablosu burada görünür.');
   const p=state.period;
-  return head('Satış hedefleri','Her personelin kategori bazında aylık hedefi belirlenir; bazı personeller belirli hedeflerden muaf tutulabilir. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
-  '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th>'+HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
-  db.employees.map(e=>'<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name)+'</div></td>'+HEDEF_KATS.map(k=>'<td class="num">'+hedefCell(e.id,k,p)+'</td>').join('')+'</tr>').join('')+
-  '</tbody></table></div></section><p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır.</p>';
+  /* Kimin hedeflerini görebiliyorum */
+  const gorunur=aktifPersonel().filter(e=>isUst()||isMuhasebe()||(isBirim()&&ekipte(e.id))||e.id===me.employeeId);
+  const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const bloklar=birimler.map(b=>hedefGrubu(b.name,
+      (emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı',
+      gorunur.filter(e=>e.birimId===b.id),p)).join('');
+  const birimsiz=gorunur.filter(e=>!e.birimId||!byId(db.birimler,e.birimId));
+  return head('Satış hedefleri','Hedefler birim bazında listelenir; her birimin altında toplamı görünür. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
+  '<div class="stack">'+
+  (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
+  hedefGrubu('Birime bağlı olmayan personel','Bu kişileri Personel sayfasından bir birime bağlayın',birimsiz,p)+
+  (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
+  '</div>'+
+  '<p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır. Toplam satırında muaf tutulan personel sayılmaz.</p>';
 }
 function openTarget(empId,katId){
   const kat=hedefKat(katId),e=emp(empId);if(!kat||!e)return;const t=getTarget(empId,katId);dlgState={kind:'target',emp:empId,kat:katId};
