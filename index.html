@@ -606,7 +606,82 @@ function relCell(t){
 }
 
 /* ---------- Görünümler ---------- */
+/* ---------------------------------------------------------------
+   BİRİM MÜDÜRÜ GENEL BAKIŞI
+   Para yok: kasa, gelir, gider, maaş ve kurulum adımları görünmez.
+   Kendi ekibinin hedefleri, randevuları ve performansı; diğer
+   birimlerden yalnızca toplam gerçekleşme oranları.
+----------------------------------------------------------------*/
+function birimOzetKpi(list,p){
+  const ss=salesIn(p).filter(x=>list.some(e=>e.id===x.employeeId));
+  const puan=ss.reduce((a,x)=>a+x.puan,0),prim=ss.reduce((a,x)=>a+x.prim,0);
+  const rnd=db.appointments.filter(a=>list.some(e=>e.id===a.employeeId||e.id===alanOf(a)));
+  const donem=rnd.filter(a=>inPeriod(a,p)&&!iptalMi(a));
+  return {
+    acik:rnd.filter(a=>a.status==='Açık').length,
+    donem:donem.length,
+    satisaDonen:donem.filter(a=>isConverted(a.customerId,a.date)).length,
+    puan,prim,satisAdet:ss.length
+  };
+}
+function digerBirimler(p,kendi){
+  const list=(db.birimler||[]).filter(b=>b.id!==kendi);
+  if(!list.length)return '';
+  const satir=b=>{
+    const ekip=aktifPersonel().filter(e=>e.birimId===b.id);
+    if(!ekip.length)return '';
+    return '<tr><td><div>'+esc(b.name)+'</div><div class="muted sm">'+ekip.length+' personel</div></td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(ekip,k,p)+'</td>').join('')+'</tr>';
+  };
+  const satirlar=list.map(satir).join('');
+  if(!satirlar)return '';
+  return '<section class="panel"><div class="panel-h"><h2>Diğer birimler</h2>'+
+    '<span class="muted sm">Yalnızca toplam gerçekleşme</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Birim</th>'+
+    HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
+    satirlar+'</tbody></table></div>'+
+    '<div class="panel-b"><p class="hint">Diğer birimlerin personel detayları size kapalıdır; yalnızca birim toplamları görünür.</p></div></section>';
+}
+function viewOzetBirim(){
+  const p=state.period,bid=birimKapsamim();
+  const birim=bid?byId(db.birimler,bid):null;
+  const ekip=aktifPersonel().filter(e=>e.birimId===bid);
+  const k=birimOzetKpi(ekip,p);
+  const ss=salesIn(p);
+  const perfRows=ekip.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>{
+    const my=ss.filter(x=>x.employeeId===e.id);
+    const rnd=db.appointments.filter(a=>inPeriod(a,p)&&!iptalMi(a)&&alanOf(a)===e.id);
+    const acik=db.appointments.filter(a=>a.employeeId===e.id&&a.status==='Açık').length;
+    return '<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div></td>'+
+      '<td class="num">'+acik+'</td><td class="num">'+rnd.length+'</td>'+
+      '<td class="num">'+my.length+'</td><td class="num"><b>'+nf.format(my.reduce((a,x)=>a+x.puan,0))+'</b></td>'+
+      '<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td></tr>';
+  }).join('');
+  return head('Genel bakış',
+    (birim?birim.name+' birimi':'Biriminiz')+' — ekip hedefleri, randevular ve performans.',periodSel())+
+  '<div class="kpis">'+
+    '<div class="kpi"><span>Ekip personeli</span><b>'+ekip.length+'</b></div>'+
+    '<div class="kpi"><span>Açık randevu</span><b>'+k.acik+'</b></div>'+
+    '<div class="kpi"><span>Bu dönem randevu</span><b>'+k.donem+'</b></div>'+
+    '<div class="kpi"><span>Satışa dönen</span><b>'+k.satisaDonen+'</b></div>'+
+    '<div class="kpi"><span>Dönem puanı</span><b>'+nf.format(k.puan)+'</b></div>'+
+    '<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>'+
+  '</div>'+
+  '<div class="stack">'+
+  (ekip.length
+    ?hedefGrubu(birim?birim.name:'Biriminiz',
+        'Hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p)+
+     '<section class="panel"><div class="panel-h"><h2>Ekip performansı</h2>'+
+       '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
+       '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
+       '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
+       '<th class="num">Prim</th></tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
+    :'<div class="empty">Biriminize henüz personel bağlanmamış. Yöneticinizden personelin birim ataması yapılmasını isteyin.</div>')+
+  digerBirimler(p,bid)+
+  '</div>';
+}
 function viewOzet(){
+  if(isBirim()&&!isUst()&&!isMuhasebe())return viewOzetBirim();
   const p=state.period,exp=expenses(p),inc=incomes(p),tE=sum(exp),tI=sum(inc);
   const totBal=db.accounts.reduce((s,a)=>s+balance(a.id),0);
   const linkedD=sum(exp.filter(t=>t.departmentId)),linkedE=sum(exp.filter(t=>t.employeeId));
@@ -1943,18 +2018,21 @@ function viewRapor(){
     '<select data-set="rep.cat" aria-label="Kategori">'+opt(CAT_OUT.map(c=>[c,c]),r.cat,'Tüm kategoriler')+'</select>'+
     '<button class="btn" data-act="clear-rep">Filtreleri temizle</button></div>';
   const detail=list.slice().sort((a,b)=>a.date<b.date?1:-1).slice(0,60);
-  return head('Raporlar','Gider raporunu filtreleyin; satış ve randevu kayıtlarının tamamını Excel\u2019e aktarın.','')+
+  const giderGor=isFinans()||isUst();
+  return head('Raporlar',giderGor
+      ?'Gider raporunu filtreleyin; satış ve randevu kayıtlarının tamamını Excel\u2019e aktarın.'
+      :'Ekibinizin potansiyel müşteri girişleri ve satış kayıtları. Excel\u2019e aktarabilirsiniz.','')+
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
     xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
   girisRaporBolum()+
-  '<div>'+filt+'</div>'+
+  (giderGor?'<div>'+filt+'</div>'+
   '<div class="kpis"><div class="kpi"><span>Filtrelenen toplam gider</span><b>'+money(total)+'</b></div><div class="kpi"><span>Hareket sayısı</span><b>'+list.length+'</b></div><div class="kpi"><span>Ortalama hareket</span><b>'+money(list.length?total/list.length:0)+'</b></div></div>'+
   '<section class="panel"><div class="panel-h"><h2>Gruplama</h2><div class="seg" role="group" aria-label="Gruplama">'+groupDims.map(([k,l])=>'<button data-act="repgroup" data-v="'+k+'" aria-pressed="'+(r.group===k)+'">'+l+'</button>').join('')+'</div></div>'+
   (groups.length?'<div class="panel-b">'+groups.map(g=>'<button class="bar-row" '+(r.group==='ay'?'':'data-act="repdrill" data-dim="'+r.group+'" data-key="'+esc(g.key||'__none')+'"')+'><span>'+esc(g.label)+'<div class="muted sm">'+g.count+' hareket</div></span><span class="bar-track"><span class="bar-fill'+(g.key?'':' none')+'" style="width:'+Math.max(2,g.total/max*100)+'%"></span></span><span class="bar-val">'+money(g.total)+'<small>%'+pct(g.total,total)+'</small></span></button>').join('')+'</div>':'<div class="empty">Bu filtrelerle eşleşen gider yok.</div>')+'</section>'+
-  '<section class="panel"><div class="panel-h"><h2>Hareketler</h2><span class="muted sm">'+(list.length>60?'İlk 60 hareket gösteriliyor':list.length+' hareket')+'</span></div>'+(detail.length?'<div class="scroll"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Bağlı olduğu</th><th class="num">Tutar</th></tr></thead><tbody>'+detail.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+'</div></td><td>'+relCell(t)+'</td><td class="num out"><b>'+money(t.amount)+'</b></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Gösterilecek hareket yok.</div>')+'</section></div>';
+  '<section class="panel"><div class="panel-h"><h2>Hareketler</h2><span class="muted sm">'+(list.length>60?'İlk 60 hareket gösteriliyor':list.length+' hareket')+'</span></div>'+(detail.length?'<div class="scroll"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Bağlı olduğu</th><th class="num">Tutar</th></tr></thead><tbody>'+detail.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+'</div></td><td>'+relCell(t)+'</td><td class="num out"><b>'+money(t.amount)+'</b></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Gösterilecek hareket yok.</div>')+'</section>':'')+'</div>';
 }
 
 /* ---------------------------------------------------------------
