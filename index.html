@@ -417,7 +417,8 @@ async function loadAll(){
       cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     products:products.map(r=>({id:r.id,category:r.category,brand:r.brand,name:r.name,stocked:!!r.stocked,
       hedefKat:r.hedef_kat||'',calcType:r.calc_type,prim:num(r.prim),puan:num(r.puan),
-      primPct:num(r.prim_pct),puanPct:num(r.puan_pct),mobilTip:r.mobil_tip||''})),
+      primPct:num(r.prim_pct),puanPct:num(r.puan_pct),mobilTip:r.mobil_tip||'',
+      gelir:num(r.gelir),gelirTip:r.gelir_tip||'sabit'})),
     warehouses:warehouses.map(r=>({id:r.id,name:r.name})),
     stock:stockUnits.map(r=>{const u={id:r.id,productId:r.product_id,serial:r.serial,warehouseId:r.warehouse_id,
       status:r.status,holderId:r.holder_id,note:r.note||'',log:sLog[r.id]||[]};
@@ -427,6 +428,7 @@ async function loadAll(){
       qty:r.qty,amount:num(r.amount),calcType:r.calc_type,hedefKat:r.hedef_kat||'',
       unitPrim:num(r.unit_prim),unitPuan:num(r.unit_puan),prim:num(r.prim),puan:num(r.puan),
       gbProductId:r.gb_product_id||null,hatTip:r.hat_tip||'',
+      gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
     targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
     customers:customers.map(r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
@@ -850,11 +852,11 @@ function prodTable(){
   if(q)list=list.filter(p=>[p.category,p.brand,p.name].join(' ').toLocaleLowerCase('tr').includes(q));
   list.sort((a,b)=>a.category.localeCompare(b.category,'tr')||a.brand.localeCompare(b.brand,'tr')||a.name.localeCompare(b.name,'tr'));
   if(!list.length)return '<div class="empty">Bu filtrede ürün yok. Yeni ürün eklemek için "Ürün ekle" düğmesini kullanın.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Marka</th><th>Ürün adı</th><th>Hedef kategorisi</th><th class="num">Prim</th><th class="num">Puan</th><th>Stok</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Marka</th><th>Ürün adı</th><th>Hedef kategorisi</th><th class="num">Gelir</th><th class="num">Prim</th><th class="num">Puan</th><th>Stok</th><th></th></tr></thead><tbody>'+
   list.map(p=>{const kat=hedefKat(p.hedefKat),isPct=p.calcType==='yuzde';
     const primCell=isPct?'%'+nf.format(p.primPct||0):money(p.prim||0);
     const puanCell=isPct?'%'+nf.format(p.puanPct||0):nf.format(p.puan||0);
-    return '<tr><td>'+esc(p.category)+'</td><td>'+esc(p.brand)+'</td><td><b>'+esc(p.name)+'</b></td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
+    return '<tr><td>'+esc(p.category)+'</td><td>'+esc(p.brand)+'</td><td><b>'+esc(p.name)+'</b></td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+'</td><td class="num">'+(p.gelir?esc(gelirEtiketi(p)):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewUrun(){
   const pr=state.prod;
@@ -965,6 +967,47 @@ function hatEtiket(s){
   const p=byId(db.products,s.productId),g=s.gbProductId?byId(db.products,s.gbProductId):null;
   return (p?p.name:'Silinmiş tarife')+(g?' + '+g.name:'')+(s.hatTip?' ('+s.hatTip+')':'');
 }
+/* ---------------------------------------------------------------
+   GELİR
+   Ürün başına üç şekilde tanımlanır: sabit tutar, satış tutarının
+   yüzdesi veya satış tutarının katı.
+   Satış bir randevudan geldiyse randevuyu alan personele payı,
+   kalanı satışı yapana yazılır.
+----------------------------------------------------------------*/
+const GELIR_TIP=[['sabit','Sabit tutar (adet başına)'],['yuzde','Satış tutarının yüzdesi'],['kat','Satış tutarının katı']];
+const randevuPayi=()=>{const v=(db.ayar||{}).randevu_gelir_payi;return v===undefined?10:v;};
+function urunGelir(p,qty,amount){
+  if(!p||!p.gelir)return 0;
+  if(p.gelirTip==='yuzde')return amount*p.gelir/100;
+  if(p.gelirTip==='kat')  return amount*p.gelir;
+  return qty*p.gelir;
+}
+function gelirEtiketi(p){
+  if(!p||!p.gelir)return '';
+  if(p.gelirTip==='yuzde')return '%'+nf.format(p.gelir);
+  if(p.gelirTip==='kat')  return nf.format(p.gelir)+'\u00d7 tutar';
+  return money(p.gelir);
+}
+/* Bu satış hangi randevudan geldi? En yakın tarihli, iptal olmayan
+   ve randevuyu alanı belli olan randevu esas alınır. */
+function satisRandevusu(custId,tarih){
+  if(!custId)return null;
+  const list=db.appointments.filter(a=>a.customerId===custId&&!iptalMi(a)&&a.date<=tarih&&alanOf(a));
+  if(!list.length)return null;
+  list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
+  return list[0];
+}
+/* Bir personelin dönem içindeki toplam geliri */
+function personelGelir(empId,period){
+  let t=0;
+  salesIn(period).forEach(s=>{
+    const g=s.gelir||0;if(!g)return;
+    const pay=s.gelirAlanId?(s.gelirPay||0):0;
+    if(s.gelirAlanId===empId)t+=g*pay/100;
+    if(s.employeeId===empId)t+=g*(100-pay)/100;
+  });
+  return t;
+}
 function needsAmount(p){return !!p&&(p.calcType==='yuzde'||(hedefKat(p.hedefKat)||{}).kind==='tutar');}
 function newLine(){return {id:'L'+(seq++).toString(36),cat:'',prod:'',qty:'1',amount:'',serials:'',abone:'',gb:'',tip:'BASE'};}
 /* Ekrandaki değerleri satır durumuna aktarır (yeniden çizimde kaybolmasın) */
@@ -991,14 +1034,15 @@ function lineCalc(L){
     const adet=parseSerials(L.abone).length;
     const bazPrim=(p.prim||0)+(g?(g.prim||0):0);
     const bazPuan=(p.puan||0)+(g?(g.puan||0):0);
+    const bazGelir=(p.gelir||0)+(g?(g.gelir||0):0);
     return {p,g,mobil:true,qty:adet,amount:0,carpan:k,bazPrim,bazPuan,
-            prim:bazPrim*k*adet,puan:bazPuan*k*adet};
+            prim:bazPrim*k*adet,puan:bazPuan*k*adet,gelir:bazGelir*k*adet};
   }
   const qty=p.stocked?parseSerials(L.serials).length:Math.max(0,parseInt(L.qty,10)||0);
   const amount=needsAmount(p)?Math.max(0,parseFloat(String(L.amount).replace(',','.'))||0):0;
   const prim=p.calcType==='yuzde'?amount*(p.primPct||0)/100:qty*(p.prim||0);
   const puan=p.calcType==='yuzde'?amount*(p.puanPct||0)/100:qty*(p.puan||0);
-  return {p,qty,amount,prim,puan};
+  return {p,qty,amount,prim,puan,gelir:urunGelir(p,qty,amount)};
 }
 function lineHtml(L,i){
   const p=byId(db.products,L.prod),c=lineCalc(L),n=(dlgState.lines||[]).length;
@@ -1029,9 +1073,10 @@ function lineSummary(L){
     if(!c.g)return 'GB paketini seçin.';
     if(!c.qty)return 'Telefon numarasını girin.';
     return c.qty+' hat · baz '+money(c.bazPrim)+' × '+nf.format(c.carpan)+' ('+(c.p&&L.tip?L.tip:'BASE')+')'+
-      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim';
+      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+(c.gelir?', '+money(c.gelir)+' gelir':'');
   }
-  return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim';
+  return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+    (c.gelir?', '+money(c.gelir)+' gelir':'');
 }
 function updateLinePreview(lid){
   slRead();
@@ -1104,8 +1149,9 @@ function saveSale(){
       if(tekrar.length)return err(no+'aynı numara birden fazla girilmiş: '+missingText(tekrar));
       const k=carpanOf(tip);
       const bazPrim=(p.prim||0)+(g.prim||0),bazPuan=(p.puan||0)+(g.puan||0);
+      const bazGelir=(p.gelir||0)+(g.gelir||0);
       hazir.push({p,gb:g,hatTip:tip,qty:nolar.length,units:[],amount:0,calc:'sabit',abone:nolar,
-        prim:bazPrim*k*nolar.length,puan:bazPuan*k*nolar.length});
+        prim:bazPrim*k*nolar.length,puan:bazPuan*k*nolar.length,gelir:bazGelir*k*nolar.length});
       continue;
     }
     let qty=0,units=[];
@@ -1135,7 +1181,8 @@ function saveSale(){
     const calc=p.calcType||'sabit';
     hazir.push({p,qty,units,amount,calc,abone:parseSerials(L.abone),
       prim:calc==='yuzde'?amount*(p.primPct||0)/100:qty*(p.prim||0),
-      puan:calc==='yuzde'?amount*(p.puanPct||0)/100:qty*(p.puan||0)});
+      puan:calc==='yuzde'?amount*(p.puanPct||0)/100:qty*(p.puan||0),
+      gelir:urunGelir(p,qty,amount)});
   }
   const tPrim=hazir.reduce((a,x)=>a+x.prim,0),tPuan=hazir.reduce((a,x)=>a+x.puan,0);
   const tUnit=hazir.reduce((a,x)=>a+x.units.length,0),tAbone=hazir.reduce((a,x)=>a+x.abone.length,0);
@@ -1148,13 +1195,18 @@ function saveSale(){
       custId=res.customer.id;customer=res.customer.unvan;
     }
     const batch=crypto.randomUUID();
+    /* Satış bir randevudan geldiyse randevuyu alan personel */
+    const rnd=satisRandevusu(custId,date);
+    const alan=rnd?alanOf(rnd):null;
+    const pay=alan?randevuPayi():0;
     for(const L of hazir){
       const sale=await ins('sales',{date,employee_id:empId,department_id:nz(e.departmentId),
         company_id:nz(e.companyId),customer_id:custId,customer,product_id:L.p.id,qty:L.qty,
         amount:L.amount,calc_type:L.calc,hedef_kat:L.p.hedefKat||'',batch_id:batch,
         unit_prim:L.calc==='yuzde'?(L.p.primPct||0):(L.p.prim||0),
         unit_puan:L.calc==='yuzde'?(L.p.puanPct||0):(L.p.puan||0),prim:L.prim,puan:L.puan,
-        gb_product_id:L.gb?L.gb.id:null,hat_tip:L.hatTip||null});
+        gb_product_id:L.gb?L.gb.id:null,hat_tip:L.hatTip||null,
+        gelir:L.gelir||0,gelir_alan_id:alan,gelir_pay:pay});
       if(L.abone.length){
         const ar=await sb.from('sale_subscriptions').insert(
           L.abone.map(x=>({sale_id:sale.id,abone_no:x,created_by:me.userId})));
@@ -2015,6 +2067,54 @@ function girisRaporBolum(){
       :'<div class="empty">Bu dönemde potansiyel müşteri kaydı girilmemiş.</div>')+
     '<div class="panel-b"><p class="hint">“Elle girilen” tek tek yazılan kayıtlardır; toplu Excel yüklemeleri ayrı sütunda durur, böylece giriş performansı karışmaz. Randevu oranı, <b>aranan</b> kayıtlar üzerinden hesaplanır — henüz aranmamış kayıt kimseyi aşağı çekmez.</p></div></section>';
 }
+/* Personel bazında gelir ve maliyet karşılaştırması */
+function gelirMaliyetRows(period){
+  const ay=period!=='all';
+  return aktifPersonel().map(e=>{
+    const gelir=personelGelir(e.id,period);
+    const ss=salesIn(period).filter(x=>x.employeeId===e.id);
+    const rnd=salesIn(period).filter(x=>x.gelirAlanId===e.id);
+    const maas=isFinans()?(ay?(e.salary||0):0):0;
+    const gider=isFinans()?sum(expenses(period).filter(t=>t.employeeId===e.id)):0;
+    const maliyet=maas+gider;
+    return {e,gelir,maliyet,maas,gider,net:gelir-maliyet,
+            satis:ss.length,randevuKatkisi:rnd.length};
+  }).filter(r=>r.gelir||r.maliyet||r.satis).sort((a,b)=>b.gelir-a.gelir);
+}
+function gelirMaliyetBolumu(){
+  const p=state.period,rows=gelirMaliyetRows(p);
+  if(!rows.length)return '';
+  const fin=isFinans();
+  const t=rows.reduce((o,r)=>({gelir:o.gelir+r.gelir,maliyet:o.maliyet+r.maliyet,net:o.net+r.net}),
+    {gelir:0,maliyet:0,net:0});
+  return '<section class="panel"><div class="panel-h"><h2>Personel geliri'+(fin?' ve maliyeti':'')+'</h2>'+
+    '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Satış</th>'+
+    '<th class="num">Randevu katkısı</th><th class="num">Gelir</th>'+
+    (fin?'<th class="num">Maaş</th><th class="num">Gider</th><th class="num">Maliyet</th><th class="num">Net</th>':'')+
+    '</tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name||'')+'</div></td>'+
+      '<td class="num">'+r.satis+'</td><td class="num'+(r.randevuKatkisi?'':' muted')+'">'+(r.randevuKatkisi||'-')+'</td>'+
+      '<td class="num"><b>'+money(r.gelir)+'</b></td>'+
+      (fin?'<td class="num">'+money(r.maas)+'</td><td class="num">'+money(r.gider)+'</td>'+
+           '<td class="num out">'+money(r.maliyet)+'</td>'+
+           '<td class="num '+(r.net>=0?'in':'out')+'"><b>'+money(r.net)+'</b></td>':'')+
+      '</tr>').join('')+
+    '<tr class="total"><td>Toplam</td><td class="num"></td><td class="num"></td>'+
+    '<td class="num">'+money(t.gelir)+'</td>'+
+    (fin?'<td class="num"></td><td class="num"></td><td class="num out">'+money(t.maliyet)+'</td>'+
+         '<td class="num '+(t.net>=0?'in':'out')+'">'+money(t.net)+'</td>':'')+
+    '</tr></tbody></table></div>'+
+    '<div class="panel-b"><p class="hint">Gelir, satılan ürünlerin gelir tanımından hesaplanır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. <b>Randevu katkısı</b> sütunu, o personelin aldığı randevulardan doğan satış sayısıdır.'+
+    (fin?' Maaş yalnızca tek bir ay seçildiğinde hesaba katılır.':'')+'</p></div></section>';
+}
+function gelirExportRows(){
+  const rows=gelirMaliyetRows(state.period),fin=isFinans();
+  const head=['Personel','Departman','Satış','Randevu katkısı','Gelir']
+    .concat(fin?['Maaş','Gider','Maliyet','Net']:[]);
+  return [head].concat(rows.map(r=>[r.e.name,(dept(r.e.departmentId)||{}).name||'',
+    r.satis,r.randevuKatkisi,r.gelir].concat(fin?[r.maas,r.gider,r.maliyet,r.net]:[])));
+}
 function girisExportRows(){
   const rows=girisRaporRows(state.period);
   const head=['Kaydı giren','Departman','Elle girilen','Excel ile','Toplam',
@@ -2042,8 +2142,9 @@ function viewRapor(){
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
-    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('hepsi','Hepsi')+
+    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('gelir','Personel geliri')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
+  gelirMaliyetBolumu()+
   girisRaporBolum()+
   (giderGor?'<div>'+filt+'</div>'+
   '<div class="kpis"><div class="kpi"><span>Filtrelenen toplam gider</span><b>'+money(total)+'</b></div><div class="kpi"><span>Hareket sayısı</span><b>'+list.length+'</b></div><div class="kpi"><span>Ortalama hareket</span><b>'+money(list.length?total/list.length:0)+'</b></div></div>'+
@@ -2117,6 +2218,10 @@ function exportExcel(which){
   if(which==='denetim'){
     XLSX.utils.book_append_sheet(wb,sheetOf(denetimExportRows(),[0],[18,26,16,12,18,28,14,60]),'Hareket kaydı');
     ad='hareket-kaydi';
+  }
+  if(which==='gelir'||which==='hepsi'){
+    XLSX.utils.book_append_sheet(wb,sheetOf(gelirExportRows(),[],[26,18,10,16,14,14,14,14,14]),'Personel geliri');
+    if(which==='gelir')ad='personel-geliri';
   }
   if(which==='giris'||which==='hepsi'){
     XLSX.utils.book_append_sheet(wb,sheetOf(girisExportRows(),[],[26,20,14,12,10,10,16,14,14,14]),'Potansiyel girişi');
@@ -3031,12 +3136,15 @@ function openProd(id,pre){
   openDlg(dlgHtml(p?'Ürünü düzenle':'Ürün ekle','<div class="fields"><div class="field full"><label for="pr-cat">Kategori</label><input id="pr-cat" list="dl-pcat" type="text" value="'+esc(v.category)+'" placeholder="Örn. Cep telefonu"></div>'+
     '<div class="field"><label for="pr-brand">Marka</label><input id="pr-brand" list="dl-pbrand" type="text" value="'+esc(v.brand)+'" placeholder="Örn. Samsung"></div><div class="field"><label for="pr-name">Ürün adı</label><input id="pr-name" type="text" value="'+esc(v.name)+'" placeholder="Örn. Galaxy A54"></div>'+
     '<div class="field"><label for="pr-hedef">Hedef kategorisi</label><select id="pr-hedef">'+opt(HEDEF_KATS.map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
+    '<div class="field"><label for="pr-gelirtip">Gelir hesabı</label><select id="pr-gelirtip">'+opt(GELIR_TIP,v.gelirTip||'sabit')+'</select></div>'+
+    '<div class="field"><label for="pr-gelir">Gelir</label><input id="pr-gelir" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.gelir||0)+'" placeholder="0"></div>'+
     '<div class="field"><label for="pr-mobil">Mobil hat bileşeni</label><select id="pr-mobil">'+
       opt([['dakika','Dakika (tarife) paketi'],['gb','GB paketi']],v.mobilTip||'','Hayır, normal ürün')+'</select></div>'+
     '<div class="field"><label for="pr-calc">Hesaplama şekli</label><select id="pr-calc"><option value="sabit"'+(v.calcType!=='yuzde'?' selected':'')+'>Sabit tutar (adet başına)</option><option value="yuzde"'+(v.calcType==='yuzde'?' selected':'')+'>Satış tutarının yüzdesi</option></select></div>'+
     '<div id="pr-calcwrap" style="display:contents">'+prodCalcFields(v)+'</div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="pr-stock" type="checkbox" style="width:auto"'+(v.stocked?' checked':'')+'> Stok takibi yapılır (her adet seri numarasıyla izlenir)</label></div></div>'+
-    dl('dl-pcat',prodCats())+dl('dl-pbrand',prodBrands())+'<p class="hint">Mobil hat bileşeni işaretlerseniz bu ürün satış ekranında tek başına satılmaz; dakika paketi ile GB paketi birlikte seçilip tek telefon numarası satırı oluşturur. Prim ve puan ikisinin toplamı üzerinden, NT/BASE çarpanıyla hesaplanır.</p>'+
+    dl('dl-pcat',prodCats())+dl('dl-pbrand',prodBrands())+'<p class="hint">Gelir, bu ürünün şirkete kazandırdığı tutardır; puan ve primden bağımsızdır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. Mobil hatlarda sabit tutar kullanın.</p>'+
+    '<p class="hint">Mobil hat bileşeni işaretlerseniz bu ürün satış ekranında tek başına satılmaz; dakika paketi ile GB paketi birlikte seçilip tek telefon numarası satırı oluşturur. Prim ve puan ikisinin toplamı üzerinden, NT/BASE çarpanıyla hesaplanır.</p>'+
     '<p class="hint">Kategori ve markayı listeden seçebilir ya da yeni bir değer yazabilirsiniz. Hedef kategorisi bu ürünün satışlarının hangi personel hedefine sayılacağını belirler. Yüzde seçilirse satış girilirken satış tutarı istenir; prim ve puan bu tutardan hesaplanır. Değişiklik yalnızca sonraki satışları etkiler.</p><p class="err" id="pr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(p?'':'<button class="btn" data-act="save-prod-next">Kaydet ve yeni ekle</button>')+'<button class="btn primary" data-act="save-prod">'+(p?'Kaydet':'Ürünü kaydet')+'</button>'));
 }
@@ -3054,8 +3162,12 @@ function saveProd(next){
   if(db.products.some(p=>p.id!==id&&same(p.category,cat)&&same(p.brand,brand)&&same(p.name,name)))return err('Bu ürün zaten kayıtlı.');
   if(id&&!stocked){const n=db.stock.filter(u=>u.productId===id).length;if(n)return err('Bu ürüne ait '+n+' stok kaydı var, stok takibi kapatılamaz.');}
   const mobilTip=$('#pr-mobil')?$('#pr-mobil').value:'';
+  const gelirTip=$('#pr-gelirtip')?$('#pr-gelirtip').value:'sabit';
+  const gelirV=parseFloat(String(($('#pr-gelir')||{}).value||'0').replace(',','.'))||0;
+  if(gelirV<0)return err('Gelir negatif olamaz.');
   const row={category:cat,brand,name,stocked,hedef_kat:hedefKatV,calc_type:calcType,
-             prim,puan,prim_pct:primPct,puan_pct:puanPct,mobil_tip:nz(mobilTip)};
+             prim,puan,prim_pct:primPct,puan_pct:puanPct,mobil_tip:nz(mobilTip),
+             gelir:gelirV,gelir_tip:gelirTip};
   run('pr-err',()=>id?upd('products',id,row):ins('products',row),'Ürün kaydedildi').then(()=>{
     if(next&&!$('#pr-err'))openProd(null,{category:cat,brand,name:'',stocked,hedefKat:hedefKatV,
       calcType,prim:0,puan:0,primPct:0,puanPct:0});
