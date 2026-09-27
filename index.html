@@ -2243,8 +2243,10 @@ function sheetOf(aoa,dateCols,widths){
   ws['!freeze']={xSplit:0,ySplit:1};
   return ws;
 }
+/* Excel: master, bayi müdürü ve muhasebe */
+const excelYetkisi=()=>isUst()||isMuhasebe();
 function exportExcel(which){
-  if(!isUst())return;   /* yalnızca master ve bayi müdürü */
+  if(!excelYetkisi())return;
   if(!XL_HAZIR())return needDlg('Excel dışa aktarma','Excel bileşeni yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.');
   const wb=XLSX.utils.book_new();
   let ad='saha';
@@ -2273,7 +2275,7 @@ function exportExcel(which){
   toast('Excel dosyası indirildi');
 }
 function xlBtn(which,label){
-  return isUst()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
+  return excelYetkisi()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
 }
 
 /* ---------------------------------------------------------------
@@ -3734,7 +3736,7 @@ const EKRAN_YETKI={
   kasa     :()=>isFinans(),
   maas     :()=>isFinans(),
   urun     :()=>isFinans(),
-  stok     :()=>isFinans()||isUst(),   /* bayi müdürü görür, işlem yapamaz */
+  stok     :()=>isFinans()||isUst()||isBirim(),   /* müdürler görür, işlem yapamaz */
   zimmet   :()=>isFinans()||isUst()||isBirim(),   /* müdürler görür, işlem yapamaz */
   personel :()=>isFinans(),
   org      :()=>isFinans()||isUst(),
