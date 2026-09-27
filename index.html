@@ -913,20 +913,20 @@ function satTable(){
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(a.id<b.id?1:-1));
   if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
   const shown=list.slice(0,100);
-  return '<div class="panel-b muted sm">'+list.length+' satış'+(list.length>shown.length?', ilk 100 tanesi gösteriliyor. Aramayı daraltın.':'.')+'</div><div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th><th class="num">Prim</th><th></th></tr></thead><tbody>'+
+  return '<div class="panel-b muted sm">'+list.length+' satış'+(list.length>shown.length?', ilk 100 tanesi gösteriliyor. Aramayı daraltın.':'.')+'</div><div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'<th></th></tr></thead><tbody>'+
   shown.map(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
-    return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?e.name:'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td><td class="num"><b>'+money(s.prim)+'</b></td><td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>';
+    return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?e.name:'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num"><b>'+money(s.prim)+'</b></td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewSatis(){
   const st=state.sat,list=salesIn(state.period);
   const qty=list.reduce((a,x)=>a+x.qty,0),puan=list.reduce((a,x)=>a+x.puan,0),prim=list.reduce((a,x)=>a+x.prim,0),people=new Set(list.map(x=>x.employeeId)).size;
   const groups=satGroups(list,st.group),gl={personel:'Personel',departman:'Departman',urun:'Ürün',kategori:'Kategori'};
   return head('Satışlar','Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',periodSel()+xlBtn('satis','Excel’e aktar')+'<button class="btn primary" data-act="open-sale">Satış ekle</button>')+
-  '<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div><div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div><div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>'+
+  '<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+(primGor()?'<div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div>':'')+'<div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>'+
   '<div class="stack"><section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
-  (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th><th class="num">Prim</th></tr></thead><tbody>'+
-    groups.map(g=>'<tr><td><div>'+esc(g.l)+'</div>'+(g.sub?'<div class="muted sm">'+esc(g.sub)+'</div>':'')+'</td><td class="num">'+g.n+'</td><td class="num">'+g.qty+'</td><td class="num"><b>'+nf.format(g.puan)+'</b></td><td class="num">'+money(g.prim)+'</td></tr>').join('')+
-    '<tr class="total"><td>Toplam</td><td class="num">'+list.length+'</td><td class="num">'+qty+'</td><td class="num">'+nf.format(puan)+'</td><td class="num">'+money(prim)+'</td></tr></tbody></table></div>':'<div class="empty">Bu dönemde satış kaydı yok.</div>')+'</section>'+
+  (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+
+    groups.map(g=>'<tr><td><div>'+esc(g.l)+'</div>'+(g.sub?'<div class="muted sm">'+esc(g.sub)+'</div>':'')+'</td><td class="num">'+g.n+'</td><td class="num">'+g.qty+'</td><td class="num"><b>'+nf.format(g.puan)+'</b></td>'+(primGor()?'<td class="num">'+money(g.prim)+'</td>':'')+'</tr>').join('')+
+    '<tr class="total"><td>Toplam</td><td class="num">'+list.length+'</td><td class="num">'+qty+'</td><td class="num">'+nf.format(puan)+'</td>'+(primGor()?'<td class="num">'+money(prim)+'</td>':'')+'</tr></tbody></table></div>':'<div class="empty">Bu dönemde satış kaydı yok.</div>')+'</section>'+
   '<section class="panel"><div class="panel-h"><input id="slq" type="search" placeholder="Müşteri, ürün, personel veya abone no ara" value="'+esc(st.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools"><select data-set="sat.emp" aria-label="Personel">'+empSecim(st.emp,'Tüm personel')+'</select></div></div><div id="satlist">'+satTable()+'</div></section></div>';
 }
 /* ---------------------------------------------------------------
@@ -1163,7 +1163,7 @@ function openSaleDetail(id){
   const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
   openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd><dt>Satışı yapan</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
     (s.amount?'<dt>Satış tutarı</dt><dd>'+money(s.amount)+'</dd>':'')+
-    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd><dt>Toplam prim</dt><dd>'+money(s.prim)+'</dd></dl>'+
+    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd><dt>Toplam prim</dt><dd>'+(primGor()?money(s.prim):'—')+'</dd></dl>'+
     ((s.abone&&s.abone.length)?'<section class="dsec"><h3>Abone / hizmet numaraları</h3><div>'+
       s.abone.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+'</div></section>':'')+
     (kardes.length?'<section class="dsec"><h3>Aynı satıştaki diğer ürünler</h3><ul class="log">'+
@@ -1352,7 +1352,7 @@ function openCustomer(id){
     svcSection('pstn','PSTN sabit telefon',v)+
     svcSection('metro','Metro ethernet',v)+
     (appts.length?'<section class="dsec"><h3>Randevu geçmişi</h3><ul class="log">'+appts.map(a=>'<li><span class="muted">'+fmtDate(a.date)+'</span><span>'+esc((emp(a.employeeId)||{}).name||'')+' — '+esc(a.desc)+' <span class="badge '+(a.status==='Açık'?'warn':'ok')+'">'+a.status+'</span></span></li>').join('')+'</ul></section>':'')+
-    (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(s=>'<li><span class="muted">'+fmtDate(s.date)+'</span><span>'+esc(prodLabel(byId(db.products,s.productId)))+', '+money(s.prim)+' prim</span></li>').join('')+'</ul></section>':'')+
+    (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(s=>'<li><span class="muted">'+fmtDate(s.date)+'</span><span>'+esc(prodLabel(byId(db.products,s.productId)))+', '+(primGor()?money(s.prim)+' prim':'')+'</span></li>').join('')+'</ul></section>':'')+
     (c?onayBolumu(c):'')+'<div id="c-benzer"></div><p class="err" id="c-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(c?'<button class="btn" data-act="open-appt-for" data-id="'+c.id+'">Randevu oluştur</button>':'')+'<button class="btn primary" data-act="save-cust">Kaydet</button>'));
 }
@@ -2047,14 +2047,15 @@ function seriOf(sale){
 }
 function satisExportRows(){
   const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Kategori','Marka',
-              'Adet','Tutar','Puan','Prim','Abone no','Seri no','Hedef kategorisi','Satış no'];
+              'Adet','Tutar','Puan'].concat(primGor()?['Prim']:[]).concat(
+              ['Abone no','Seri no','Hedef kategorisi','Satış no']);
   const rows=db.sales.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(x=>{
     const e=emp(x.employeeId)||{},p=byId(db.products,x.productId)||{},
           c=x.customerId?(byId(db.customers,x.customerId)||{}):{};
     return [dIso(x.date),adOf(e,'name'),adOf(dept(x.departmentId),'name'),adOf(comp(x.companyId),'name'),
       c.unvan||x.customer||'',adOf(p,'name'),adOf(p,'category'),adOf(p,'brand'),
-      x.qty||0,x.amount||0,x.puan||0,x.prim||0,
-      (x.abone||[]).join(', '),seriOf(x),adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id];
+      x.qty||0,x.amount||0,x.puan||0].concat(primGor()?[x.prim||0]:[]).concat(
+      [(x.abone||[]).join(', '),seriOf(x),adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id]);
   });
   return [head].concat(rows);
 }
@@ -3533,6 +3534,9 @@ function satisYazabilecekler(){
   if(isBirim()||isDestek())return hepsi.filter(e=>ekipte(e.id));
   return hepsi.filter(e=>e.id===me.employeeId);
 }
+/* Prim tutarlarının görünürlüğü. Şu an tüm rollere açık.
+   Birim müdüründen gizlemek istenirse: const primGor=()=>!isBirim(); */
+const primGor=()=>true;
 const isSahip=()=>isMaster();
 const isAdmin=()=>isUst();
 /* Yalnızca yönetimin göreceği ekranlar */
