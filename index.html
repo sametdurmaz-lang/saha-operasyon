@@ -2244,7 +2244,7 @@ function sheetOf(aoa,dateCols,widths){
   return ws;
 }
 function exportExcel(which){
-  if(!raporcu())return;
+  if(!isUst())return;   /* yalnızca master ve bayi müdürü */
   if(!XL_HAZIR())return needDlg('Excel dışa aktarma','Excel bileşeni yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.');
   const wb=XLSX.utils.book_new();
   let ad='saha';
@@ -2273,7 +2273,7 @@ function exportExcel(which){
   toast('Excel dosyası indirildi');
 }
 function xlBtn(which,label){
-  return raporcu()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
+  return isUst()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
 }
 
 /* ---------------------------------------------------------------
@@ -2397,9 +2397,13 @@ function telesatisMi(){
   const d=dept((emp(me.employeeId)||{}).departmentId);
   return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
-const havuzBtn=n=>(isUst()||isBirim()||isDestek()||telesatisMi())
+/* Havuzdan kayıt çekme yalnızca telesatış personelinde:
+   yetkisi "Satış destek / Telesatış" VE departmanı telesatış olanlar */
+const havuzCekebilir=()=>isDestek()&&telesatisMi();
+const havuzBtn=n=>havuzCekebilir()
   ?'<button class="btn" data-act="pot-pull">Potansiyel müşteri al ('+(n||10)+')</button>':'';
 function potansiyelAl(){
+  if(!havuzCekebilir())return needDlg('Potansiyel müşteri al','Havuzdan kayıt çekmeyi yalnızca telesatış personeli yapabilir.');
   if(!me.employeeId)return needDlg('Potansiyel müşteri al','Kullanıcınız bir personel kaydına bağlı değil. Yöneticinizden eşleştirme isteyin.');
   let alinan=0;
   run(null,async()=>{
@@ -2553,9 +2557,9 @@ function leadConvertGo(id,cid){
 }
 function leadSiradaki(){
   const benim=potFiltre('bende').concat(potFiltre('tekrar'));
-  if(!benim.length)return needDlg('Sıradaki',(isUst()||isBirim()||isDestek()||telesatisMi())
+  if(!benim.length)return needDlg('Sıradaki',havuzCekebilir()
     ?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekin.'
-    :'Listenizde aranacak kayıt yok. Yöneticinizden atama isteyin.');
+    :'Listenizde aranacak kayıt yok. Telesatış ekibi havuzdan kayıt çektikçe size randevu düşecek.');
   benim.sort((a,b)=>{
     const sa=a.sonArama||'',sb2=b.sonArama||'';
     if(sa!==sb2)return sa<sb2?-1:1;
@@ -2597,7 +2601,7 @@ function potTable(){
   });
   if(!list.length)return '<div class="empty">'+
     (f.sekme==='ekledigim'?'Henüz potansiyel müşteri eklemediniz. “Potansiyel ekle” ile başlayın; kayıtlarınız birim havuzuna düşer ve telesatış arar.'
-    :f.sekme==='bende'?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekebilirsiniz.'
+    :f.sekme==='bende'?(havuzCekebilir()?'Listenizde aranacak kayıt yok. “Potansiyel müşteri al” düğmesiyle havuzdan 10 kayıt çekebilirsiniz.':'Listenizde aranacak kayıt yok.')
     :f.sekme==='tekrar'?'Tekrar aranacak kaydınız yok.'
     :f.sekme==='kapali'?'Henüz sonuçlanmış kayıt yok.'
     :'Bu filtrelerle eşleşen potansiyel müşteri yok.')+'</div>';
