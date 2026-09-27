@@ -1713,6 +1713,84 @@ function viewOrg(){
     (ds.length?'<div class="scroll"><table><thead><tr><th>Departman</th><th class="num">Personel</th><th class="num">Dönem gideri</th><th></th></tr></thead><tbody>'+ds.map(d=>'<tr><td>'+esc(d.name)+'</td><td class="num">'+db.employees.filter(e=>e.departmentId===d.id).length+'</td><td class="num">'+money(sum(exp.filter(t=>t.departmentId===d.id)))+'</td><td class="num"><button class="btn sm" data-act="drill" data-dim="departman" data-key="'+d.id+'">Gider detayı</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Bu şirkete henüz departman eklenmedi.</div>')+'</section>';}).join('')+'</div>';
 }
 
+/* ---------------------------------------------------------------
+   ŞİFRE İŞLEMLERİ
+   Kendi şifresini herkes değiştirir. Başkasının şifresini yalnızca
+   Master belirleyebilir; o işlem sunucudaki fonksiyona gider, çünkü
+   yetkisi tarayıcıya konulamayacak bir anahtar gerektirir.
+----------------------------------------------------------------*/
+function openSifre(){
+  dlgState={kind:'sifre'};
+  openDlg(dlgHtml('Şifre değiştir',
+    '<dl class="kv"><dt>Hesap</dt><dd>'+esc(me.email)+'</dd></dl>'+
+    '<div class="fields">'+
+    '<div class="field full"><label for="sf-eski">Mevcut şifreniz</label><input id="sf-eski" type="password" autocomplete="current-password"></div>'+
+    '<div class="field full"><label for="sf-yeni">Yeni şifre</label><input id="sf-yeni" type="password" autocomplete="new-password" placeholder="En az 8 karakter"></div>'+
+    '<div class="field full"><label for="sf-yeni2">Yeni şifre (tekrar)</label><input id="sf-yeni2" type="password" autocomplete="new-password"></div>'+
+    '</div>'+
+    '<p class="hint">Şifrenizi kimseyle paylaşmayın. Değişiklikten sonra oturumunuz açık kalır.</p>'+
+    '<p class="err" id="sf-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="save-sifre">Şifreyi değiştir</button>'));
+}
+async function saveSifre(){
+  const eski=$('#sf-eski').value,yeni=$('#sf-yeni').value,yeni2=$('#sf-yeni2').value;
+  const err=m=>{$('#sf-err').textContent=m;};
+  if(!eski)return err('Mevcut şifrenizi girin.');
+  if(yeni.length<8)return err('Yeni şifre en az 8 karakter olmalı.');
+  if(yeni!==yeni2)return err('Yeni şifreler birbiriyle aynı değil.');
+  if(yeni===eski)return err('Yeni şifre eskisiyle aynı olamaz.');
+  if(dlgState.calisiyor)return;
+  dlgState.calisiyor=true;err('Kontrol ediliyor…');
+  try{
+    /* Mevcut şifreyi doğrula: yanlışsa değişiklik yapılmasın */
+    const k=await sb.auth.signInWithPassword({email:me.email,password:eski});
+    if(k.error){dlgState.calisiyor=false;return err('Mevcut şifreniz doğru değil.');}
+    const r=await sb.auth.updateUser({password:yeni});
+    dlgState.calisiyor=false;
+    if(r.error)return err(r.error.message);
+    closeDlg();toast('Şifreniz değiştirildi');
+  }catch(e){dlgState.calisiyor=false;err(String(e&&e.message?e.message:e));}
+}
+/* Master: başka bir kullanıcının şifresini belirler */
+function openSifreBelirle(uid){
+  if(!isMaster())return needDlg('Şifre belirle','Bu işlemi yalnızca Master kullanıcı yapabilir.');
+  const u=(db.users||[]).find(x=>x.userId===uid);if(!u)return;
+  if(uid===me.userId)return openSifre();
+  dlgState={kind:'sifrebelirle',id:uid};
+  openDlg(dlgHtml('Şifre belirle',
+    '<dl class="kv"><dt>Hesap</dt><dd>'+esc(u.email)+'</dd></dl>'+
+    '<div class="fields">'+
+    '<div class="field full"><label for="sb-yeni">Yeni şifre</label><input id="sb-yeni" type="password" autocomplete="new-password" placeholder="En az 8 karakter"></div>'+
+    '<div class="field full"><label for="sb-yeni2">Yeni şifre (tekrar)</label><input id="sb-yeni2" type="password" autocomplete="new-password"></div>'+
+    '</div>'+
+    '<div class="ro-banner"><b>Bu şifreyi kişiye siz ileteceksiniz.</b>'+
+      '<div class="sm">Kullanıcı giriş yaptıktan sonra kendi şifresini değiştirmelidir. Bu işlem hareket kaydına yazılmaz; şifreler hiçbir yerde okunabilir biçimde tutulmaz.</div></div>'+
+    '<p class="err" id="sb-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="save-sifrebelirle" data-id="'+uid+'">Şifreyi belirle</button>'));
+}
+async function saveSifreBelirle(uid){
+  const yeni=$('#sb-yeni').value,yeni2=$('#sb-yeni2').value;
+  const err=m=>{$('#sb-err').textContent=m;};
+  if(yeni.length<8)return err('Şifre en az 8 karakter olmalı.');
+  if(yeni!==yeni2)return err('Şifreler birbiriyle aynı değil.');
+  if(dlgState.calisiyor)return;
+  dlgState.calisiyor=true;err('Gönderiliyor…');
+  try{
+    const r=await sb.functions.invoke('sifre-belirle',{body:{user_id:uid,password:yeni}});
+    dlgState.calisiyor=false;
+    if(r.error){
+      let m=r.error.message||'Şifre belirlenemedi.';
+      try{const c=await r.error.context.json();if(c&&c.error)m=c.error;}catch(e){}
+      if(/Failed to send|not found|404/i.test(m))
+        m='Sunucu fonksiyonu bulunamadı. Supabase üzerinde “sifre-belirle” fonksiyonunu yayınlamanız gerekiyor.';
+      return err(m);
+    }
+    if(r.data&&r.data.error)return err(r.data.error);
+    closeDlg();toast('Şifre belirlendi');
+  }catch(e){dlgState.calisiyor=false;err(String(e&&e.message?e.message:e));}
+}
 function rolBadge(r){
   const k=rolAdi(r);
   return '<span class="badge '+(ROL_RENK[k]||'')+'">'+esc(ROL_ADI[k]||k)+'</span>';
@@ -1765,6 +1843,7 @@ function openUser(uid){
     '<p class="hint">Yönetici yetkisi verilen kişi finans, maaş ve tüm kayıtlara erişir. Personel yalnızca kendi satış, müşteri ve randevularını görür; kendi girdiği kayıtları aynı hafta içinde düzeltebilir.</p>'+
     '<p class="err" id="us-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+
+    (isMaster()&&uid!==me.userId?'<button class="btn" data-act="open-sifrebelirle" data-id="'+uid+'">Şifre belirle</button>':'')+
     '<button class="btn danger" data-act="del-user" data-id="'+uid+'">Erişimi kaldır</button>'+
     '<button class="btn primary" data-act="save-user">Kaydet</button>'));
 }
@@ -2615,7 +2694,7 @@ function sidebar(){
       items.map(([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>').join('')+'</div>';
   }).join('')+
   (isFinans()?'<div class="nav-group later"><div class="nav-title">Sonraki aşamalar</div>'+LATER.map(([l,f])=>'<button class="nav" disabled>'+l+'<span class="tag">'+f+'</span></button>').join('')+'</div>':'')+'</nav>'+
-  '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
+  '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="open-sifre">Şifre değiştir</button><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
 }
 function render(){
   if(!me)return renderLogin();
@@ -3630,6 +3709,10 @@ const actions={
   },
   'open-wh'(){openWh();},'save-wh'(){saveWh();},
   'export-xl'(el){exportExcel(el.dataset.v);},
+  'open-sifre'(){openSifre();},
+  'save-sifre'(){saveSifre();},
+  'open-sifrebelirle'(el){openSifreBelirle(el.dataset.id);},
+  'save-sifrebelirle'(el){saveSifreBelirle(el.dataset.id);},
   'den-yenile'(){state.den.yuklendi=false;state.den.hata='';denetimYukle();},
   'den-finans'(){state.den.finans=!state.den.finans;const b=$('#denlist');if(b)b.innerHTML=denetimTablo();render();},
   'den-temizle'(){state.den=Object.assign(state.den,{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false});denetimYukle();},
