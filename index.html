@@ -421,7 +421,7 @@ async function loadAll(){
       gelir:num(r.gelir),gelirTip:r.gelir_tip||'sabit'})),
     warehouses:warehouses.map(r=>({id:r.id,name:r.name})),
     stock:stockUnits.map(r=>{const u={id:r.id,productId:r.product_id,serial:r.serial,warehouseId:r.warehouse_id,
-      status:r.status,holderId:r.holder_id,note:r.note||'',log:sLog[r.id]||[]};
+      status:r.status,holderId:r.holder_id,note:r.note||'',girisFiyat:num(r.giris_fiyat),log:sLog[r.id]||[]};
       if(r.sale_id)u.saleId=r.sale_id;return u;}),
     sales:sales.map(r=>({id:r.id,date:r.date,employeeId:r.employee_id,departmentId:r.department_id,
       companyId:r.company_id,customerId:r.customer_id,customer:r.customer,productId:r.product_id,
@@ -881,11 +881,17 @@ function unitLoc(u){
 function stokSummary(){
   const ps=stockedProds();
   if(!ps.length)return '<div class="empty">Stok takibi açık ürün yok. Ürünler sayfasında bir ürünü düzenleyip "Stok takibi yapılır" seçeneğini işaretleyin.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Ürün</th>'+db.warehouses.map(w=>'<th class="num">'+esc(w.name)+'</th>').join('')+'<th class="num">Personelde</th><th class="num">Toplam depoda</th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Ürün</th>'+db.warehouses.map(w=>'<th class="num">'+esc(w.name)+'</th>').join('')+'<th class="num">Personelde</th><th class="num">Toplam depoda</th><th class="num">Stok değeri</th></tr></thead><tbody>'+
   ps.map(p=>{const us=db.stock.filter(u=>u.productId===p.id);
     return '<tr class="click'+(state.stok.prod===p.id?' sel':'')+'" tabindex="0" data-act="stokprod" data-id="'+p.id+'"><td><div>'+esc(prodLabel(p))+'</div><div class="muted sm">'+esc(p.category)+'</div></td>'+
     db.warehouses.map(w=>'<td class="num">'+us.filter(u=>u.status==='Depoda'&&u.warehouseId===w.id).length+'</td>').join('')+
-    '<td class="num">'+us.filter(u=>u.status==='Personelde').length+'</td><td class="num"><b>'+us.filter(u=>u.status==='Depoda').length+'</b></td></tr>';}).join('')+'</tbody></table></div>';
+    '<td class="num">'+us.filter(u=>u.status==='Personelde').length+'</td><td class="num"><b>'+us.filter(u=>u.status==='Depoda').length+'</b></td>'+
+    '<td class="num">'+(stokDegeri(us)?money(stokDegeri(us)):'<span class="muted">—</span>')+'</td></tr>';}).join('')+
+    '<tr class="total"><td>Toplam</td>'+db.warehouses.map(w=>'<td class="num">'+db.stock.filter(u=>u.status==='Depoda'&&u.warehouseId===w.id).length+'</td>').join('')+
+    '<td class="num">'+db.stock.filter(u=>u.status==='Personelde').length+'</td>'+
+    '<td class="num">'+db.stock.filter(u=>u.status==='Depoda').length+'</td>'+
+    '<td class="num"><b>'+money(stokDegeri())+'</b></td></tr>'+
+    '</tbody></table></div>';
 }
 function stokTable(){
   const f=state.stok,q=f.q.trim().toLocaleLowerCase('tr');
@@ -902,7 +908,8 @@ function viewStok(){
   const kp=db.warehouses.map(w=>'<div class="kpi"><span>'+esc(w.name)+'</span><b>'+us.filter(u=>u.status==='Depoda'&&u.warehouseId===w.id).length+'</b></div>').join('');
   return head('Stok ve depo','Her ürün adedi seri numarasıyla izlenir. Depolar arası transfer, personele teslim ve çıkış kayıtları tek yerde tutulur.',
     '<button class="btn" data-act="open-wh">Depoları düzenle</button><button class="btn" data-act="open-stockout">Stok çıkışı</button><button class="btn" data-act="open-stocktransfer">Depolar arası transfer</button><button class="btn primary" data-act="open-stockin">Stok girişi</button>')+
-  '<div class="kpis">'+kp+'<div class="kpi"><span>Personelde</span><b>'+us.filter(u=>u.status==='Personelde').length+'</b></div><div class="kpi"><span>Satıldı</span><b>'+us.filter(u=>u.status==='Satıldı').length+'</b></div><div class="kpi"><span>Fire</span><b>'+us.filter(u=>u.status==='Fire').length+'</b></div></div>'+
+  '<div class="kpis">'+kp+'<div class="kpi"><span>Personelde</span><b>'+us.filter(u=>u.status==='Personelde').length+'</b></div><div class="kpi"><span>Satıldı</span><b>'+us.filter(u=>u.status==='Satıldı').length+'</b></div><div class="kpi"><span>Stok değeri</span><b>'+money(stokDegeri())+'</b></div><div class="kpi"><span>Fire</span><b>'+us.filter(u=>u.status==='Fire').length+'</b></div></div>'+
+  (fiyatsizStok()?'<div class="ro-banner"><b>'+fiyatsizStok()+' stok kaydının giriş fiyatı girilmemiş.</b><div class="sm">Bu kayıtlar stok değerine ₺0 olarak yansıyor. Listeden kaydı açıp giriş fiyatını girebilirsiniz.</div></div>':'')+
   '<div class="stack"><section class="panel"><div class="panel-h"><div><h2>Ürün bazında stok</h2><p class="muted sm">Bir satıra tıklayın, aşağıdaki liste o ürünle sınırlansın. Aynı satıra tekrar tıklayınca sınır kalkar.</p></div></div>'+stokSummary()+'</section>'+
   '<section class="panel"><div class="panel-h"><input id="sq" type="search" placeholder="Seri no, ürün veya konum ara" value="'+esc(f.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
     '<select data-set="stok.wh" aria-label="Konum">'+opt(db.warehouses.map(w=>[w.id,w.name]).concat([['none','Depo dışında']]),f.wh,'Tüm konumlar')+'</select>'+
@@ -2068,6 +2075,25 @@ function girisRaporBolum(){
     '<div class="panel-b"><p class="hint">“Elle girilen” tek tek yazılan kayıtlardır; toplu Excel yüklemeleri ayrı sütunda durur, böylece giriş performansı karışmaz. Randevu oranı, <b>aranan</b> kayıtlar üzerinden hesaplanır — henüz aranmamış kayıt kimseyi aşağı çekmez.</p></div></section>';
 }
 /* Personel bazında gelir ve maliyet karşılaştırması */
+/* Depo ve ürün bazında stok değeri */
+function stokDegerBolumu(){
+  if(!isFinans())return '';
+  const aktif=db.stock.filter(stokAktif);
+  if(!aktif.length)return '';
+  const satir=(ad,alt,list)=>'<tr><td><div>'+esc(ad)+'</div>'+(alt?'<div class="muted sm">'+esc(alt)+'</div>':'')+'</td>'+
+    '<td class="num">'+list.length+'</td><td class="num"><b>'+money(stokDegeri(list))+'</b></td></tr>';
+  const depolar=db.warehouses.map(w=>satir(w.name,'Depo',aktif.filter(u=>u.status==='Depoda'&&u.warehouseId===w.id))).join('')+
+    satir('Personelde','Zimmetli',aktif.filter(u=>u.status==='Personelde'));
+  const urunler=stockedProds().map(p=>{const us=aktif.filter(u=>u.productId===p.id);
+    return us.length?satir(prodLabel(p),p.category,us):'';}).join('');
+  return '<section class="panel"><div class="panel-h"><h2>Stok değeri</h2>'+
+    '<span class="muted sm">Depodaki ve personeldeki ürünler, giriş fiyatı üzerinden</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Konum</th><th class="num">Adet</th><th class="num">Değer</th></tr></thead><tbody>'+
+    depolar+'<tr class="total"><td>Toplam</td><td class="num">'+aktif.length+'</td><td class="num">'+money(stokDegeri())+'</td></tr></tbody></table></div>'+
+    (urunler?'<div class="scroll"><table><thead><tr><th>Ürün</th><th class="num">Adet</th><th class="num">Değer</th></tr></thead><tbody>'+urunler+'</tbody></table></div>':'')+
+    (fiyatsizStok()?'<div class="panel-b"><p class="hint">'+fiyatsizStok()+' kaydın giriş fiyatı girilmemiş; değere ₺0 olarak yansıyor.</p></div>':'')+
+    '</section>';
+}
 function gelirMaliyetRows(period){
   const ay=period!=='all';
   return aktifPersonel().map(e=>{
@@ -2144,6 +2170,7 @@ function viewRapor(){
   '<div class="panel-b"><div class="tools">'+
     xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('gelir','Personel geliri')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
+  stokDegerBolumu()+
   gelirMaliyetBolumu()+
   girisRaporBolum()+
   (giderGor?'<div>'+filt+'</div>'+
@@ -3182,17 +3209,26 @@ function unitLog(u,text){u.log.push({date:TODAY,text});}
 function moveUnit(u,toId){const from=u.warehouseId?wh(u.warehouseId).name:'';u.warehouseId=toId;u.status='Depoda';u.holderId=null;u.note='';unitLog(u,from?'Transfer: çıkış '+from+', giriş '+wh(toId).name:'Depoya alındı: '+wh(toId).name);}
 function giveUnit(u,empId){u.warehouseId=null;u.status='Personelde';u.holderId=empId;u.note='';unitLog(u,'Personele teslim: '+emp(empId).name);}
 function outUnit(u,reason,note){u.warehouseId=null;u.holderId=null;u.status=reason==='sale'?'Satıldı':'Fire';u.note=note||'';unitLog(u,(reason==='sale'?'Satış':'Arıza / fire')+(note?': '+note:''));}
+/* Stok değeri: depoda ve personelde duran kayıtların giriş fiyatı
+   toplamı. Satılan ve fire olanlar değere girmez. */
+const stokAktif=u=>u.status==='Depoda'||u.status==='Personelde';
+const stokDegeri=list=>(list||db.stock).filter(stokAktif).reduce((t,u)=>t+(u.girisFiyat||0),0);
+const fiyatsizStok=()=>db.stock.filter(u=>stokAktif(u)&&!u.girisFiyat).length;
 function openStockIn(){
   const ps=stockedProds();dlgState={kind:'stockin'};
   if(!db.warehouses.length)return needDlg('Stok girişi','Önce “Depoları düzenle” ile bir depo tanımlayın.');
   if(!ps.length){openDlg(dlgHtml('Stok girişi','<p>Stok takibi açık ürün yok. Önce Ürünler sayfasında bir ürünü "Stok takibi yapılır" olarak işaretleyin.</p>','<button class="btn primary" data-act="close">Tamam</button>'));return;}
   const first=state.stok.prod&&ps.some(p=>p.id===state.stok.prod)?state.stok.prod:ps[0].id;
   openDlg(dlgHtml('Stok girişi','<div class="fields"><div class="field full"><label for="sg-prod">Ürün</label><select id="sg-prod">'+opt(ps.map(p=>[p.id,p.category+' – '+prodLabel(p)]),first)+'</select></div><div class="field full"><label for="sg-wh">Depo</label><select id="sg-wh">'+whOptions(db.warehouses[0].id)+'</select></div>'+serialsField('sg')+'</div>'+
+    '<div class="fields"><div class="field full"><label for="sg-fiyat">Birim giriş fiyatı (₺)</label><input id="sg-fiyat" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value=""></div></div>'+
+    '<p class="hint">Giriş fiyatı her seri numarasına ayrı ayrı yazılır ve stok değeri buradan hesaplanır. Farklı fiyatlı ürünleri ayrı girişlerde kaydedin. Boş bırakabilirsiniz, sonradan da girilebilir.</p>'+
     '<p class="hint">Barkod okuyucu kullanıyorsanız her okutma bir satıra düşer. Virgülle ayırarak da yazabilirsiniz. Bir seri no daha önce kayıtlıysa hiçbir kayıt eklenmez.</p><p class="err" id="sg-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-stockin">Stok girişini kaydet</button>'));
 }
 function saveStockIn(){
   const pid=$('#sg-prod').value,wid=$('#sg-wh').value,list=parseSerials($('#sg-serials').value),err=m=>{$('#sg-err').textContent=m;};
+  const fiyat=parseFloat(String(($('#sg-fiyat')||{}).value||'0').replace(',','.'))||0;
+  if(fiyat<0)return err('Giriş fiyatı negatif olamaz.');
   if(!list.length)return err('En az bir seri numarası girin.');
   const seen=new Set(),dups=[];list.forEach(x=>{const k=x.toLocaleLowerCase('tr');if(seen.has(k))dups.push(x);seen.add(k);});
   if(dups.length)return err('Listede tekrar eden seri no var: '+missingText(dups));
@@ -3200,10 +3236,10 @@ function saveStockIn(){
   if(taken.length)return err(taken.length+' seri no zaten kayıtlı: '+missingText(taken));
   run('sg-err',async()=>{
     const r=await sb.from('stock_units').insert(list.map(x=>({product_id:pid,serial:x,
-      warehouse_id:wid,status:'Depoda',created_by:me.userId}))).select();
+      warehouse_id:wid,status:'Depoda',giris_fiyat:fiyat,created_by:me.userId}))).select();
     if(r.error)throw r.error;
     const lr=await sb.from('stock_logs').insert(r.data.map(u=>({unit_id:u.id,date:TODAY,
-      text:'Stok girişi: '+wh(wid).name,created_by:me.userId})));
+      text:'Stok girişi: '+wh(wid).name+(fiyat?' · giriş fiyatı '+money(fiyat):''),created_by:me.userId})));
     if(lr.error)throw lr.error;
   },list.length+' adet stok girişi yapıldı');
 }
@@ -3260,7 +3296,8 @@ function openUnit(id){
   const inDepot=u.status==='Depoda';
   const events=[...u.log].reverse().map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('');
   openDlg(dlgHtml(esc(prodLabel(p)),
-    '<dl class="kv"><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Seri no</dt><dd>'+esc(u.serial)+'</dd><dt>Durum</dt><dd>'+stBadge(u.status)+'</dd><dt>Konum</dt><dd>'+(esc(unitLoc(u))||'-')+'</dd></dl>'+
+    '<dl class="kv"><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Seri no</dt><dd>'+esc(u.serial)+'</dd><dt>Durum</dt><dd>'+stBadge(u.status)+'</dd><dt>Konum</dt><dd>'+(esc(unitLoc(u))||'-')+'</dd><dt>Giriş fiyatı</dt><dd>'+(u.girisFiyat?money(u.girisFiyat):'<span class="muted">Girilmedi</span>')+'</dd></dl>'+
+    (isFinans()?'<section class="dsec"><h3>Giriş fiyatı</h3><div class="row"><input id="u-fiyat" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="'+(u.girisFiyat||'')+'" style="flex:1 1 140px;width:auto"><button class="btn primary" data-act="unit-fiyat" data-id="'+id+'">Kaydet</button></div><p class="hint">Stok değeri bu tutardan hesaplanır.</p><p class="err" id="u-err"></p></section>':'')+
     (inDepot?
       '<section class="dsec"><h3>Başka depoya taşı</h3><div class="row"><select id="u-wh" aria-label="Depo">'+whOptions('',u.warehouseId)+'</select><button class="btn primary" data-act="unit-move" data-id="'+id+'">Taşı</button></div></section>'+
       '<section class="dsec"><h3>Personele teslim</h3><div class="row"><select id="u-emp" aria-label="Personel">'+empOptions('','','','Personel seçin')+'</select><button class="btn primary" data-act="unit-give" data-id="'+id+'">Teslim et</button></div></section>'+
@@ -3883,6 +3920,15 @@ const actions={
   stokprod(el){state.stok.prod=state.stok.prod===el.dataset.id?'':el.dataset.id;render();},
   unit(el){openUnit(el.dataset.id);},
   'open-stockin'(){openStockIn();},'save-stockin'(){saveStockIn();},
+  'unit-fiyat'(el){
+    const id=el.dataset.id,u=byId(db.stock,id);if(!u)return;
+    const v=parseFloat(String(($('#u-fiyat')||{}).value||'0').replace(',','.'))||0;
+    if(v<0)return void($('#u-err').textContent='Giriş fiyatı negatif olamaz.');
+    run('u-err',async()=>{
+      await upd('stock_units',id,{giris_fiyat:v});
+      await ins('stock_logs',{unit_id:id,date:TODAY,text:'Giriş fiyatı güncellendi: '+money(v)});
+    },'Giriş fiyatı kaydedildi');
+  },
   'open-stocktransfer'(){openStockTransfer();},'save-stocktransfer'(){saveStockTransfer();},
   'open-stockout'(){openStockOut();},'save-stockout'(){saveStockOut();},
   'unit-move'(el){
