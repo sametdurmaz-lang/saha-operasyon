@@ -657,24 +657,28 @@ function digerBirimler(p,kendi){
     '<div class="panel-b"><p class="hint">Diğer birimlerin personel detayları size kapalıdır; yalnızca birim toplamları görünür.</p></div></section>';
 }
 function viewOzetBirim(){
-  const p=state.period,bid=birimKapsamim();
+  const p=state.period,hepsi=isUst();          /* bayi müdürü: tüm birimler */
+  const bid=hepsi?null:birimKapsamim();
   const birim=bid?byId(db.birimler,bid):null;
-  const ekip=ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===bid));
+  const ekip=hepsi?aktifPersonel():ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===bid));
   const k=birimOzetKpi(ekip,p);
   const ss=salesIn(p);
   const perfRows=ekip.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>{
+    const bi=e.birimId?byId(db.birimler,e.birimId):null;
     const my=ss.filter(x=>x.employeeId===e.id);
     const rnd=db.appointments.filter(a=>inPeriod(a,p)&&!iptalMi(a)&&alanOf(a)===e.id);
     const acik=db.appointments.filter(a=>a.employeeId===e.id&&a.status==='Açık').length;
-    return '<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div></td>'+
+    return '<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+
+      esc([(bi?bi.name:''),((dept(e.departmentId)||{}).name||'')].filter(Boolean).join(' · '))+'</div></td>'+
       '<td class="num">'+acik+'</td><td class="num">'+rnd.length+'</td>'+
       '<td class="num">'+my.length+'</td><td class="num"><b>'+nf.format(my.reduce((a,x)=>a+x.puan,0))+'</b></td>'+
       '<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td></tr>';
   }).join('');
   return head('Genel bakış',
-    (birim?birim.name+' birimi':'Biriminiz')+' — saha satış ekibinin hedefleri, randevuları ve performansı.',periodSel())+
+    hepsi?'Tüm birimlerin hedefleri, randevuları ve performansı.'
+         :(birim?birim.name+' birimi':'Biriminiz')+' — saha satış ekibinin hedefleri, randevuları ve performansı.',periodSel())+
   '<div class="kpis">'+
-    '<div class="kpi"><span>Ekip personeli</span><b>'+ekip.length+'</b></div>'+
+    '<div class="kpi"><span>'+(hepsi?'Personel':'Ekip personeli')+'</span><b>'+ekip.length+'</b></div>'+
     '<div class="kpi"><span>Açık randevu</span><b>'+k.acik+'</b></div>'+
     '<div class="kpi"><span>Bu dönem randevu</span><b>'+k.donem+'</b></div>'+
     '<div class="kpi"><span>Satışa dönen</span><b>'+k.satisaDonen+'</b></div>'+
@@ -682,20 +686,21 @@ function viewOzetBirim(){
     '<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>'+
   '</div>'+
   '<div class="stack">'+
+  (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')),p):'')+
   (ekip.length
-    ?hedefGrubu(birim?birim.name:'Biriminiz',
-        'Saha satış ekibi · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p)+
+    ?(hepsi?'':hedefGrubu(birim?birim.name:'Biriminiz',
+        'Saha satış ekibi · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p))+
      '<section class="panel"><div class="panel-h"><h2>Ekip performansı</h2>'+
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
        '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
        '<th class="num">Prim</th></tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
     :'<div class="empty">Biriminize bağlı saha satış personeli bulunamadı. Yöneticinizden personelin birim ve departman atamasını kontrol etmesini isteyin.</div>')+
-  digerBirimler(p,bid)+
+  (hepsi?'':digerBirimler(p,bid))+
   '</div>';
 }
 function viewOzet(){
-  if(isBirim()&&!isUst()&&!isMuhasebe())return viewOzetBirim();
+  if(!isFinans())return viewOzetBirim();
   const p=state.period,exp=expenses(p),inc=incomes(p),tE=sum(exp),tI=sum(inc);
   const totBal=db.accounts.reduce((s,a)=>s+balance(a.id),0);
   const linkedD=sum(exp.filter(t=>t.departmentId)),linkedE=sum(exp.filter(t=>t.employeeId));
@@ -1798,8 +1803,8 @@ function viewOrg(){
   return head('Şirket, birim ve departmanlar','Bütün kayıtların bağlandığı yapı. Birimler havuzları ve yetki kapsamını belirler.',periodSel()+'<button class="btn primary" data-act="open-company">Şirket ekle</button>')+
   '<div class="stack">'+birimlerBolumu()+db.companies.map(c=>{
     const ds=db.departments.filter(d=>d.companyId===c.id),tot=sum(exp.filter(t=>t.companyId===c.id));
-    return '<section class="panel"><div class="panel-h"><div><h2>'+esc(c.name)+'</h2><p class="muted sm">'+db.employees.filter(e=>e.companyId===c.id).length+' personel, dönem gideri '+money(tot)+'</p></div><div class="tools"><button class="btn sm" data-act="drill" data-dim="sirket" data-key="'+c.id+'">Gider detayı</button><button class="btn sm" data-act="open-dept" data-id="'+c.id+'">Departman ekle</button></div></div>'+
-    (ds.length?'<div class="scroll"><table><thead><tr><th>Departman</th><th class="num">Personel</th><th class="num">Dönem gideri</th><th></th></tr></thead><tbody>'+ds.map(d=>'<tr><td>'+esc(d.name)+'</td><td class="num">'+db.employees.filter(e=>e.departmentId===d.id).length+'</td><td class="num">'+money(sum(exp.filter(t=>t.departmentId===d.id)))+'</td><td class="num"><button class="btn sm" data-act="drill" data-dim="departman" data-key="'+d.id+'">Gider detayı</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Bu şirkete henüz departman eklenmedi.</div>')+'</section>';}).join('')+'</div>';
+    return '<section class="panel"><div class="panel-h"><div><h2>'+esc(c.name)+'</h2><p class="muted sm">'+db.employees.filter(e=>e.companyId===c.id).length+' personel'+(isFinans()?', dönem gideri '+money(tot):'')+'</p></div><div class="tools"><button class="btn sm" data-act="drill" data-dim="sirket" data-key="'+c.id+'">Gider detayı</button><button class="btn sm" data-act="open-dept" data-id="'+c.id+'">Departman ekle</button></div></div>'+
+    (ds.length?'<div class="scroll"><table><thead><tr><th>Departman</th><th class="num">Personel</th>'+(isFinans()?'<th class="num">Dönem gideri</th>':'')+'<th></th></tr></thead><tbody>'+ds.map(d=>'<tr><td>'+esc(d.name)+'</td><td class="num">'+db.employees.filter(e=>e.departmentId===d.id).length+'</td>'+(isFinans()?'<td class="num">'+money(sum(exp.filter(t=>t.departmentId===d.id)))+'</td>':'')+'<td class="num"><button class="btn sm" data-act="drill" data-dim="departman" data-key="'+d.id+'">Gider detayı</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Bu şirkete henüz departman eklenmedi.</div>')+'</section>';}).join('')+'</div>';
 }
 
 /* ---------------------------------------------------------------
@@ -2032,7 +2037,7 @@ function viewRapor(){
     '<select data-set="rep.cat" aria-label="Kategori">'+opt(CAT_OUT.map(c=>[c,c]),r.cat,'Tüm kategoriler')+'</select>'+
     '<button class="btn" data-act="clear-rep">Filtreleri temizle</button></div>';
   const detail=list.slice().sort((a,b)=>a.date<b.date?1:-1).slice(0,60);
-  const giderGor=isFinans()||isUst();
+  const giderGor=isFinans();
   return head('Raporlar',giderGor
       ?'Gider raporunu filtreleyin; satış ve randevu kayıtlarının tamamını Excel\u2019e aktarın.'
       :'Ekibinizin potansiyel müşteri girişleri ve satış kayıtları. Excel\u2019e aktarabilirsiniz.','')+
