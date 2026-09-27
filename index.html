@@ -612,6 +612,20 @@ function relCell(t){
    Kendi ekibinin hedefleri, randevuları ve performansı; diğer
    birimlerden yalnızca toplam gerçekleşme oranları.
 ----------------------------------------------------------------*/
+/* Saha satışçısı mı?
+   Önce kullanıcı rolüne bakılır (görülebiliyorsa), yoksa departman
+   adına. Departman adında "saha" geçen personel saha sayılır. */
+function sahaPersoneliMi(e){
+  if(!e)return false;
+  /* Birim müdürleri ve Bayi Müdürü saha personeli sayılmaz */
+  if(e.bayiMuduru)return false;
+  if((db.birimler||[]).some(b=>b.mudurId===e.id))return false;
+  const u=(db.users||[]).find(x=>x.employeeId===e.id);
+  if(u&&u.role)return rolAdi(u.role)==='saha';
+  return trl((dept(e.departmentId)||{}).name||'').indexOf('saha')>=0;
+}
+/* Birim müdürü yalnızca saha personelini görür */
+const ekipSuzgeci=list=>isBirim()&&!isUst()&&!isMuhasebe()?list.filter(sahaPersoneliMi):list;
 function birimOzetKpi(list,p){
   const ss=salesIn(p).filter(x=>list.some(e=>e.id===x.employeeId));
   const puan=ss.reduce((a,x)=>a+x.puan,0),prim=ss.reduce((a,x)=>a+x.prim,0);
@@ -628,7 +642,7 @@ function digerBirimler(p,kendi){
   const list=(db.birimler||[]).filter(b=>b.id!==kendi);
   if(!list.length)return '';
   const satir=b=>{
-    const ekip=aktifPersonel().filter(e=>e.birimId===b.id);
+    const ekip=ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===b.id));
     if(!ekip.length)return '';
     return '<tr><td><div>'+esc(b.name)+'</div><div class="muted sm">'+ekip.length+' personel</div></td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(ekip,k,p)+'</td>').join('')+'</tr>';
@@ -645,7 +659,7 @@ function digerBirimler(p,kendi){
 function viewOzetBirim(){
   const p=state.period,bid=birimKapsamim();
   const birim=bid?byId(db.birimler,bid):null;
-  const ekip=aktifPersonel().filter(e=>e.birimId===bid);
+  const ekip=ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===bid));
   const k=birimOzetKpi(ekip,p);
   const ss=salesIn(p);
   const perfRows=ekip.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>{
@@ -658,7 +672,7 @@ function viewOzetBirim(){
       '<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td></tr>';
   }).join('');
   return head('Genel bakış',
-    (birim?birim.name+' birimi':'Biriminiz')+' — ekip hedefleri, randevular ve performans.',periodSel())+
+    (birim?birim.name+' birimi':'Biriminiz')+' — saha satış ekibinin hedefleri, randevuları ve performansı.',periodSel())+
   '<div class="kpis">'+
     '<div class="kpi"><span>Ekip personeli</span><b>'+ekip.length+'</b></div>'+
     '<div class="kpi"><span>Açık randevu</span><b>'+k.acik+'</b></div>'+
@@ -670,13 +684,13 @@ function viewOzetBirim(){
   '<div class="stack">'+
   (ekip.length
     ?hedefGrubu(birim?birim.name:'Biriminiz',
-        'Hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p)+
+        'Saha satış ekibi · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p)+
      '<section class="panel"><div class="panel-h"><h2>Ekip performansı</h2>'+
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
        '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
        '<th class="num">Prim</th></tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
-    :'<div class="empty">Biriminize henüz personel bağlanmamış. Yöneticinizden personelin birim ataması yapılmasını isteyin.</div>')+
+    :'<div class="empty">Biriminize bağlı saha satış personeli bulunamadı. Yöneticinizden personelin birim ve departman atamasını kontrol etmesini isteyin.</div>')+
   digerBirimler(p,bid)+
   '</div>';
 }
@@ -1261,7 +1275,7 @@ function viewHedef(){
   if(!db.employees.length)return emptyView('Satış hedefleri','Her personelin kategori bazında aylık hedefi belirlenir; bazı personeller belirli hedeflerden muaf tutulabilir.','','Personel eklendiğinde hedef tablosu burada görünür.');
   const p=state.period;
   /* Kimin hedeflerini görebiliyorum */
-  const gorunur=aktifPersonel().filter(e=>isUst()||isMuhasebe()||(isBirim()&&ekipte(e.id))||e.id===me.employeeId);
+  const gorunur=ekipSuzgeci(aktifPersonel().filter(e=>isUst()||isMuhasebe()||(isBirim()&&ekipte(e.id))||e.id===me.employeeId));
   const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   const bloklar=birimler.map(b=>hedefGrubu(b.name,
       (emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı',
