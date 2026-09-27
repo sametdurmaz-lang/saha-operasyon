@@ -1891,9 +1891,7 @@ function rolBadge(r){
 }
 /* Bu kullanıcının rolünü değiştirebilir miyim? */
 function rolVerebilirim(r){
-  const k=rolAdi(r);
-  if(isMaster())return true;
-  return isUst()&&['birim_muduru','destek','saha'].indexOf(k)>=0;
+  return isMaster();   /* kullanıcı yetkilerini yalnızca Master düzenler */
 }
 function viewKullanici(){
   const users=(db.users||[]).slice().sort((a,b)=>
@@ -3569,7 +3567,7 @@ const EKRAN_YETKI={
   zimmet   :()=>isFinans(),
   personel :()=>isFinans(),
   org      :()=>isFinans()||isUst(),
-  kullanici:()=>isMaster()||isUst(),
+  kullanici:()=>isMaster(),
   rapor    :()=>raporcu(),
   denetim  :()=>isMaster(),
   satis    :()=>true,
