@@ -2,7 +2,15 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0D1B2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Saha Operasyon">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Saha Operasyon Yönetimi</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -45,6 +53,11 @@ p{margin:0}
 .in{color:var(--in)} .out{color:var(--out)}
 
 .shell{display:flex;flex-direction:column;min-height:100vh}
+/* Telefonda çentik ve alt çubuk altında içerik kalmasın */
+.side{padding-top:env(safe-area-inset-top)}
+.main{padding-left:calc(24px + env(safe-area-inset-left));
+      padding-right:calc(24px + env(safe-area-inset-right));
+      padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 .side{background:var(--bar);color:var(--bar-ink);border-bottom:1px solid var(--bar-line);
   padding:0 20px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:18px;
   position:sticky;top:0;z-index:20;min-height:56px}
@@ -206,6 +219,10 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .rnd-pin .yn{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:6px;
   padding:2px 6px;font-size:11px;font-weight:600;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .rnd-pin:hover .nk{filter:brightness(1.08)}
+.yeni-surum{position:fixed;left:50%;transform:translateX(-50%);z-index:90;
+  bottom:calc(16px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:12px;
+  background:var(--bar);color:var(--bar-ink);padding:10px 12px 10px 16px;border-radius:12px;
+  box-shadow:0 8px 24px rgba(13,27,42,.3);font-size:14px}
 .field label{font-weight:500;font-size:13.5px}
 .err{color:var(--out);font-size:13px;min-height:18px;margin-top:10px}
 .dsec{padding:12px 0;border-bottom:1px solid var(--line)}
@@ -255,7 +272,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
   .side.acik .side-foot{display:flex;grid-column:1/-1;order:4;flex-wrap:wrap;margin:0 0 6px}
   .nav{padding:6px 9px;font-size:13.5px}
   .side-foot .who{display:none}
-  .main{padding:18px 14px 56px}
+  .main{padding:18px calc(14px + env(safe-area-inset-left)) calc(56px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-right))}
   .bar-row{grid-template-columns:1fr auto}
   .bar-row .bar-track{grid-column:1/-1;order:3}
   .rnd-pin .yn{display:none}   /* dar ekranda pin yanı gizlenir; bilgi baloncukta */
@@ -286,7 +303,40 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-i';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-j';
+/* --- Telefona kurulabilir uygulama (PWA) ---
+   Service worker yalnızca https veya localhost'ta çalışır; dosyayı
+   çift tıklayarak açtığınızda sessizce atlanır. */
+if('serviceWorker' in navigator&&location.protocol!=='file:'){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(kayit=>{
+      /* Yeni sürüm yüklendiğinde kullanıcı eski kopyada kalmasın */
+      kayit.addEventListener('updatefound',()=>{
+        const yeni=kayit.installing;if(!yeni)return;
+        yeni.addEventListener('statechange',()=>{
+          if(yeni.state==='installed'&&navigator.serviceWorker.controller)yeniSurumUyar();
+        });
+      });
+      setInterval(()=>kayit.update(),30*60*1000);   /* yarım saatte bir bak */
+    }).catch(()=>{});
+    let yenilendi=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(yenilendi)return;yenilendi=true;location.reload();
+    });
+  });
+}
+function yeniSurumUyar(){
+  if(document.getElementById('yeni-surum'))return;
+  const el=document.createElement('div');
+  el.id='yeni-surum';el.className='yeni-surum';
+  el.innerHTML='<span>Yeni sürüm hazır.</span><button class="btn sm primary" type="button">Yenile</button>';
+  el.querySelector('button').onclick=()=>{
+    navigator.serviceWorker.getRegistration().then(k=>{
+      if(k&&k.waiting)k.waiting.postMessage('guncelle');else location.reload();
+    });
+  };
+  document.body.appendChild(el);
+}   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
