@@ -53,8 +53,18 @@ p{margin:0}
 .brand b{display:block;font-family:'Space Grotesk','IBM Plex Sans',sans-serif;font-size:15px;font-weight:600;line-height:1.15;letter-spacing:-.01em}
 .brand span{display:none}
 .side nav{display:flex;flex-wrap:wrap;gap:2px;flex:1 1 auto;min-width:0;padding:8px 0}
-.nav-group{display:contents}
+.nav-group{position:relative;display:inline-flex}
 .nav-title{display:none}
+.nav-ust{gap:5px}
+.nav-ust .ok{font-size:10px;opacity:.7;line-height:1}
+.nav-group.acik .nav-ust{background:var(--bar-active);color:#fff}
+.nav-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:60;
+  min-width:210px;padding:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 10px 28px rgba(13,27,42,.18);flex-direction:column;gap:2px}
+.nav-group.acik .nav-menu{display:flex}
+.nav-menu .nav{width:100%;justify-content:flex-start;color:var(--ink);font-weight:500;padding:8px 10px;border-radius:7px}
+.nav-menu .nav:hover:not([disabled]){background:var(--accent-soft);color:var(--ink)}
+.nav-menu .nav[aria-current="page"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .nav{display:inline-flex;align-items:center;gap:6px;width:auto;text-align:left;padding:7px 11px;border:0;
   background:transparent;border-radius:7px;color:var(--bar-muted);font-weight:500;white-space:nowrap}
 .nav:hover:not([disabled]){background:var(--bar-active);color:var(--bar-ink)}
@@ -223,6 +233,13 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
   .menu-btn{display:inline-flex;justify-self:end}
   .side nav{grid-column:1/-1;order:3;display:none;padding:0 0 6px}
   .side.acik nav{display:flex}
+  .nav-group{display:block;width:100%}
+  .nav-ust{display:none}
+  .nav-menu{display:flex!important;position:static;min-width:0;padding:0;background:transparent;
+    border:0;box-shadow:none;flex-direction:row;flex-wrap:wrap;gap:2px}
+  .nav-menu .nav{width:auto;color:var(--bar-muted);padding:6px 9px}
+  .nav-menu .nav:hover:not([disabled]){background:var(--bar-active);color:var(--bar-ink)}
+  .nav-menu .nav[aria-current="page"]{background:var(--bar-active);color:#fff}
   .side-foot{display:none}
   .side.acik .side-foot{display:flex;grid-column:1/-1;order:4;flex-wrap:wrap;margin:0 0 6px}
   .nav{padding:6px 9px;font-size:13.5px}
@@ -257,7 +274,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-d';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-e';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -3291,25 +3308,44 @@ function viewDenetim(){
 const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,harita:viewHarita,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim};
 const NAV=[
   {g:'',items:[['ozet','Genel bakış']]},
-  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
-  {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
   {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular']]},
-  {g:'Ürün ve envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
+  {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
+  {g:'Saha',items:[['arac','Araç takip'],['harita','Harita']]},
+  {g:'Envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
+  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve birimler'],['kullanici','Kullanıcılar']]},
-  {g:'Ürün ve envanter',items:[['arac','Araç takip'],['harita','Harita']]},
   {g:'Analiz',items:[['rapor','Raporlar'],['denetim','Hareket kaydı']]}
 ];
+/* Az sayıda ekran gören kullanıcıda açılır menü gereksiz; düz liste
+   tek tıkla gitmeyi sağlıyor. Sınırı aşınca gruplara dönüyoruz. */
+const NAV_DUZ_SINIR=7;
+function navGorunen(){
+  return NAV.map(g=>({g:g.g,items:g.items.filter(([v])=>gorebilir(v))}))
+            .filter(g=>g.items.length);
+}
 const LATER=[['Yıllık izin','Faz 3']];
 function sidebar(){
-  return '<aside class="side'+(state.menuAcik?' acik':'')+'"><div class="brand"><div class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><rect x="2" y="12" width="3.5" height="6" rx="1" fill="#fff"/><rect x="8.2" y="8" width="3.5" height="10" rx="1" fill="#fff"/><rect x="14.5" y="2" width="3.5" height="16" rx="1" fill="#fff"/></svg></div><div><b>Saha Operasyon</b><span>Yönetim paneli</span></div></div><button class="menu-btn" data-act="menu" aria-label="Menü" aria-expanded="'+(state.menuAcik?'true':'false')+'">&#9776;</button><nav aria-label="Ana menü">'+
-  NAV.map(g=>{
-    const items=g.items.filter(([v])=>gorebilir(v));
-    if(!items.length)return '';
-    return '<div class="nav-group">'+(g.g?'<div class="nav-title">'+g.g+'</div>':'')+
-      items.map(([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>').join('')+'</div>';
-  }).join('')+
-  (isFinans()?'<div class="nav-group later"><div class="nav-title">Sonraki aşamalar</div>'+LATER.map(([l,f])=>'<button class="nav" disabled>'+l+'<span class="tag">'+f+'</span></button>').join('')+'</div>':'')+'</nav>'+
-  '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="open-sifre">Şifre değiştir</button><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
+  const gruplar=navGorunen();
+  const toplam=gruplar.reduce((t,g)=>t+g.items.length,0);
+  const duz=toplam<=NAV_DUZ_SINIR;
+  const btn=([v,l])=>'<button class="nav" data-act="nav" data-v="'+v+'"'+(state.view===v?' aria-current="page"':'')+'>'+l+'</button>';
+
+  const menu=gruplar.map(g=>{
+    /* Grubu olmayan tek kalem (Genel bakış) her zaman düz gösterilir */
+    if(duz||!g.g||g.items.length===1)return '<div class="nav-group">'+g.items.map(btn).join('')+'</div>';
+    const acik=state.navAcik===g.g;
+    const icinde=g.items.some(([v])=>state.view===v);
+    return '<div class="nav-group'+(acik?' acik':'')+'">'+
+      '<button class="nav nav-ust" data-act="nav-grup" data-v="'+esc(g.g)+'" aria-expanded="'+acik+'" aria-haspopup="true"'+
+        (icinde?' aria-current="page"':'')+'>'+esc(g.g)+'<span class="ok" aria-hidden="true">▾</span></button>'+
+      '<div class="nav-menu">'+g.items.map(btn).join('')+'</div></div>';
+  }).join('');
+
+  return '<aside class="side'+(state.menuAcik?' acik':'')+'">'+
+    '<div class="brand"><div class="mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><rect x="2" y="12" width="3.5" height="6" rx="1" fill="#fff"/><rect x="8.2" y="8" width="3.5" height="10" rx="1" fill="#fff"/><rect x="14.5" y="2" width="3.5" height="16" rx="1" fill="#fff"/></svg></div><div><b>Saha Operasyon</b><span>Yönetim paneli</span></div></div>'+
+    '<button class="menu-btn" data-act="menu" aria-label="Menü" aria-expanded="'+(state.menuAcik?'true':'false')+'">&#9776;</button>'+
+    '<nav aria-label="Ana menü">'+menu+'</nav>'+
+    '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="open-sifre">Şifre değiştir</button><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
 }
 function render(){
   if(!me)return renderLogin();
@@ -4227,7 +4263,8 @@ async function boot(){
 
 /* ---------- Eylemler ---------- */
 const actions={
-  nav(el){state.view=el.dataset.v;state.menuAcik=false;render();window.scrollTo(0,0);},
+  nav(el){state.view=el.dataset.v;state.menuAcik=false;state.navAcik='';render();window.scrollTo(0,0);},
+  'nav-grup'(el){const g=el.dataset.v;state.navAcik=state.navAcik===g?'':g;render();},
   menu(){state.menuAcik=!state.menuAcik;render();},
   'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;render();},
   'arac-hizli'(el){const k=el.dataset.v;
@@ -4481,7 +4518,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -4491,11 +4528,15 @@ function init(){
   emptyDb();
   state=defaultState();
   document.addEventListener('click',e=>{
+    /* Açık menü, dışına tıklanınca kapanır */
+    if(state&&state.navAcik&&!(e.target.closest&&e.target.closest('.nav-group'))){
+      state.navAcik='';render();}
     const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;
     const act=el.dataset.act;
     const fn=actions[act];if(fn)fn(el,e);
   });
   document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&state&&state.navAcik){state.navAcik='';render();return;}
     if(e.key==='Enter'&&e.target.matches&&e.target.matches('#lg-email,#lg-pass')){e.preventDefault();doLogin();return;}
     if(e.key==='Enter'&&e.target.matches&&e.target.matches('#sg-email,#sg-pass,#sg-pass2')){e.preventDefault();doSignup();return;}
     if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('tr.click')){e.preventDefault();const fn=actions[e.target.dataset.act];if(fn)fn(e.target);}
