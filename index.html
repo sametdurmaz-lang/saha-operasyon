@@ -171,6 +171,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .field.full{grid-column:1/-1}
+.hint.full{grid-column:1/-1;margin:0}
 .field label{font-weight:500;font-size:13.5px}
 .err{color:var(--out);font-size:13px;min-height:18px;margin-top:10px}
 .dsec{padding:12px 0;border-bottom:1px solid var(--line)}
@@ -241,7 +242,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='28.09.2026';   /* yayına alınan sürümün tarihi */
+const SURUM='29.09.2026';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -436,6 +437,7 @@ async function loadAll(){
     repairs:repairs.map(r=>({id:r.id,assetId:r.asset_id,date:r.date,desc:r.descr,cost:num(r.cost),
       accountId:r.account_id,txId:r.tx_id,employeeId:r.employee_id})),
     assets:assets.map(r=>({id:r.id,category:r.category,model:r.model,serial:r.serial||'',note:r.note||'',
+      plaka:r.plaka||'',mobilizId:r.mobiliz_id||'',
       companyId:r.company_id,holderId:r.holder_id,status:r.status,log:aLog[r.id]||[],
       cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     products:products.map(r=>({id:r.id,category:r.category,brand:r.brand,name:r.name,stocked:!!r.stocked,
@@ -3090,11 +3092,14 @@ function openAsset(id){
   openDlg(dlgHtml(esc(a.model)+pasifRozet(a),
     (pasifCihaz(a)?'<div class="ro-banner"><b>Bu cihaz envanterden çıkmış.</b><div class="sm">Çıkış tarihi: '+fmtDate(a.cikisTarihi)+(a.cikisNedeni?' · '+esc(a.cikisNedeni):'')+'</div>'+
       '<div class="sm">Kaydı, tamir masrafları ve zimmet geçmişi duruyor; listelerde görünmüyor.</div></div>':'')+
-    '<p class="muted" style="margin-bottom:6px">'+esc(a.category)+(a.serial?', '+esc(a.serial):'')+', '+esc(coShort(a.companyId))+'</p>'+(a.note?'<p style="margin-bottom:6px">'+esc(a.note)+'</p>':'')+
+    '<p class="muted" style="margin-bottom:6px">'+esc(a.category)+(a.plaka?', '+esc(a.plaka):'')+(a.serial?', '+esc(a.serial):'')+', '+esc(coShort(a.companyId))+'</p>'+(a.note?'<p style="margin-bottom:6px">'+esc(a.note)+'</p>':'')+
     (isFinans()?'<section class="dsec"><h3>Zimmet</h3><p style="margin-bottom:8px">'+(h?'Şu an <b>'+esc(h.name)+'</b> üzerinde ('+esc((dept(h.departmentId)||{}).name)+').':'Şu an kimseye zimmetli değil.')+'</p><div class="row"><select id="as-emp" aria-label="Personel">'+opt(db.employees.map(e=>[e.id,e.name]),a.holderId||'','Personel seçin')+'</select><button class="btn primary" data-act="assign" data-id="'+id+'">'+(h?'Devret':'Zimmetle')+'</button>'+(h?'<button class="btn" data-act="unassign" data-id="'+id+'">Zimmeti geri al</button>':'')+'</div></section>'+
     '<section class="dsec"><h3>Durum</h3><div class="row"><span>'+statusBadge(a.status)+'</span>'+(a.status==='Serviste'?'<button class="btn" data-act="from-service" data-id="'+id+'">Servisten teslim al</button>':'<button class="btn" data-act="to-service" data-id="'+id+'">Servise gönder</button>')+'</div></section>'+
     '<section class="dsec"><h3>Cihaz bilgileri</h3><div class="fields"><div class="field"><label for="i-cat">Kategori</label><input id="i-cat" list="dl-acat" type="text" value="'+esc(a.category)+'"></div><div class="field"><label for="i-model">Model</label><input id="i-model" type="text" value="'+esc(a.model)+'"></div>'+
-    '<div class="field full"><label for="i-serial">Seri no</label><input id="i-serial" type="text" value="'+esc(a.serial)+'"></div><div class="field full"><label for="i-note">Açıklama</label><textarea id="i-note" rows="2">'+esc(a.note)+'</textarea></div></div>'+dl('dl-acat',assetCats())+
+    '<div class="field"><label for="i-serial">Seri no</label><input id="i-serial" type="text" value="'+esc(a.serial)+'"></div>'+
+    '<div class="field"><label for="i-plaka">Plaka (yalnızca araçlarda)</label><input id="i-plaka" type="text" value="'+esc(a.plaka)+'" placeholder="Örn. 34 ABC 123"></div>'+
+    (a.plaka?'<p class="hint full">Araç takip eşleşmesi: '+(a.mobilizId?'kuruldu':'henüz kurulmadı; senkron çalıştığında kurulacak')+'.</p>':'')+
+    '<div class="field full"><label for="i-note">Açıklama</label><div class="field full"><label for="i-note">Açıklama</label><textarea id="i-note" rows="2">'+esc(a.note)+'</textarea></div></div>'+dl('dl-acat',assetCats())+
     '<div class="row" style="margin-top:10px"><button class="btn" data-act="save-asset-info" data-id="'+id+'">Bilgileri kaydet</button></div><p class="err" id="i-err"></p></section>'+
     (defAcc?'<section class="dsec"><h3>Tamir masrafı ekle</h3><div class="fields"><div class="field"><label for="r-date">Tarih</label><input id="r-date" type="date" value="'+TODAY+'"></div><div class="field"><label for="r-cost">Tutar (₺)</label><input id="r-cost" type="number" min="0" step="0.01" inputmode="decimal"></div><div class="field full"><label for="r-desc">Yapılan işlem</label><input id="r-desc" type="text" placeholder="Örn. Ekran değişimi"></div><div class="field"><label for="r-acc">Ödeme hesabı</label><select id="r-acc">'+acctOptions(defAcc.id)+'</select></div><div class="field" style="justify-content:flex-end"><button class="btn primary" data-act="save-repair" data-id="'+id+'">Masrafı kaydet</button></div></div><p class="hint">Masraf, cihazın zimmetli olduğu personele ve departmana otomatik bağlanarak kasa veya bankaya gider yazılır.</p><p class="err" id="r-err"></p></section>':'<section class="dsec"><h3>Tamir masrafı ekle</h3><p class="muted">Tamir masrafı girebilmek için önce Kasa ve banka sayfasından bir hesap ekleyin.</p></section>')
     :'<section class="dsec"><h3>Zimmet</h3><p>'+(h?'Şu an <b>'+esc(h.name)+'</b> üzerinde ('+esc((dept(h.departmentId)||{}).name||'')+').':'Şu an kimseye zimmetli değil.')+'</p>'+
@@ -3170,31 +3175,38 @@ function delAsset(id){
 }
 /* Pasif cihazın seri numarası yeni cihazda kullanılabilir */
 const serialTaken=(serial,exceptId)=>!!serial&&db.assets.some(a=>a.id!==exceptId&&!pasifCihaz(a)&&a.serial&&same(a.serial,serial));
+const plakaAnahtar=p=>(p||'').toUpperCase().replace(/[\s-]/g,'');
+const plakaBicim=p=>plakaAnahtar(p);
+function plakaAlinmis(p,haric){const k=plakaAnahtar(p);if(!k)return false;
+  return db.assets.some(a=>a.id!==haric&&!a.cikisTarihi&&plakaAnahtar(a.plaka)===k);}
 function openAddAsset(){
   if(!db.companies.length)return needDlg('Cihaz ekle','Önce bir şirket tanımlayın.');
   dlgState={kind:'asset-new'};
   openDlg(dlgHtml('Cihaz ekle','<div class="fields"><div class="field"><label for="n-cat">Kategori</label><input id="n-cat" list="dl-acat" type="text" placeholder="Örn. Bilgisayar"></div><div class="field"><label for="n-company">Şirket</label><select id="n-company">'+companyOptions(db.companies[0].id)+'</select></div>'+
     '<div class="field"><label for="n-model">Model</label><input id="n-model" type="text" placeholder="Örn. Lenovo ThinkPad E15"></div><div class="field"><label for="n-serial">Seri no</label><input id="n-serial" type="text" placeholder="Seri no, IMEI veya plaka"></div>'+
+    '<div class="field"><label for="n-plaka">Plaka (yalnızca araçlarda)</label><input id="n-plaka" type="text" placeholder="Örn. 34 ABC 123"></div><div class="field"></div>'+
     '<div class="field full"><label for="n-note">Açıklama</label><textarea id="n-note" rows="2" placeholder="Örn. Yedek cihaz, şarj aletiyle birlikte"></textarea></div>'+
     '<div class="field full"><label for="n-emp">Zimmetlenecek personel (isteğe bağlı)</label><select id="n-emp">'+empOptions('','','','Depoda kalsın')+'</select></div></div>'+dl('dl-acat',assetCats())+'<p class="hint">Kategori listesinden seçebilir ya da yeni bir kategori yazabilirsiniz.</p><p class="err" id="n-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-asset">Cihazı kaydet</button>'));
 }
 function saveAsset(){
-  const cat=canonCat(assetCats(),$('#n-cat').value),model=norm($('#n-model').value),serial=norm($('#n-serial').value),note=$('#n-note').value.trim(),holder=$('#n-emp').value||null,err=m=>{$('#n-err').textContent=m;};
+  const cat=canonCat(assetCats(),$('#n-cat').value),model=norm($('#n-model').value),serial=norm($('#n-serial').value),note=$('#n-note').value.trim(),holder=$('#n-emp').value||null,plaka=plakaBicim($('#n-plaka').value),err=m=>{$('#n-err').textContent=m;};
   if(!cat)return err('Kategori girin.');if(!model)return err('Model girin.');if(serialTaken(serial,null))return err('Bu seri numarası başka bir cihazda kayıtlı.');
+  if(plakaAlinmis(plaka,null))return err('Bu plaka başka bir araçta kayıtlı.');
   const cid=$('#n-company').value;
   run('n-err',async()=>{
-    const a=await ins('assets',{category:cat,model,serial,note,company_id:cid,
+    const a=await ins('assets',{category:cat,model,serial,note,plaka,company_id:cid,
       holder_id:nz(holder),status:holder?'Kullanımda':'Depoda'});
     await ins('asset_logs',{asset_id:a.id,date:TODAY,
       text:holder?('Zimmetlendi: '+emp(holder).name):'Envantere eklendi'});
   },'Cihaz envantere eklendi');
 }
 function saveAssetInfo(id){
-  const a=asset(id),cat=canonCat(assetCats(),$('#i-cat').value),model=norm($('#i-model').value),serial=norm($('#i-serial').value),note=$('#i-note').value.trim(),err=m=>{$('#i-err').textContent=m;};
+  const a=asset(id),cat=canonCat(assetCats(),$('#i-cat').value),model=norm($('#i-model').value),serial=norm($('#i-serial').value),note=$('#i-note').value.trim(),plaka=plakaBicim($('#i-plaka').value),err=m=>{$('#i-err').textContent=m;};
   if(!cat)return err('Kategori girin.');if(!model)return err('Model girin.');if(serialTaken(serial,id))return err('Bu seri numarası başka bir cihazda kayıtlı.');
+  if(plakaAlinmis(plaka,id))return err('Bu plaka başka bir araçta kayıtlı.');
   run('i-err',async()=>{
-    await upd('assets',id,{category:cat,model,serial,note});
+    await upd('assets',id,{category:cat,model,serial,note,plaka});
     await ins('asset_logs',{asset_id:id,date:TODAY,text:'Cihaz bilgileri güncellendi'});
   },'Cihaz bilgileri kaydedildi',()=>openAsset(id));
 }
