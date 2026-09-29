@@ -257,7 +257,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-c';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-d';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -444,8 +444,11 @@ async function loadAll(){
       enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
       asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
       veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''})),
-    aracGunluk:(aracGunluk||[]).map(r=>({assetId:r.asset_id,gun:r.gun,km:num(r.km),
-      hareketDk:num(r.hareket_dk),rolantiDk:num(r.rolanti_dk),durusDk:num(r.durus_dk),
+    aracGunluk:(aracGunluk||[]).map(r=>({assetId:r.asset_id,gun:r.gun,
+      km:r.km==null?null:num(r.km),
+      hareketDk:r.hareket_dk==null?null:num(r.hareket_dk),
+      rolantiDk:r.rolanti_dk==null?null:num(r.rolanti_dk),
+      durusDk:r.durus_dk==null?null:num(r.durus_dk),
       ihlal:num(r.ihlal_adedi),ilk:r.ilk_hareket||'',son:r.son_hareket||''})),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
     ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
@@ -901,11 +904,17 @@ const konumOf=id=>db.aracKonum.find(k=>k.assetId===id)||null;
 const gunlukOf=(id,gun)=>db.aracGunluk.find(g=>g.assetId===id&&g.gun===gun)||null;
 /* Seçilen tarih aralığındaki günleri toplar */
 function gunlukToplam(id,bas,bit){
-  const t={km:0,hareketDk:0,rolantiDk:0,durusDk:0,ihlal:0,gun:0,veri:false};
+  /* Bozuk (negatif) değerler boş kaydedilir; toplama katılmaz, sayılır */
+  const t={km:0,hareketDk:0,rolantiDk:0,durusDk:0,ihlal:0,gun:0,veri:false,
+           kmVar:false,harVar:false,rolVar:false,bozuk:0};
   db.aracGunluk.forEach(g=>{
     if(g.assetId!==id||g.gun<bas||g.gun>bit)return;
-    t.km+=num(g.km);t.hareketDk+=num(g.hareketDk);t.rolantiDk+=num(g.rolantiDk);
-    t.durusDk+=num(g.durusDk);t.ihlal+=num(g.ihlal);t.veri=true;
+    t.veri=true;
+    if(g.km==null)t.bozuk++;else{t.km+=num(g.km);t.kmVar=true;}
+    if(g.hareketDk!=null){t.hareketDk+=num(g.hareketDk);t.harVar=true;}
+    if(g.rolantiDk!=null){t.rolantiDk+=num(g.rolantiDk);t.rolVar=true;}
+    if(g.durusDk!=null)t.durusDk+=num(g.durusDk);
+    t.ihlal+=num(g.ihlal);
     if(num(g.km)>0||num(g.hareketDk)>0)t.gun++;
   });
   return t;
@@ -946,6 +955,7 @@ function viewArac(){
   const rolantiAdet=konumlar.filter(k=>k.kontak&&k.rolanti).length;
   const top=list.map(a=>gunlukToplam(a.id,r.bas,r.bit));
   const km=top.reduce((t,g)=>t+g.km,0);
+  const bozukGun=top.reduce((t,g)=>t+g.bozuk,0);
   const ihlal=top.reduce((t,g)=>t+g.ihlal,0);
   const rolDk=top.reduce((t,g)=>t+g.rolantiDk,0);
   const harDk=top.reduce((t,g)=>t+g.hareketDk,0);
@@ -972,6 +982,7 @@ function viewArac(){
     '<label class="muted sm" for="arac-bit">Bitiş</label><input id="arac-bit" type="date" value="'+esc(r.bit)+'" max="'+TODAY+'" style="max-width:160px">'+
     '<span class="muted sm" style="margin-left:auto">Son senkron: '+esc(sg.yazi)+'</span>'+
   '</div>'+
+  (bozukGun?'<div class="ro-banner">'+bozukGun+' araç-gününde araç takip cihazı hatalı mesafe bildirdi (negatif km). O günler kilometre toplamına katılmadı; süre ve ihlal verileri geçerli.</div>':'')+
   (!veriVar?'<div class="ro-banner">Seçilen aralıkta günlük özet kaydı yok. Günlük veriler araç takip kurulduğundan beri birikiyor; geçmişi doldurmak için senkronu tarih vererek çalıştırmanız gerekir.</div>':'')+
   '<section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">'+esc(aralikAdi())+'</span></div><div id="araclist">'+aracTable()+'</div></section></div>';
 }
@@ -1004,9 +1015,10 @@ function aracTable(){
       '<td class="num">'+(k&&k.kontak?Math.round(num(k.hiz))+' km/s':'-')+'</td>'+
       '<td>'+(k&&k.adres?'<div class="clamp">'+esc(k.adres)+'</div>':'<span class="muted">-</span>')+
         '<div class="muted sm">'+esc(z.yazi)+'</div></td>'+
-      '<td class="num">'+(g.veri?Math.round(g.km):'-')+'</td>'+
-      '<td class="num">'+(g.veri?dkYazi(g.hareketDk):'-')+'</td>'+
-      '<td class="num">'+(g.veri?dkYazi(g.rolantiDk):'-')+'</td>'+
+      '<td class="num">'+(g.kmVar?Math.round(g.km):'-')+
+        (g.bozuk?'<div class="muted sm" title="Araç takip cihazı hatalı mesafe bildirdi">'+g.bozuk+' gün hatalı</div>':'')+'</td>'+
+      '<td class="num">'+(g.harVar?dkYazi(g.hareketDk):'-')+'</td>'+
+      '<td class="num">'+(g.rolVar?dkYazi(g.rolantiDk):'-')+'</td>'+
       '<td class="num'+(g.ihlal?' out':'')+'">'+(g.veri?(g.ihlal||'-'):'-')+'</td>'+
       (tekGun?'':'<td class="num">'+(g.veri?g.gun:'-')+'</td>')+
       '<td class="num">'+harita+'</td></tr>';
