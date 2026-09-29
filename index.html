@@ -242,7 +242,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='29.09.2026';   /* yayına alınan sürümün tarihi */
+const SURUM='29.09.2026-b';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -374,7 +374,7 @@ const coShort=id=>{const c=comp(id);return c?c.short:'';};
 const num=v=>v==null?0:Number(v);
 /* Supabase tek istekte en fazla 1000 satır döndürür. Tabloyu
    sıralı sayfalar hâlinde, sonuna kadar okuruz. */
-const PK_KOLON={profiles:'user_id',employee_salaries:'employee_id',mobil_carpan:'tip'};
+const PK_KOLON={arac_konum:'asset_id',profiles:'user_id',employee_salaries:'employee_id',mobil_carpan:'tip'};
 async function q(t){
   const N=1000,key=PK_KOLON[t]||'id';
   let out=[],from=0;
@@ -402,6 +402,9 @@ async function loadAll(){
   const subs=await q('sale_subscriptions');
   const leads=await q('leads');
   const birimler=await q('birimler');
+  let aracKonum=[],aracGunluk=[];
+  try{aracKonum=await q('arac_konum');}catch(e){}   /* araç takip kurulmadıysa boş kalır */
+  try{aracGunluk=await q('arac_gunluk');}catch(e){}
   let carpanlar=[];
   try{carpanlar=await q('mobil_carpan');}catch(e){}  /* tablo yoksa varsayılan çarpanlar kullanılır */
   let ayarlar=[],bugunku=0;
@@ -422,6 +425,13 @@ async function loadAll(){
     companies:companies.map(r=>({id:r.id,name:r.name,short:r.short})),
     departments:departments.map(r=>({id:r.id,companyId:r.company_id,name:r.name})),
     birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null})),
+    aracKonum:(aracKonum||[]).map(r=>({assetId:r.asset_id,plaka:r.plaka||'',
+      enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
+      asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
+      veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''})),
+    aracGunluk:(aracGunluk||[]).map(r=>({assetId:r.asset_id,gun:r.gun,km:num(r.km),
+      hareketDk:num(r.hareket_dk),rolantiDk:num(r.rolanti_dk),durusDk:num(r.durus_dk),
+      ihlal:num(r.ihlal_adedi),ilk:r.ilk_hareket||'',son:r.son_hareket||''})),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
     ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
     bugunkuPotansiyel:bugunku,
@@ -864,6 +874,76 @@ function zimmetKapsami(list){
   if(!isBirim())return list.filter(a=>a.holderId===me.employeeId);
   const ekip=ekipSuzgeci(aktifPersonel().filter(e=>ekipte(e.id))).map(e=>e.id);
   return list.filter(a=>a.holderId&&ekip.indexOf(a.holderId)>=0);
+}
+/* ======================= ARAÇ TAKİP (MOBİLİZ) ======================= */
+/* Görünürlük zimmetle aynı: müdürler ekibini, personel kendi aracını. */
+function takipliAraclar(){
+  return zimmetKapsami(aktifCihazlar()).filter(a=>a.plaka)
+    .sort((x,y)=>x.plaka.localeCompare(y.plaka,'tr'));
+}
+const konumOf=id=>db.aracKonum.find(k=>k.assetId===id)||null;
+const gunlukOf=(id,gun)=>db.aracGunluk.find(g=>g.assetId===id&&g.gun===gun)||null;
+function dkYazi(dk){dk=Math.round(num(dk));if(!dk)return '-';
+  const s=Math.floor(dk/60),k=dk%60;return s?(s+' sa '+(k?k+' dk':'')).trim():k+' dk';}
+function gecenSure(iso){
+  if(!iso)return {yazi:'Veri yok',eski:true};
+  const dk=Math.round((Date.now()-new Date(iso).getTime())/60000);
+  if(dk<2)return {yazi:'Az önce',eski:false};
+  if(dk<60)return {yazi:dk+' dk önce',eski:dk>30};
+  const sa=Math.floor(dk/60);
+  if(sa<24)return {yazi:sa+' saat önce',eski:true};
+  return {yazi:Math.floor(sa/24)+' gün önce',eski:true};
+}
+function aracDurum(k){
+  if(!k)return '<span class="badge">Veri yok</span>';
+  if(!k.kontak)return '<span class="badge">Kontak kapalı</span>';
+  if(k.rolanti)return '<span class="badge warn">Rölanti</span>';
+  if(num(k.hiz)>0)return '<span class="badge ok">Hareket halinde</span>';
+  return '<span class="badge">Duruyor</span>';
+}
+function viewArac(){
+  const list=takipliAraclar();
+  if(!list.length)return emptyView('Araç takip','Araçların son konumu, günlük km ve rölanti süresi.','',
+    'Görebileceğiniz plakalı araç yok. Envanter ve zimmet sayfasından araca plaka girin.');
+  const son=db.aracKonum.map(k=>k.guncelAt).filter(Boolean).sort().pop();
+  const sg=gecenSure(son);
+  const konumlar=list.map(a=>konumOf(a.id)).filter(Boolean);
+  const hareket=konumlar.filter(k=>k.kontak&&num(k.hiz)>0).length;
+  const rolanti=konumlar.filter(k=>k.kontak&&k.rolanti).length;
+  const bugun=list.map(a=>gunlukOf(a.id,TODAY)).filter(Boolean);
+  const bugunKm=bugun.reduce((t,g)=>t+num(g.km),0);
+  const ihlal=bugun.reduce((t,g)=>t+num(g.ihlal),0);
+  return head('Araç takip','Mobiliz araç takip sisteminden gelen son konum, bugünkü km ve rölanti süresi. '+
+      (isFinans()||isUst()?'Tüm araçlar.':isBirim()?'Ekibinizin araçları.':'Size zimmetli araç.'),'')+
+  (sg.eski?'<div class="ro-banner">Son senkron: '+esc(sg.yazi)+'. Veriler güncel olmayabilir.</div>':'')+
+  '<div class="kpis"><div class="kpi"><span>Takipteki araç</span><b>'+list.length+'</b></div>'+
+  '<div class="kpi"><span>Hareket halinde</span><b>'+hareket+'</b></div>'+
+  '<div class="kpi"><span>Rölantide</span><b>'+rolanti+'</b></div>'+
+  '<div class="kpi"><span>Bugün toplam km</span><b>'+Math.round(bugunKm)+'</b></div>'+
+  '<div class="kpi"><span>Bugün hız ihlali</span><b>'+ihlal+'</b></div></div>'+
+  '<div class="stack"><section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">Son senkron: '+esc(sg.yazi)+'</span></div><div id="araclist">'+aracTable()+'</div></section></div>';
+}
+function aracTable(){
+  const q=(state.aracQ||'').trim().toLocaleLowerCase('tr');
+  let list=takipliAraclar();
+  if(q)list=list.filter(a=>{const k=konumOf(a.id),h=emp(a.holderId);
+    return [a.plaka,a.model,(h||{}).name,(k||{}).adres,(k||{}).surucu].join(' ').toLocaleLowerCase('tr').includes(q);});
+  if(!list.length)return '<div class="empty">Bu aramada araç yok.</div>';
+  return '<div class="scroll"><table><thead><tr><th>Plaka</th><th>Zimmetli personel</th><th>Durum</th><th class="num">Hız</th><th>Son konum</th><th class="num">Bugün km</th><th class="num">Rölanti</th><th></th></tr></thead><tbody>'+
+  list.map(a=>{
+    const k=konumOf(a.id),h=emp(a.holderId),g=gunlukOf(a.id,TODAY),z=gecenSure(k?(k.veriAt||k.guncelAt):'');
+    const harita=(k&&k.enlem!=null&&k.boylam!=null)
+      ? '<a class="btn sm" href="https://www.google.com/maps?q='+k.enlem+','+k.boylam+'" target="_blank" rel="noopener">Haritada</a>' : '';
+    return '<tr><td><div><b>'+esc(a.plaka)+'</b></div><div class="muted sm">'+esc(a.model)+'</div></td>'+
+      '<td>'+(h?'<div>'+esc(h.name)+'</div><div class="muted sm">'+esc((dept(h.departmentId)||{}).name)+'</div>':'<span class="muted">Zimmetli değil</span>')+'</td>'+
+      '<td>'+aracDurum(k)+(k&&k.asiriHiz?' <span class="badge warn">Aşırı hız</span>':'')+'</td>'+
+      '<td class="num">'+(k&&k.kontak?Math.round(num(k.hiz))+' km/s':'-')+'</td>'+
+      '<td>'+(k&&k.adres?'<div class="clamp">'+esc(k.adres)+'</div>':'<span class="muted">-</span>')+
+        '<div class="muted sm">'+esc(z.yazi)+'</div></td>'+
+      '<td class="num">'+(g?Math.round(num(g.km)):'-')+'</td>'+
+      '<td class="num">'+(g?dkYazi(g.rolantiDk):'-')+'</td>'+
+      '<td class="num">'+harita+'</td></tr>';
+  }).join('')+'</tbody></table></div>';
 }
 function viewZimmet(){
   const all=zimmetKapsami(state.invPasif?db.assets:aktifCihazlar()),
@@ -2947,7 +3027,7 @@ function viewDenetim(){
   '</div></div><div id="denlist">'+denetimTablo()+'</div></section>';
 }
 
-const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim};
+const VIEWS={ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim};
 const NAV=[
   {g:'',items:[['ozet','Genel bakış']]},
   {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
@@ -2955,6 +3035,7 @@ const NAV=[
   {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular']]},
   {g:'Ürün ve envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve birimler'],['kullanici','Kullanıcılar']]},
+  {g:'Ürün ve envanter',items:[['arac','Araç takip']]},
   {g:'Analiz',items:[['rapor','Raporlar'],['denetim','Hareket kaydı']]}
 ];
 const LATER=[['Yıllık izin','Faz 3']];
@@ -3176,7 +3257,7 @@ function delAsset(id){
 /* Pasif cihazın seri numarası yeni cihazda kullanılabilir */
 const serialTaken=(serial,exceptId)=>!!serial&&db.assets.some(a=>a.id!==exceptId&&!pasifCihaz(a)&&a.serial&&same(a.serial,serial));
 const plakaAnahtar=p=>(p||'').toUpperCase().replace(/[\s-]/g,'');
-const plakaBicim=p=>plakaAnahtar(p);
+const plakaBicim=p=>(p||'').toLocaleUpperCase('tr').replace(/\s+/g,' ').trim();
 function plakaAlinmis(p,haric){const k=plakaAnahtar(p);if(!k)return false;
   return db.assets.some(a=>a.id!==haric&&!a.cikisTarihi&&plakaAnahtar(a.plaka)===k);}
 function openAddAsset(){
@@ -3782,7 +3863,8 @@ const EKRAN_YETKI={
   hedef    :()=>true,
   musteri  :()=>!isMuhasebe()||true,
   potansiyel:()=>!isMuhasebe(),
-  randevu  :()=>!isMuhasebe()
+  randevu  :()=>!isMuhasebe(),
+  arac     :()=>takipliAraclar().length>0
 };
 const gorebilir=v=>{const f=EKRAN_YETKI[v];return f?f():true;};
 const ilkEkran=()=>raporcu()?'ozet':'satis';
@@ -4127,7 +4209,7 @@ const actions={
   close(){closeDlg();}
 };
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -4167,6 +4249,7 @@ function init(){
     else if(/^sla-/.test(el.id||'')){updateLinePreview(el.id.slice(4));updateSaleTotals();}
     else if(el.id==='slq'){state.sat.q=el.value;const box=$('#satlist');if(box)box.innerHTML=satTable();}
     else if(el.id==='iq'){state.inv.q=el.value;const box=$('#invlist');if(box)box.innerHTML=invTable();}
+    else if(el.id==='aq'){state.aracQ=el.value;const box=$('#araclist');if(box)box.innerHTML=aracTable();}
     else if(el.id==='pq'){state.prod.q=el.value;const box=$('#prodlist');if(box)box.innerHTML=prodTable();}
     else if(el.id==='cq'){state.cust.q=el.value;const box=$('#custlist');if(box)box.innerHTML=custTable();}
     else if(el.id==='denq'){state.den.q=el.value;const box=$('#denlist');if(box)box.innerHTML=denetimTablo();}
