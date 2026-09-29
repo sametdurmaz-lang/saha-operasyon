@@ -198,7 +198,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .arac-etiket{display:inline-block;transform:translate(-50%,-50%);padding:4px 10px;border-radius:999px;
   border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35);color:#fff;font-size:11.5px;font-weight:600;
   white-space:nowrap;letter-spacing:.01em;line-height:1.25}
-.arac-etiket .pl{opacity:.75;font-weight:500;margin-left:5px}
+.arac-etiket:hover{filter:brightness(1.08)}
 .field label{font-weight:500;font-size:13.5px}
 .err{color:var(--out);font-size:13px;min-height:18px;margin-top:10px}
 .dsec{padding:12px 0;border-bottom:1px solid var(--line)}
@@ -251,7 +251,6 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
   .main{padding:18px 14px 56px}
   .bar-row{grid-template-columns:1fr auto}
   .bar-row .bar-track{grid-column:1/-1;order:3}
-  .arac-etiket .pl{display:none}   /* dar ekranda etiket kısalsın; plaka baloncukta yazıyor */
   .fields{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -279,7 +278,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-f';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-g';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -1064,6 +1063,13 @@ function haritaKur(){
   return _hrt;
 }
 const HRT_RENK={hareket:'#16A34A',rolanti:'#D97706',duruyor:'#64748B',kapali:'#94A3B8'};
+/* Haritada yer kaplamasın: "MEHMET EMİN AKGÜN" → "MEHMET EMİN A."
+   Son kelime soyad sayılır; öncekiler ad olarak korunur. */
+function kisaAd(ad){
+  const p=(ad||'').trim().split(/\s+/).filter(Boolean);
+  if(p.length<2)return p[0]||'';
+  return p.slice(0,-1).join(' ')+' '+p[p.length-1].charAt(0).toLocaleUpperCase('tr')+'.';
+}
 function aracRenk(k){
   if(!k||!k.kontak)return HRT_RENK.kapali;
   if(k.rolanti)return HRT_RENK.rolanti;
@@ -1082,8 +1088,9 @@ function haritaCanli(){
     const ad=h?h.name:'';
     const pin=L.divIcon({className:'',iconSize:null,
       html:'<div class="arac-etiket" style="background:'+renk+'">'+
-        (ad?esc(ad)+'<span class="pl">'+esc(a.plaka)+'</span>':esc(a.plaka))+'</div>'});
-    const mk=L.marker([k.enlem,k.boylam],{icon:pin,title:(ad?ad+' · ':'')+a.plaka}).addTo(m);
+        esc(ad?kisaAd(ad):a.plaka)+'</div>'});
+    const mk=L.marker([k.enlem,k.boylam],{icon:pin,
+      title:(ad?ad+' · ':'')+a.plaka,riseOnHover:true}).addTo(m);
     mk.bindPopup('<b>'+esc(a.plaka)+'</b><br>'+esc(a.model)+
       '<br>'+(h?esc(h.name):'Zimmetli değil')+
       '<br>'+(k.kontak?(k.rolanti?'Rölanti':(num(k.hiz)>0?Math.round(num(k.hiz))+' km/s':'Duruyor')):'Kontak kapalı')+
