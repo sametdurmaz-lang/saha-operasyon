@@ -254,7 +254,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='29.09.2026-e';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -1836,7 +1836,8 @@ function quickCustomerFields(pre){
     '<div class="field"><label for="'+pre+'-ct">İrtibat numarası</label><input id="'+pre+'-ct" type="text" placeholder="0532 000 00 00"></div>'+
     '<div class="field"><label for="'+pre+'-cil">İl</label><select id="'+pre+'-cil">'+ilOptions('')+'</select></div>'+
     '<div class="field"><label for="'+pre+'-cilce">İlçe</label><select id="'+pre+'-cilce">'+ilceOptions('','')+'</select></div>'+
-    '</div><p class="hint">Diğer bilgileri (VKN, hizmetler) sonra Müşteriler sayfasından tamamlayabilirsiniz.</p></div>';
+    '<div class="field full"><label for="'+pre+'-cadres">Açık adres</label><input id="'+pre+'-cadres" type="text" placeholder="Örn. Kazımdirik Mah. Ankara Cad. No:12"></div>'+
+    '</div><p class="hint">Açık adres girilirse randevu haritada doğru noktaya düşer. Diğer bilgileri (VKN, hizmetler) sonra Müşteriler sayfasından tamamlayabilirsiniz.</p></div>';
 }
 async function quickCreateCustomer(pre,dupKey){
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
@@ -1849,7 +1850,8 @@ async function quickCreateCustomer(pre,dupKey){
     if(!dlgState[dupKey]){dlgState[dupKey]=true;return {error:'“'+dup.c.unvan+'” ünvanı veya telefonuyla kayıtlı bir müşteri var. Mükerrer değilse tekrar basın.'};}
   }
   const il=$('#'+pre+'-cil')?$('#'+pre+'-cil').value:'',ilce=$('#'+pre+'-cilce')?$('#'+pre+'-cilce').value:'';
-  const c=await ins('customers',{unvan,yetkili,telefon:tel,vkn:'',il,ilce,adres:''});
+  const adres=$('#'+pre+'-cadres')?$('#'+pre+'-cadres').value.trim():'';
+  const c=await ins('customers',{unvan,yetkili,telefon:tel,vkn:'',il,ilce,adres});
   return {customer:c};
 }
 function saveCustomer(){
