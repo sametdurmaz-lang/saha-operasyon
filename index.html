@@ -254,7 +254,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='29.09.2026-d';   /* yayına alınan sürümün tarihi */
+const SURUM='29.09.2026-e';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -482,6 +482,7 @@ async function loadAll(){
       birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
       unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',
+      enlem:r.enlem,boylam:r.boylam,geoKaynak:r.geo_kaynak||'',
       mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
       dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
       pstnVar:!!r.pstn_var,pstnHizmetNo:r.pstn_hizmet_no||'',pstnAdet:r.pstn_adet||0,pstnTaahhutAy:r.pstn_taahhut_ay||'',pstnTaahhutYil:r.pstn_taahhut_yil||'',
@@ -1030,36 +1031,100 @@ async function haritaIsi(){
     if(bilgi)bilgi.textContent='Isı haritası okunamadı: '+e.message;
   }
 }
+function haritaYenile(){
+  const v=state.hrt.sekme;
+  if(v==='isi')haritaIsi();
+  else if(v==='randevu')haritaRandevu();
+  else haritaCanli();
+}
+/* --- Açık randevular --- */
+const RND_RENK={gecmis:'#DC2626',bugun:'#D97706',gelecek:'#2563EB'};
+function randevuRenk(tarih){
+  if(!tarih)return RND_RENK.gelecek;
+  if(tarih<TODAY)return RND_RENK.gecmis;
+  if(tarih===TODAY)return RND_RENK.bugun;
+  return RND_RENK.gelecek;
+}
+function haritaRandevuListesi(){
+  const sec=state.hrt.emp;
+  return db.appointments.filter(a=>a.status==='Açık')
+    .filter(a=>!sec||a.employeeId===sec)
+    .map(a=>({a,c:byId(db.customers,a.customerId)}))
+    .filter(x=>x.c)
+    .sort((x,y)=>(x.a.date||'').localeCompare(y.a.date||''));
+}
+function haritaRandevu(){
+  const m=haritaKur();if(!m)return;
+  haritaTemizle();
+  const liste=haritaRandevuListesi(),noktalar=[];
+  let yaklasik=0,konumsuz=0;
+  liste.forEach(({a,c})=>{
+    if(c.enlem==null||c.boylam==null){konumsuz++;return;}
+    if(c.geoKaynak==='ilce')yaklasik++;
+    const renk=randevuRenk(a.date),h=emp(a.employeeId),alan=emp(a.alanId);
+    const pin=L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],
+      html:'<div class="arac-pin" style="background:'+renk+';width:26px;height:26px;font-size:13px">●</div>'});
+    const mk=L.marker([c.enlem,c.boylam],{icon:pin,title:c.unvan}).addTo(m);
+    mk.bindPopup('<b>'+esc(c.unvan)+'</b>'+
+      (c.yetkili?'<br>'+esc(c.yetkili):'')+
+      (c.telefon?'<br><a href="tel:'+esc(c.telefon)+'">'+esc(c.telefon)+'</a>':'')+
+      '<br>Randevu: '+esc(fmtDate(a.date))+(a.date<TODAY?' <span style="color:'+RND_RENK.gecmis+'">(geçmiş)</span>':'')+
+      (h?'<br>Atanan: '+esc(h.name):'')+
+      (alan?'<br>Alan: '+esc(alan.name):'')+
+      (a.desc?'<br><span style="color:#5C6B7D">'+esc(a.desc)+'</span>':'')+
+      (c.adres?'<br><span style="color:#5C6B7D">'+esc([c.adres,c.ilce,c.il].filter(Boolean).join(', '))+'</span>':'')+
+      (c.geoKaynak==='ilce'?'<br><span style="color:'+RND_RENK.bugun+'">Yaklaşık konum (ilçe merkezi)</span>':'')+
+      '<br><a href="https://www.google.com/maps/dir/?api=1&destination='+c.enlem+','+c.boylam+'" target="_blank" rel="noopener">Yol tarifi</a>');
+    _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);
+  });
+  if(noktalar.length===1)m.setView(noktalar[0],14);
+  else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
+  const bilgi=$('#hrt-bilgi');
+  if(bilgi)bilgi.textContent=noktalar.length
+    ? noktalar.length+' randevu haritada'+(yaklasik?' · '+yaklasik+' tanesi yaklaşık':'')+(konumsuz?' · '+konumsuz+' adres çevrilmedi':'')
+    : (liste.length?liste.length+' açık randevu var ama hiçbirinin adresi koordinata çevrilmemiş.':'Açık randevu yok.');
+}
 function haritaCiz(){
   /* DOM yerleşene kadar bekle */
   setTimeout(()=>{
     const m=haritaKur();if(!m)return;
     m.invalidateSize();
-    if(state.hrt.sekme==='isi')haritaIsi();else haritaCanli();
+    haritaYenile();
   },30);
 }
 function viewHarita(){
-  const list=takipliAraclar();
-  if(!list.length)return emptyView('Harita','Araçların haritadaki konumu ve yoğunluk dağılımı.','',
-    'Görebileceğiniz plakalı araç yok.');
-  const f=state.hrt,isi=f.sekme==='isi';
-  const kisiler=uniq(list.map(a=>a.holderId).filter(Boolean))
+  const list=takipliAraclar(),aracVar=list.length>0;
+  /* Aracı olmayan kullanıcı yalnızca randevu haritasını görür */
+  if(!aracVar)state.hrt.sekme='randevu';
+  if(!aracVar&&!db.appointments.some(a=>a.status==='Açık'))
+    return emptyView('Harita','Araçların ve randevuların haritadaki konumu.','',
+      'Görebileceğiniz plakalı araç ya da açık randevu yok.');
+  const f=state.hrt,isi=f.sekme==='isi',rnd=f.sekme==='randevu';
+  const kisiler=(rnd
+      ? uniq(db.appointments.filter(a=>a.status==='Açık').map(a=>a.employeeId).filter(Boolean))
+      : uniq(list.map(a=>a.holderId).filter(Boolean)))
     .map(id=>[id,(emp(id)||{}).name||''])
+    .filter(x=>x[1])
     .sort((a,b)=>a[1].localeCompare(b[1],'tr'));
   haritaCiz();
   return head('Harita',isi
       ?'Seçilen aralıkta araçların en çok bulunduğu bölgeler. Koyu kırmızı en yoğun, mavi en seyrek.'
+      :rnd?'Kapanmamış randevuların müşteri adresleri. Pine tıklayınca telefon ve yol tarifi açılır.'
       :'Tüm araçların son konumu tek haritada. Pine tıklayınca ayrıntı açılır.','')+
   '<div class="stack"><div class="seg" role="group" aria-label="Harita türü">'+
-    '<button data-act="hrt-sekme" data-v="canli" aria-pressed="'+(!isi)+'">Canlı konum</button>'+
-    '<button data-act="hrt-sekme" data-v="isi" aria-pressed="'+isi+'">Isı haritası</button></div>'+
+    (aracVar?'<button data-act="hrt-sekme" data-v="canli" aria-pressed="'+(!isi&&!rnd)+'">Canlı konum</button>'+
+             '<button data-act="hrt-sekme" data-v="isi" aria-pressed="'+isi+'">Isı haritası</button>':'')+
+    '<button data-act="hrt-sekme" data-v="randevu" aria-pressed="'+(f.sekme==='randevu')+'">Açık randevular</button></div>'+
   '<section class="panel"><div class="panel-h">'+
     (isi?'<label class="muted sm" for="hrt-bas">Başlangıç</label><input id="hrt-bas" type="date" value="'+esc(f.bas)+'" style="max-width:160px">'+
          '<label class="muted sm" for="hrt-bit">Bitiş</label><input id="hrt-bit" type="date" value="'+esc(f.bit)+'" style="max-width:160px">'
         :'')+
-    '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>'+
+    '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'',rnd?'Tüm randevular':'Tüm personel')+'</select>'+
     '<span class="muted sm" id="hrt-bilgi">Yükleniyor…</span>'+
     (isi?'<span class="lejant" style="margin-left:auto">Seyrek <i></i> Yoğun</span>'
+        :rnd?'<span class="lejant" style="margin-left:auto"><span style="color:'+RND_RENK.gecmis+'">●</span> Tarihi geçmiş'+
+          ' <span style="color:'+RND_RENK.bugun+'">●</span> Bugün'+
+          ' <span style="color:'+RND_RENK.gelecek+'">●</span> İleri tarihli</span>'
         :'<span class="lejant" style="margin-left:auto"><span style="color:'+HRT_RENK.hareket+'">●</span> Hareket'+
          ' <span style="color:'+HRT_RENK.rolanti+'">●</span> Rölanti'+
          ' <span style="color:'+HRT_RENK.duruyor+'">●</span> Duruyor'+
@@ -3986,7 +4051,7 @@ const EKRAN_YETKI={
   potansiyel:()=>!isMuhasebe(),
   randevu  :()=>!isMuhasebe(),
   arac     :()=>takipliAraclar().length>0,
-  harita   :()=>takipliAraclar().length>0
+  harita   :()=>takipliAraclar().length>0||db.appointments.some(a=>a.status==='Açık')
 };
 const gorebilir=v=>{const f=EKRAN_YETKI[v];return f?f():true;};
 const ilkEkran=()=>raporcu()?'ozet':'satis';
@@ -4089,7 +4154,7 @@ async function boot(){
 const actions={
   nav(el){state.view=el.dataset.v;state.menuAcik=false;render();window.scrollTo(0,0);},
   menu(){state.menuAcik=!state.menuAcik;render();},
-  'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;render();},
+  'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;state.hrt.emp='';render();},
   go(el){actions.nav(el);},
   'go-none'(){state.rep={company:'',dept:'__none',emp:'',cat:'',group:'kategori'};state.view='rapor';render();window.scrollTo(0,0);},
   dim(el){state.dim=el.dataset.v;render();},
@@ -4376,7 +4441,7 @@ function init(){
     else if(el.id==='aq'){state.aracQ=el.value;const box=$('#araclist');if(box)box.innerHTML=aracTable();}
     else if(el.id==='hrt-bas'||el.id==='hrt-bit'||el.id==='hrt-emp'){
       state.hrt[el.id==='hrt-bas'?'bas':el.id==='hrt-bit'?'bit':'emp']=el.value;
-      if(state.hrt.sekme==='isi')haritaIsi();else haritaCanli();}
+      haritaYenile();}
     else if(el.id==='pq'){state.prod.q=el.value;const box=$('#prodlist');if(box)box.innerHTML=prodTable();}
     else if(el.id==='cq'){state.cust.q=el.value;const box=$('#custlist');if(box)box.innerHTML=custTable();}
     else if(el.id==='denq'){state.den.q=el.value;const box=$('#denlist');if(box)box.innerHTML=denetimTablo();}
