@@ -257,7 +257,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-b';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-c';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -899,6 +899,24 @@ function takipliAraclar(){
 }
 const konumOf=id=>db.aracKonum.find(k=>k.assetId===id)||null;
 const gunlukOf=(id,gun)=>db.aracGunluk.find(g=>g.assetId===id&&g.gun===gun)||null;
+/* Seçilen tarih aralığındaki günleri toplar */
+function gunlukToplam(id,bas,bit){
+  const t={km:0,hareketDk:0,rolantiDk:0,durusDk:0,ihlal:0,gun:0,veri:false};
+  db.aracGunluk.forEach(g=>{
+    if(g.assetId!==id||g.gun<bas||g.gun>bit)return;
+    t.km+=num(g.km);t.hareketDk+=num(g.hareketDk);t.rolantiDk+=num(g.rolantiDk);
+    t.durusDk+=num(g.durusDk);t.ihlal+=num(g.ihlal);t.veri=true;
+    if(num(g.km)>0||num(g.hareketDk)>0)t.gun++;
+  });
+  return t;
+}
+const aracAralik=()=>{const a=state.arac;const bas=a.bas||TODAY,bit=a.bit||TODAY;
+  return bas<=bit?{bas,bit}:{bas:bit,bit:bas};};
+const aralikTekGun=()=>{const r=aracAralik();return r.bas===r.bit;};
+const aralikAdi=()=>{const r=aracAralik();
+  if(r.bas===TODAY&&r.bit===TODAY)return 'Bugün';
+  if(r.bas===r.bit)return fmtDate(r.bas);
+  return fmtDate(r.bas)+' – '+fmtDate(r.bit);};
 function dkYazi(dk){dk=Math.round(num(dk));if(!dk)return '-';
   const s=Math.floor(dk/60),k=dk%60;return s?(s+' sa '+(k?k+' dk':'')).trim():k+' dk';}
 function gecenSure(iso){
@@ -921,33 +939,63 @@ function viewArac(){
   const list=takipliAraclar();
   if(!list.length)return emptyView('Araç takip','Araçların son konumu, günlük km ve rölanti süresi.','',
     'Görebileceğiniz plakalı araç yok. Envanter ve zimmet sayfasından araca plaka girin.');
-  const son=db.aracKonum.map(k=>k.guncelAt).filter(Boolean).sort().pop();
-  const sg=gecenSure(son);
+  const sonG=db.aracKonum.map(k=>k.guncelAt).filter(Boolean).sort().pop();
+  const sg=gecenSure(sonG),r=aracAralik(),bugunMu=r.bas===TODAY&&r.bit===TODAY;
   const konumlar=list.map(a=>konumOf(a.id)).filter(Boolean);
   const hareket=konumlar.filter(k=>k.kontak&&num(k.hiz)>0).length;
-  const rolanti=konumlar.filter(k=>k.kontak&&k.rolanti).length;
-  const bugun=list.map(a=>gunlukOf(a.id,TODAY)).filter(Boolean);
-  const bugunKm=bugun.reduce((t,g)=>t+num(g.km),0);
-  const ihlal=bugun.reduce((t,g)=>t+num(g.ihlal),0);
-  return head('Araç takip','Mobiliz araç takip sisteminden gelen son konum, bugünkü km ve rölanti süresi. '+
+  const rolantiAdet=konumlar.filter(k=>k.kontak&&k.rolanti).length;
+  const top=list.map(a=>gunlukToplam(a.id,r.bas,r.bit));
+  const km=top.reduce((t,g)=>t+g.km,0);
+  const ihlal=top.reduce((t,g)=>t+g.ihlal,0);
+  const rolDk=top.reduce((t,g)=>t+g.rolantiDk,0);
+  const harDk=top.reduce((t,g)=>t+g.hareketDk,0);
+  const veriVar=top.some(g=>g.veri);
+
+  const hizli=[['bugun','Bugün'],['dun','Dün'],['hafta','Son 7 gün'],['ay','Son 30 gün']]
+    .map(([k,l])=>'<button data-act="arac-hizli" data-v="'+k+'" aria-pressed="'+(aracHizliSecili(k))+'">'+l+'</button>').join('');
+
+  return head('Araç takip','Mobiliz araç takip sisteminden gelen son konum ile seçilen tarih aralığındaki km ve rölanti süresi. '+
       (isFinans()||isUst()?'Tüm araçlar.':isBirim()?'Ekibinizin araçları.':'Size zimmetli araç.'),'')+
-  (sg.eski?'<div class="ro-banner">Son senkron: '+esc(sg.yazi)+'. Veriler güncel olmayabilir.</div>':'')+
+  (sg.eski?'<div class="ro-banner">Son senkron: '+esc(sg.yazi)+'. Konum verileri güncel olmayabilir.</div>':'')+
   '<div class="kpis"><div class="kpi"><span>Takipteki araç</span><b>'+list.length+'</b></div>'+
-  '<div class="kpi"><span>Hareket halinde</span><b>'+hareket+'</b></div>'+
-  '<div class="kpi"><span>Rölantide</span><b>'+rolanti+'</b></div>'+
-  '<div class="kpi"><span>Bugün toplam km</span><b>'+Math.round(bugunKm)+'</b></div>'+
-  '<div class="kpi"><span>Bugün hız ihlali</span><b>'+ihlal+'</b></div></div>'+
-  '<div class="stack"><section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">Son senkron: '+esc(sg.yazi)+'</span></div><div id="araclist">'+aracTable()+'</div></section></div>';
+  (bugunMu
+    ? '<div class="kpi"><span>Hareket halinde</span><b>'+hareket+'</b></div>'+
+      '<div class="kpi"><span>Rölantide</span><b>'+rolantiAdet+'</b></div>'
+    : '<div class="kpi"><span>Toplam hareket</span><b>'+dkYazi(harDk)+'</b></div>'+
+      '<div class="kpi"><span>Toplam rölanti</span><b>'+dkYazi(rolDk)+'</b></div>')+
+  '<div class="kpi"><span>'+esc(aralikAdi())+' toplam km</span><b>'+Math.round(km)+'</b></div>'+
+  '<div class="kpi"><span>'+esc(aralikAdi())+' hız ihlali</span><b>'+ihlal+'</b></div></div>'+
+  '<div class="stack">'+
+  '<div class="panel-h" style="border:0;padding:0 2px 2px">'+
+    '<div class="seg" role="group" aria-label="Tarih aralığı">'+hizli+'</div>'+
+    '<label class="muted sm" for="arac-bas">Başlangıç</label><input id="arac-bas" type="date" value="'+esc(r.bas)+'" max="'+TODAY+'" style="max-width:160px">'+
+    '<label class="muted sm" for="arac-bit">Bitiş</label><input id="arac-bit" type="date" value="'+esc(r.bit)+'" max="'+TODAY+'" style="max-width:160px">'+
+    '<span class="muted sm" style="margin-left:auto">Son senkron: '+esc(sg.yazi)+'</span>'+
+  '</div>'+
+  (!veriVar?'<div class="ro-banner">Seçilen aralıkta günlük özet kaydı yok. Günlük veriler araç takip kurulduğundan beri birikiyor; geçmişi doldurmak için senkronu tarih vererek çalıştırmanız gerekir.</div>':'')+
+  '<section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">'+esc(aralikAdi())+'</span></div><div id="araclist">'+aracTable()+'</div></section></div>';
+}
+/* Hızlı aralık düğmesi şu an seçili mi? */
+function aracHizliSecili(k){
+  const r=aracAralik();
+  if(k==='bugun')return r.bas===TODAY&&r.bit===TODAY;
+  if(k==='dun'){const d=gunOnce(1);return r.bas===d&&r.bit===d;}
+  if(k==='hafta')return r.bas===gunOnce(6)&&r.bit===TODAY;
+  if(k==='ay')return r.bas===gunOnce(29)&&r.bit===TODAY;
+  return false;
 }
 function aracTable(){
   const q=(state.aracQ||'').trim().toLocaleLowerCase('tr');
+  const r=aracAralik(),tekGun=aralikTekGun();
   let list=takipliAraclar();
   if(q)list=list.filter(a=>{const k=konumOf(a.id),h=emp(a.holderId);
     return [a.plaka,a.model,(h||{}).name,(k||{}).adres,(k||{}).surucu].join(' ').toLocaleLowerCase('tr').includes(q);});
   if(!list.length)return '<div class="empty">Bu aramada araç yok.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Plaka</th><th>Zimmetli personel</th><th>Durum</th><th class="num">Hız</th><th>Son konum</th><th class="num">Bugün km</th><th class="num">Rölanti</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Plaka</th><th>Zimmetli personel</th><th>Durum</th><th class="num">Hız</th><th>Son konum</th>'+
+    '<th class="num">Km</th><th class="num">Hareket</th><th class="num">Rölanti</th><th class="num">İhlal</th>'+
+    (tekGun?'':'<th class="num">Çalışılan gün</th>')+'<th></th></tr></thead><tbody>'+
   list.map(a=>{
-    const k=konumOf(a.id),h=emp(a.holderId),g=gunlukOf(a.id,TODAY),z=gecenSure(k?(k.veriAt||k.guncelAt):'');
+    const k=konumOf(a.id),h=emp(a.holderId),g=gunlukToplam(a.id,r.bas,r.bit),z=gecenSure(k?(k.veriAt||k.guncelAt):'');
     const harita=(k&&k.enlem!=null&&k.boylam!=null)
       ? '<a class="btn sm" href="https://www.google.com/maps?q='+k.enlem+','+k.boylam+'" target="_blank" rel="noopener">Haritada</a>' : '';
     return '<tr><td><div><b>'+esc(a.plaka)+'</b></div><div class="muted sm">'+esc(a.model)+'</div></td>'+
@@ -956,8 +1004,11 @@ function aracTable(){
       '<td class="num">'+(k&&k.kontak?Math.round(num(k.hiz))+' km/s':'-')+'</td>'+
       '<td>'+(k&&k.adres?'<div class="clamp">'+esc(k.adres)+'</div>':'<span class="muted">-</span>')+
         '<div class="muted sm">'+esc(z.yazi)+'</div></td>'+
-      '<td class="num">'+(g?Math.round(num(g.km)):'-')+'</td>'+
-      '<td class="num">'+(g?dkYazi(g.rolantiDk):'-')+'</td>'+
+      '<td class="num">'+(g.veri?Math.round(g.km):'-')+'</td>'+
+      '<td class="num">'+(g.veri?dkYazi(g.hareketDk):'-')+'</td>'+
+      '<td class="num">'+(g.veri?dkYazi(g.rolantiDk):'-')+'</td>'+
+      '<td class="num'+(g.ihlal?' out':'')+'">'+(g.veri?(g.ihlal||'-'):'-')+'</td>'+
+      (tekGun?'':'<td class="num">'+(g.veri?g.gun:'-')+'</td>')+
       '<td class="num">'+harita+'</td></tr>';
   }).join('')+'</tbody></table></div>';
 }
@@ -4167,6 +4218,12 @@ const actions={
   nav(el){state.view=el.dataset.v;state.menuAcik=false;render();window.scrollTo(0,0);},
   menu(){state.menuAcik=!state.menuAcik;render();},
   'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;render();},
+  'arac-hizli'(el){const k=el.dataset.v;
+    if(k==='bugun')state.arac={bas:TODAY,bit:TODAY};
+    else if(k==='dun'){const d=gunOnce(1);state.arac={bas:d,bit:d};}
+    else if(k==='hafta')state.arac={bas:gunOnce(6),bit:TODAY};
+    else if(k==='ay')state.arac={bas:gunOnce(29),bit:TODAY};
+    render();},
   'hrt-kat'(el){const k=el.dataset.v;state.hrt[k]=!state.hrt[k];
     if(!state.hrt.katArac&&!state.hrt.katRnd)state.hrt[k]=true;render();},
   go(el){actions.nav(el);},
@@ -4412,7 +4469,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -4453,6 +4510,8 @@ function init(){
     else if(el.id==='slq'){state.sat.q=el.value;const box=$('#satlist');if(box)box.innerHTML=satTable();}
     else if(el.id==='iq'){state.inv.q=el.value;const box=$('#invlist');if(box)box.innerHTML=invTable();}
     else if(el.id==='aq'){state.aracQ=el.value;const box=$('#araclist');if(box)box.innerHTML=aracTable();}
+    else if(el.id==='arac-bas'||el.id==='arac-bit'){
+      state.arac[el.id==='arac-bas'?'bas':'bit']=el.value||TODAY;render();}
     else if(el.id==='hrt-bas'||el.id==='hrt-bit'||el.id==='hrt-emp'){
       state.hrt[el.id==='hrt-bas'?'bas':el.id==='hrt-bit'?'bit':'emp']=el.value;
       haritaYenile();}
