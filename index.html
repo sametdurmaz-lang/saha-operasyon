@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Saha Operasyon">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Saha Operasyon Yönetimi</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -256,9 +256,10 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 @media (max-width:980px){.grid2{grid-template-columns:1fr}}
 @media (max-width:860px){
   .main{max-width:100%;min-width:0}
-  .side{min-width:0;position:static;padding:8px 12px;gap:8px;grid-template-columns:auto 1fr;align-items:start}
+  .side{min-width:0;position:static;gap:8px;align-items:start;
+    padding:calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 8px calc(12px + env(safe-area-inset-left))}
   .side{grid-template-columns:auto 1fr auto}
-  .menu-btn{display:inline-flex;justify-self:end}
+  .menu-btn{display:inline-flex;justify-self:end;width:44px;height:44px;flex:none}
   .side nav{grid-column:1/-1;order:3;display:none;padding:0 0 6px}
   .side.acik nav{display:flex}
   .nav-group{display:block;width:100%}
@@ -303,7 +304,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-j';
+const SURUM='30.09.2026-k';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
