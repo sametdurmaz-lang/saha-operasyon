@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-m';
+const SURUM='30.09.2026-n';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -488,6 +488,32 @@ async function q(t){
 /* Aşama 1'de yazma kapalı; save() yerel önbelleği korur, sunucuya yazmaz. */
 function save(){}
 
+/* ---------- Ortak satır eşleyicileri ----------
+   Hem ilk yükleme hem de canlı tazeleme aynı işlevleri kullanır;
+   ikisi zamanla birbirinden ayrışmasın. */
+const mapMusteri=r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
+  birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
+  unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
+  il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',operator:r.operator||'',
+  enlem:r.enlem,boylam:r.boylam,geoKaynak:r.geo_kaynak||'',
+  mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
+  dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
+  pstnVar:!!r.pstn_var,pstnHizmetNo:r.pstn_hizmet_no||'',pstnAdet:r.pstn_adet||0,pstnTaahhutAy:r.pstn_taahhut_ay||'',pstnTaahhutYil:r.pstn_taahhut_yil||'',
+  metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||''});
+const mapRandevu=(r,log)=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,
+  alanId:r.alan_id||null,date:r.date,desc:r.descr,status:r.status,
+  closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:log||[]});
+const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
+  enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
+  asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
+  veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''});
+const mapAracGunluk=r=>({assetId:r.asset_id,gun:r.gun,
+  km:r.km==null?null:num(r.km),
+  hareketDk:r.hareket_dk==null?null:num(r.hareket_dk),
+  rolantiDk:r.rolanti_dk==null?null:num(r.rolanti_dk),
+  durusDk:r.durus_dk==null?null:num(r.durus_dk),
+  ihlal:num(r.ihlal_adedi),ilk:r.ilk_hareket||'',son:r.son_hareket||''});
+
 async function loadAll(){
   const [companies,departments,employees,salaries,accounts,transactions,payrolls,
          assets,assetLogs,repairs,products,warehouses,stockUnits,stockLogs,
@@ -522,16 +548,8 @@ async function loadAll(){
     companies:companies.map(r=>({id:r.id,name:r.name,short:r.short})),
     departments:departments.map(r=>({id:r.id,companyId:r.company_id,name:r.name})),
     birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null})),
-    aracKonum:(aracKonum||[]).map(r=>({assetId:r.asset_id,plaka:r.plaka||'',
-      enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
-      asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
-      veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''})),
-    aracGunluk:(aracGunluk||[]).map(r=>({assetId:r.asset_id,gun:r.gun,
-      km:r.km==null?null:num(r.km),
-      hareketDk:r.hareket_dk==null?null:num(r.hareket_dk),
-      rolantiDk:r.rolanti_dk==null?null:num(r.rolanti_dk),
-      durusDk:r.durus_dk==null?null:num(r.durus_dk),
-      ihlal:num(r.ihlal_adedi),ilk:r.ilk_hareket||'',son:r.son_hareket||''})),
+    aracKonum:(aracKonum||[]).map(mapAracKonum),
+    aracGunluk:(aracGunluk||[]).map(mapAracGunluk),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
     ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
     bugunkuPotansiyel:bugunku,
@@ -566,18 +584,8 @@ async function loadAll(){
       gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
     targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
-    customers:customers.map(r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
-      birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
-      unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
-      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',operator:r.operator||'',
-      enlem:r.enlem,boylam:r.boylam,geoKaynak:r.geo_kaynak||'',
-      mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
-      dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
-      pstnVar:!!r.pstn_var,pstnHizmetNo:r.pstn_hizmet_no||'',pstnAdet:r.pstn_adet||0,pstnTaahhutAy:r.pstn_taahhut_ay||'',pstnTaahhutYil:r.pstn_taahhut_yil||'',
-      metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||''})),
-    appointments:appointments.map(r=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,
-      alanId:r.alan_id||null,date:r.date,desc:r.descr,status:r.status,
-      closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:pLog[r.id]||[]})),
+    customers:customers.map(mapMusteri),
+    appointments:appointments.map(r=>mapRandevu(r,pLog[r.id]||[])),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
       il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',kaynakTip:r.kaynak_tip||'elle',
@@ -1066,7 +1074,7 @@ function viewArac(){
   '</div>'+
   (bozukGun?'<div class="ro-banner">'+bozukGun+' araç-gününde araç takip cihazı hatalı mesafe bildirdi (negatif km). O günler kilometre toplamına katılmadı; süre ve ihlal verileri geçerli.</div>':'')+
   (!veriVar?'<div class="ro-banner">Seçilen aralıkta günlük özet kaydı yok. Günlük veriler araç takip kurulduğundan beri birikiyor; geçmişi doldurmak için senkronu tarih vererek çalıştırmanız gerekir.</div>':'')+
-  '<section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">'+esc(aralikAdi())+'</span></div><div id="araclist">'+aracTable()+'</div></section></div>';
+  '<section class="panel"><div class="panel-h"><input id="aq" type="search" placeholder="Plaka, personel veya konum ara" value="'+esc(state.aracQ||'')+'" style="max-width:380px" aria-label="Ara"><span class="muted sm">'+esc(aralikAdi())+'</span><span class="muted sm" id="canli-damga"></span></div><div id="araclist">'+aracTable()+'</div></section></div>';
 }
 /* Hızlı aralık düğmesi şu an seçili mi? */
 function aracHizliSecili(k){
@@ -1137,8 +1145,9 @@ function aracRenk(k){
   return num(k.hiz)>0?HRT_RENK.hareket:HRT_RENK.duruyor;
 }
 /* --- Canlı: her araç bir pin --- */
-function haritaCanli(){
+function haritaCanli(koru){
   const m=haritaKur();if(!m)return;
+  const acikBaloncuk=koru&&m._popup&&m._popup.isOpen()?m._popup.getLatLng():null;
   haritaTemizle();
   const noktalar=[],f=state.hrt,sec=f.emp;
   let aracAdet=0;
@@ -1161,8 +1170,14 @@ function haritaCanli(){
     _hrtKat.push(mk);noktalar.push([k.enlem,k.boylam]);aracAdet++;
   });
   const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,bekleyen:[],toplam:0};
-  if(noktalar.length===1)m.setView(noktalar[0],14);
-  else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
+  /* Otomatik tazelemede kullanıcının baktığı yeri değiştirme */
+  if(!koru){
+    if(noktalar.length===1)m.setView(noktalar[0],14);
+    else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
+  }else if(acikBaloncuk){
+    const yakin=_hrtKat.find(k=>k.getLatLng&&k.getLatLng().equals(acikBaloncuk));
+    if(yakin&&yakin.openPopup)yakin.openPopup();
+  }
   const bilgi=$('#hrt-bilgi');
   if(!bilgi)return;
   const par=[];
@@ -1309,6 +1324,7 @@ function viewHarita(){
          katDugme('katRnd','Randevular',acikRnd.length)+'</div>')+
     '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>'+
     '<span class="muted sm" id="hrt-bilgi">Yükleniyor…</span>'+
+    '<span class="muted sm" id="canli-damga"></span>'+
     '<span class="lejant" style="margin-left:auto">'+lejant+'</span>'+
   '</div><div id="harita"></div>'+
   '<div id="hrt-bekleyen" class="hrt-bekleyen"></div></section></div>';
@@ -3518,12 +3534,84 @@ function sidebar(){
     '<nav aria-label="Ana menü">'+menu+'</nav>'+
     '<div class="side-foot"><div class="who"><span class="muted sm">'+esc(ROL_ADI[rolAdi(me.role)]||me.role)+'</span><b>'+esc(me.email)+'</b><span class="muted" style="font-size:11px">Sürüm '+SURUM+'</span></div><button class="btn sm" data-act="open-sifre">Şifre değiştir</button><button class="btn sm" data-act="logout">Çıkış yap</button></div></aside>';
 }
+/* ====================== CANLI TAZELEME ============================
+   Araç takip ve Harita ekranları açık kaldığı sürece veriyi
+   dakikada bir kendiliğinden tazeler. Tüm tabloları değil, yalnızca
+   değişen dördünü çeker; sayfa yenilenmez, haritanın yakınlaştırması
+   ve açık baloncuk bozulmaz.
+   Sekme arka plandayken durur, öne gelince hemen tazeler. */
+const CANLI_ARALIK=60000;
+let _canliSayac=null,_canliEkran='',_canliCalisiyor=false,_sonTazeleme=null;
+
+async function canliVeriTazele(){
+  if(!me||!db||busy||dlgState.kind)return false;   /* yazma veya açık pencere varken dokunma */
+  if(_canliCalisiyor)return false;
+  _canliCalisiyor=true;
+  try{
+    const [kon,gun,apt,cus]=await Promise.all([
+      q('arac_konum').catch(()=>null),
+      q('arac_gunluk').catch(()=>null),
+      q('appointments'),
+      q('customers')]);
+    if(kon)db.aracKonum=kon.map(mapAracKonum);
+    if(gun)db.aracGunluk=gun.map(mapAracGunluk);
+    if(apt){
+      const eskiLog={};db.appointments.forEach(a=>{eskiLog[a.id]=a.log||[];});
+      db.appointments=apt.map(r=>mapRandevu(r,eskiLog[r.id]));
+    }
+    if(cus)db.customers=cus.map(mapMusteri);
+    _sonTazeleme=new Date();
+    return true;
+  }catch(e){return false;}
+  finally{_canliCalisiyor=false;}
+}
+function tazelemeDamgasi(){
+  const el=$('#canli-damga');if(!el)return;
+  el.textContent=_sonTazeleme
+    ? 'Güncellendi '+_sonTazeleme.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})
+    : '';
+}
+function yaziyorMu(){
+  const el=document.activeElement;
+  return !!(el&&(el.matches('input,select,textarea')||el.isContentEditable));
+}
+async function canliTik(){
+  const ekran=state&&state.view;
+  if(ekran!=='harita'&&ekran!=='arac')return;
+  if(yaziyorMu())return;            /* kullanıcı bir alanla uğraşıyorsa bekle */
+  const oldu=await canliVeriTazele();
+  if(!oldu||!state||state.view!==ekran)return;
+  if(ekran==='harita'){
+    if(state.hrt.sekme!=='isi')haritaCanli(true);   /* görünümü koruyarak çiz */
+    tazelemeDamgasi();
+  }else{
+    /* Üst rakamlar da değiştiği için ekranı yeniden çiziyoruz;
+       sayfa konumu korunur, damga yeniden basılır. */
+    const y=window.scrollY;
+    render();
+    window.scrollTo(0,y);
+    tazelemeDamgasi();
+  }
+}
+function canliSayacAyarla(){
+  const ekran=(me&&state&&(state.view==='harita'||state.view==='arac'))?state.view:'';
+  if(ekran===_canliEkran){tazelemeDamgasi();return;}
+  _canliEkran=ekran;
+  if(_canliSayac){clearInterval(_canliSayac);_canliSayac=null;}
+  tazelemeDamgasi();
+  if(!ekran)return;
+  canliTik();                                   /* ekrana girer girmez bir kez */
+  _canliSayac=setInterval(()=>{if(!document.hidden)canliTik();},CANLI_ARALIK);
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)canliTik();});
+
 function render(){
   if(!me)return renderLogin();
   if(!isUst()&&!isMuhasebe()&&!me.employeeId)return renderEslesmemis();
   if(!gorebilir(state.view))state.view=ilkEkran();
   $('#app').innerHTML='<div class="shell">'+sidebar()+'<main class="main" id="main">'+
     (WRITE_ENABLED?'':roBanner())+VIEWS[state.view]()+'</main></div>';
+  canliSayacAyarla();
 }
 function renderEslesmemis(){
   $('#app').innerHTML='<div class="auth-wrap"><div class="auth-card">'+
