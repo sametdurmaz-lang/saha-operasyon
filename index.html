@@ -278,7 +278,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-g';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-h';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -508,7 +508,7 @@ async function loadAll(){
     customers:customers.map(r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
       birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
       unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
-      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',
+      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',operator:r.operator||'',
       enlem:r.enlem,boylam:r.boylam,geoKaynak:r.geo_kaynak||'',
       mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
       dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
@@ -1782,6 +1782,7 @@ function saveTarget(){
 /* ----- Müşteriler ----- */
 function custSummary(c){
   const parts=[];
+  if(c.operator&&c.operator!=='Hattı yok')parts.push(c.operator);
   if(c.mobilAdet)parts.push('Mobil ×'+c.mobilAdet);
   if(c.dslVar)parts.push('DSL'+(c.dslAdet?' ×'+c.dslAdet:''));
   if(c.pstnVar)parts.push('PSTN'+(c.pstnAdet?' ×'+c.pstnAdet:''));
@@ -1820,7 +1821,7 @@ function svcSection(key,label,v){
 }
 function openCustomer(id){
   const c=id?byId(db.customers,id):null;
-  const v=c||{unvan:'',yetkili:'',telefon:'',vkn:'',il:'',ilce:'',adres:'',mobilAdet:0,mobilTaahhutAy:'',mobilTaahhutYil:'',dslVar:false,dslHizmetNo:'',dslAdet:0,dslTaahhutAy:'',dslTaahhutYil:'',pstnVar:false,pstnHizmetNo:'',pstnAdet:0,pstnTaahhutAy:'',pstnTaahhutYil:'',metroVar:false,metroHizmetNo:'',metroAdet:0,metroTaahhutAy:'',metroTaahhutYil:''};
+  const v=c||{unvan:'',yetkili:'',telefon:'',vkn:'',il:'',ilce:'',adres:'',operator:'',mobilAdet:0,mobilTaahhutAy:'',mobilTaahhutYil:'',dslVar:false,dslHizmetNo:'',dslAdet:0,dslTaahhutAy:'',dslTaahhutYil:'',pstnVar:false,pstnHizmetNo:'',pstnAdet:0,pstnTaahhutAy:'',pstnTaahhutYil:'',metroVar:false,metroHizmetNo:'',metroAdet:0,metroTaahhutAy:'',metroTaahhutYil:''};
   dlgState={kind:'cust',id:id||null};
   const appts=c?db.appointments.filter(a=>a.customerId===c.id).sort((a,b)=>a.date<b.date?1:-1):[];
   const sales=c?db.sales.filter(s=>s.customerId===c.id).sort((a,b)=>a.date<b.date?1:-1):[];
@@ -1834,7 +1835,8 @@ function openCustomer(id){
       '<div class="field"><label for="c-ilce">İlçe</label><select id="c-ilce">'+ilceOptions(v.il,v.ilce)+'</select></div>'+
       '<div class="field full"><label for="c-adres">Açık adres</label><textarea id="c-adres" rows="2">'+esc(v.adres)+'</textarea></div>'+
     '</div>'+
-    '<div class="dsec"><h3>Mobil hat</h3><div class="fields"><div class="field"><label for="c-mobiladet">Adet</label><input id="c-mobiladet" type="number" min="0" step="1" value="'+esc(v.mobilAdet||'')+'"></div>'+custMonthYear('c-mobil',v.mobilTaahhutAy,v.mobilTaahhutYil)+'</div></div>'+
+    '<div class="dsec"><h3>Mobil hat</h3><div class="fields"><div class="field"><label for="c-oper">Mevcut operatör</label><select id="c-oper">'+opt(OPERATORLER,v.operator||'','Belirtilmedi')+'</select></div>'+
+    '<div class="field"><label for="c-mobiladet">Adet</label><input id="c-mobiladet" type="number" min="0" step="1" value="'+esc(v.mobilAdet||'')+'"></div>'+custMonthYear('c-mobil',v.mobilTaahhutAy,v.mobilTaahhutYil)+'</div></div>'+
     svcSection('dsl','DSL sabit internet',v)+
     svcSection('pstn','PSTN sabit telefon',v)+
     svcSection('metro','Metro ethernet',v)+
@@ -1888,6 +1890,7 @@ function taahhutMetni(ay,yil){
 }
 function hizmetSatirlari(c){
   const rows=[];
+  if(c.operator)rows.push(['Mevcut operatör',c.operator,'','']);
   if(c.mobilAdet)rows.push(['Mobil hat',c.mobilAdet+' adet','',taahhutMetni(c.mobilTaahhutAy,c.mobilTaahhutYil)]);
   if(c.dslVar)rows.push(['DSL sabit internet',(c.dslAdet||0)+' adet',c.dslHizmetNo||'',taahhutMetni(c.dslTaahhutAy,c.dslTaahhutYil)]);
   if(c.pstnVar)rows.push(['PSTN sabit telefon',(c.pstnAdet||0)+' adet',c.pstnHizmetNo||'',taahhutMetni(c.pstnTaahhutAy,c.pstnTaahhutYil)]);
@@ -1932,6 +1935,10 @@ function findDuplicateCustomer(unvan,telefon,vkn,exceptId){
   if(hit2)return {type:'soft',c:hit2};
   return null;
 }
+const OPERATORLER=[['Turkcell','Turkcell'],['Vodafone','Vodafone'],['Türk Telekom','Türk Telekom'],['Diğer','Diğer'],['Hattı yok','Hattı yok']];
+const operatorOzet=c=>{if(!c)return '';
+  if(c.operator==='Hattı yok')return 'Hattı yok';
+  return c.operator?(c.operator+(c.mobilAdet?' · '+c.mobilAdet+' hat':'')):'';};
 const NEW_CUST='__new__';
 function quickCustomerFields(pre){
   return '<div id="'+pre+'-newcust" class="dsec" style="display:none"><h3>Yeni müşteri</h3><div class="fields">'+
@@ -1984,6 +1991,7 @@ function saveCustomer(){
   const dslVar=!!$('#c-dslvar').checked,pstnVar=!!$('#c-pstnvar').checked,metroVar=!!$('#c-metrovar').checked;
   const rec={
     unvan,yetkili,telefon:tel,vkn,il:g('c-il'),ilce:g('c-ilce'),adres:g('c-adres'),
+    operator:($('#c-oper')||{}).value||'',
     mobilAdet:num('c-mobiladet'),mobilTaahhutAy:$('#c-mobilay').value||'',mobilTaahhutYil:g('c-mobilyil'),
     dslVar,dslHizmetNo:dslVar?g('c-dslno'):'',dslAdet:dslVar?num('c-dsladet'):0,dslTaahhutAy:dslVar?($('#c-dslay').value||''):'',dslTaahhutYil:dslVar?g('c-dslyil'):'',
     pstnVar,pstnHizmetNo:pstnVar?g('c-pstnno'):'',pstnAdet:pstnVar?num('c-pstnadet'):0,pstnTaahhutAy:pstnVar?($('#c-pstnay').value||''):'',pstnTaahhutYil:pstnVar?g('c-pstnyil'):'',
@@ -1991,6 +1999,7 @@ function saveCustomer(){
   };
   const row={unvan:rec.unvan,yetkili:rec.yetkili,telefon:rec.telefon,vkn:rec.vkn,
     il:rec.il,ilce:rec.ilce,adres:rec.adres,
+    operator:rec.operator,
     mobil_adet:rec.mobilAdet,mobil_taahhut_ay:rec.mobilTaahhutAy,mobil_taahhut_yil:rec.mobilTaahhutYil,
     dsl_var:rec.dslVar,dsl_hizmet_no:rec.dslHizmetNo,dsl_adet:rec.dslAdet,
     dsl_taahhut_ay:rec.dslTaahhutAy,dsl_taahhut_yil:rec.dslTaahhutYil,
@@ -2011,10 +2020,10 @@ function apptTable(){
   if(f.emp)list=list.filter(a=>a.employeeId===f.emp||alanOf(a)===f.emp);
   if(state.period!=='all')list=list.filter(a=>inPeriod(a,state.period));
   if(q)list=list.filter(a=>{const c=apptCustomer(a),al=emp(alanOf(a));
-    return [c?c.unvan:'',c?c.yetkili:'',a.desc,al?al.name:''].join(' ').toLocaleLowerCase('tr').includes(q);});
+    return [c?c.unvan:'',c?c.yetkili:'',c?c.operator:'',a.desc,al?al.name:''].join(' ').toLocaleLowerCase('tr').includes(q);});
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Kaydı giren saha</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Operatör / hat</th><th>Kaydı giren saha</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
   list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
     void 0;
     const custBtn=c?'<button class="btn sm" data-act="cust-info" data-id="'+c.id+'">Müşteri</button> ':'';
@@ -2025,6 +2034,9 @@ function apptTable(){
       :'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>');
     const al=emp(alanOf(a)),sh=apptSaha(a);
     return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td>'+
+      '<td>'+(c&&c.operator
+        ?'<div>'+esc(c.operator)+'</div>'+(c.operator!=='Hattı yok'&&c.mobilAdet?'<div class="muted sm">'+c.mobilAdet+' hat</div>':'')
+        :'<span class="muted">—</span>')+'</td>'+
       '<td>'+(sh?esc(sh.name):'<span class="muted">—</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'?'<span class="badge warn">Açık</span>':a.status==='İptal'?'<span class="badge bad">İptal</span>':'<span class="badge ok">Kapandı</span>')+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
 }
@@ -2116,6 +2128,8 @@ function openAppointment(customerId,sahaId){
     '<div class="field full" id="ap-openwarn">'+acikRandevuUyari(customerId)+'</div>'+
     quickCustomerFields('ap')+
     '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div>'+
+    '<div class="field"><label for="ap-oper">Mevcut operatör</label><select id="ap-oper">'+opt(OPERATORLER,'','Seçin')+'</select></div>'+
+    '<div class="field"><label for="ap-hat">Hat adedi</label><input id="ap-hat" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
     '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
       (isUst()||isBirim()||isDestek()
         ?'<select id="ap-alan">'+empSecim(me.employeeId||'','Personel seçin',aktifPersonel())+'</select>'
@@ -2153,6 +2167,12 @@ function saveAppointment(){
   const alan=($('#ap-alan')||{}).value||'';
   if(!custSel)return err('Müşteri seçin.');if(!date)return err('Tarih seçin.');if(!desc)return err('Açıklama girin.');
   if(!alan)return err('Randevuyu alan personeli seçin.');
+  const oper=($('#ap-oper')||{}).value||'';
+  const hatStr=($('#ap-hat')||{}).value;
+  const hat=hatStr===''?null:Math.max(0,Math.floor(Number(hatStr)||0));
+  if(!oper)return err('Müşterinin mevcut operatörünü seçin.');
+  if(hat===null)return err('Müşterinin hat adedini girin.');
+  if(oper!=='Hattı yok'&&hat<1)return err('Hat adedi en az 1 olmalı. Müşterinin hattı yoksa operatör olarak “Hattı yok” seçin.');
   if(custSel!==NEW_CUST&&acikRandevular(custSel).length&&!dlgState.apOpenConfirmed){
     dlgState.apOpenConfirmed=true;
     return err('Bu müşterinin açık randevusu var. Yine de oluşturmak için “Randevuyu kaydet” düğmesine tekrar basın.');
@@ -2166,12 +2186,15 @@ function saveAppointment(){
       if(res.error)throw new Error(res.error);
       custId=res.customer.id;
     }
+    /* Operatör ve hat adedi müşteri kartına işlenir */
+    await upd('customers',custId,{operator:oper,mobil_adet:hat});
     const h=randevuSahibi(custId);
     const a=await ins('appointments',{customer_id:custId,employee_id:h.emp.id,alan_id:alan,
       date,descr:desc,status:'Açık'});
     const sh=sahaSahibiOf(custId);
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
-      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Bayi Müdürü\u2019ne atandı: '+h.emp.name+
+      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Operatör: '+oper+(oper!=='Hattı yok'?' ('+hat+' hat)':'')+
+        ' · Bayi Müdürü\u2019ne atandı: '+h.emp.name+
         (sh?' · Potansiyel kaydını giren saha personeli: '+sh.name:'')});
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
 }
@@ -2222,7 +2245,7 @@ function openCancelAppt(id){
     '<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd>'+
     '<dt>Randevuyu alan</dt><dd>'+esc((emp(alanOf(a))||{}).name||'—')+'</dd>'+
     '<dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd>'+
-    '<dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd>'+
+    '<dt>Operatör</dt><dd>'+esc(operatorOzet(c)||'—')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd>'+
     '<dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd></dl>'+
     '<div class="fields"><div class="field full"><label for="ip-desc">İptal nedeni</label>'+
       '<textarea id="ip-desc" rows="3" placeholder="Örn. Müşteri görüşmeyi iptal etti, adres yanlış, ulaşılamadı"></textarea></div>'+
@@ -2617,11 +2640,13 @@ function satisExportRows(){
 }
 function randevuExportRows(){
   const head=['Randevu tarihi','Müşteri','Yetkili','Telefon','İl','İlçe','Adres',
+              'Mevcut operatör','Hat adedi',
               'Randevuyu alan','Atanan personel','Durum','Açıklama',
               'Kapanış / iptal tarihi','Kapanış / iptal açıklaması','Satışa döndü mü'];
   const rows=db.appointments.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(a=>{
     const c=byId(db.customers,a.customerId)||{};
     return [dIso(a.date),c.unvan||'',c.yetkili||'',c.telefon||'',c.il||'',c.ilce||'',c.adres||'',
+      c.operator||'',c.mobilAdet||0,
       adOf(emp(alanOf(a)),'name'),adOf(emp(a.employeeId),'name'),a.status||'',a.desc||'',
       a.closeDate?dIso(a.closeDate):'',a.closeDesc||'',
       (!iptalMi(a)&&isConverted(a.customerId,a.date))?'Evet':'Hayır'];
@@ -4020,6 +4045,11 @@ function dialogChange(el){
     return;
   }
   if(k==='appt'){
+    if(id==='ap-oper'){
+      const ha=$('#ap-hat');
+      if(ha){if(el.value==='Hattı yok'){ha.value='0';ha.disabled=true;}else ha.disabled=false;}
+      return;
+    }
     if(id==='ap-cil'){const w=$('#ap-cilce');if(w)w.innerHTML=ilceOptions(el.value,'');return;}
     if(id==='ap-cust'){
       const sn=$('#ap-sahip');
@@ -4027,6 +4057,11 @@ function dialogChange(el){
       const w=$('#ap-newcust');if(w)w.style.display=(el.value===NEW_CUST)?'block':'none';
       const u=$('#ap-openwarn');if(u)u.innerHTML=acikRandevuUyari(el.value);
       dlgState.apOpenConfirmed=false;
+      /* Kayıtlı müşteride operatör ve hat adedini hazır getir */
+      const c=(el.value&&el.value!==NEW_CUST)?byId(db.customers,el.value):null;
+      const o=$('#ap-oper'),ha=$('#ap-hat');
+      if(o)o.value=c&&c.operator?c.operator:'';
+      if(ha)ha.value=c&&c.mobilAdet?c.mobilAdet:'';
       const er=$('#ap-err');if(er)er.textContent='';
       return;
     }
