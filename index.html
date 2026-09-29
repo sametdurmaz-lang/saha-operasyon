@@ -219,6 +219,8 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .rnd-pin .yn{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:6px;
   padding:2px 6px;font-size:11px;font-weight:600;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .rnd-pin:hover .nk{filter:brightness(1.08)}
+.hrt-bekleyen:not(:empty){padding:10px 14px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--muted);background:var(--paper)}
 .yeni-surum{position:fixed;left:50%;transform:translateX(-50%);z-index:90;
   bottom:calc(16px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:12px;
   background:var(--bar);color:var(--bar-ink);padding:10px 12px 10px 16px;border-radius:12px;
@@ -304,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-k';
+const SURUM='30.09.2026-m';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1158,7 +1160,7 @@ function haritaCanli(){
       '<br><a href="https://www.google.com/maps?q='+k.enlem+','+k.boylam+'" target="_blank" rel="noopener">Google Maps</a>');
     _hrtKat.push(mk);noktalar.push([k.enlem,k.boylam]);aracAdet++;
   });
-  const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,toplam:0};
+  const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,bekleyen:[],toplam:0};
   if(noktalar.length===1)m.setView(noktalar[0],14);
   else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
   const bilgi=$('#hrt-bilgi');
@@ -1168,9 +1170,16 @@ function haritaCanli(){
   if(f.katRnd)par.push(r.adet+' randevu');
   let yazi=par.length?par.join(' · ')+' haritada':'Gösterilecek katman seçilmedi';
   if(f.katRnd&&r.yaklasik)yazi+=' · '+r.yaklasik+' randevu yaklaşık konumda';
-  if(f.katRnd&&r.konumsuz)yazi+=' · '+r.konumsuz+' adres çevrilmedi';
+  if(f.katRnd&&r.konumsuz)yazi+=' · '+r.konumsuz+' randevunun konumu hazırlanıyor';
   if(!noktalar.length&&par.length)yazi='Haritaya düşecek konum verisi yok';
   bilgi.textContent=yazi;
+  const not=$('#hrt-bekleyen');
+  if(not)not.innerHTML=(f.katRnd&&r.bekleyen&&r.bekleyen.length)
+    ? 'Şu müşterilerin adresi henüz koordinata çevrilmedi, en geç 10 dakika içinde haritaya düşer: <b>'+
+      r.bekleyen.slice(0,6).map(esc).join('</b>, <b>')+'</b>'+
+      (r.bekleyen.length>6?' ve '+(r.bekleyen.length-6)+' kayıt daha':'')+
+      '. Çevrilemezse müşteri kartında il, ilçe ve açık adres dolu mu bakın.'
+    : '';
 }
 /* --- Isı haritası: sunucudan toplanmış ızgara --- */
 async function haritaIsi(){
@@ -1217,9 +1226,10 @@ function haritaRandevuListesi(){
 }
 function haritaRandevuCiz(m,noktalar){
   const liste=haritaRandevuListesi();
-  let adet=0,yaklasik=0,konumsuz=0;
+  let adet=0,yaklasik=0,konumsuz=0;const bekleyen=[];
   liste.forEach(({a,c})=>{
-    if(c.enlem==null||c.boylam==null){konumsuz++;return;}
+    if(c.enlem==null||c.boylam==null){konumsuz++;
+      if(bekleyen.indexOf(c.unvan)<0)bekleyen.push(c.unvan);return;}
     if(c.geoKaynak==='ilce')yaklasik++;
     const renk=randevuRenk(a.date),h=emp(a.employeeId),alan=emp(a.alanId);
     /* Pinin içinde hat adedi; yanında operatör kısaltması */
@@ -1244,7 +1254,7 @@ function haritaRandevuCiz(m,noktalar){
       '<br><a href="https://www.google.com/maps/dir/?api=1&destination='+c.enlem+','+c.boylam+'" target="_blank" rel="noopener">Yol tarifi</a>');
     _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);adet++;
   });
-  return {adet,yaklasik,konumsuz,toplam:liste.length};
+  return {adet,yaklasik,konumsuz,bekleyen,toplam:liste.length};
 }
 function haritaCiz(){
   /* DOM yerleşene kadar bekle */
@@ -1300,7 +1310,8 @@ function viewHarita(){
     '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>'+
     '<span class="muted sm" id="hrt-bilgi">Yükleniyor…</span>'+
     '<span class="lejant" style="margin-left:auto">'+lejant+'</span>'+
-  '</div><div id="harita"></div></section></div>';
+  '</div><div id="harita"></div>'+
+  '<div id="hrt-bekleyen" class="hrt-bekleyen"></div></section></div>';
 }
 function viewZimmet(){
   const all=zimmetKapsami(state.invPasif?db.assets:aktifCihazlar()),
@@ -2031,6 +2042,7 @@ async function quickCreateCustomer(pre,dupKey){
   const il=$('#'+pre+'-cil')?$('#'+pre+'-cil').value:'',ilce=$('#'+pre+'-cilce')?$('#'+pre+'-cilce').value:'';
   const adres=$('#'+pre+'-cadres')?$('#'+pre+'-cadres').value.trim():'';
   const c=await ins('customers',{unvan,yetkili,telefon:tel,vkn:'',il,ilce,adres});
+  await konumIsle(c.id,{il,ilce,adres});
   return {customer:c};
 }
 function saveCustomer(){
@@ -2075,7 +2087,58 @@ function saveCustomer(){
     pstn_taahhut_ay:rec.pstnTaahhutAy,pstn_taahhut_yil:rec.pstnTaahhutYil,
     metro_var:rec.metroVar,metro_hizmet_no:rec.metroHizmetNo,metro_adet:rec.metroAdet,
     metro_taahhut_ay:rec.metroTaahhutAy,metro_taahhut_yil:rec.metroTaahhutYil};
-  run('c-err',()=>id?upd('customers',id,row):ins('customers',row),'Müşteri kaydedildi');
+  const eski=id?byId(db.customers,id):null;
+  const adresDegisti=!eski||geoImza(eski)!==geoImza(rec)||eski.enlem==null;
+  run('c-err',async()=>{
+    const kayit=id?await upd('customers',id,row):await ins('customers',row);
+    if(adresDegisti)await konumIsle(id||kayit.id,rec);
+  },'Müşteri kaydedildi');
+}
+
+/* ---------- Adresi anında koordinata çevirme ----------
+   Müşteri kaydedilir kaydedilmez tarayıcıdan Photon'a sorulur; böylece
+   müşteri haritada hemen görünür, saatlik senkronu beklemez.
+   Başarısız olursa sessizce geçilir: sunucudaki zamanlanmış çevrim
+   zaten aynı kaydı sırası gelince tekrar dener. */
+const GEO_ZAMAN_ASIMI=6000;
+function geoImza(c){return (c.adres||'')+'|'+(c.ilce||'')+'|'+(c.il||'');}
+async function geoSor(adres){
+  const url='https://photon.komoot.io/api?limit=1&lang=default&q='+encodeURIComponent(adres);
+  const kes=new AbortController();
+  const sayac=setTimeout(()=>kes.abort(),GEO_ZAMAN_ASIMI);
+  try{
+    const r=await fetch(url,{signal:kes.signal});
+    if(!r.ok)return null;
+    const j=await r.json();
+    const k=j&&j.features&&j.features[0]&&j.features[0].geometry&&j.features[0].geometry.coordinates;
+    if(!k||k.length<2)return null;
+    const enlem=Number(k[1]),boylam=Number(k[0]);
+    return isFinite(enlem)&&isFinite(boylam)?{enlem,boylam}:null;
+  }catch(e){return null;}
+  finally{clearTimeout(sayac);}
+}
+/* Önce tam adres, olmazsa ilçe merkezi */
+async function konumBul(c){
+  const il=(c.il||'').trim(),ilce=(c.ilce||'').trim(),adres=(c.adres||'').trim();
+  if(!il&&!adres)return null;
+  if(adres){
+    const t=await geoSor([adres,ilce,il,'Türkiye'].filter(Boolean).join(', '));
+    if(t)return {enlem:t.enlem,boylam:t.boylam,kaynak:'adres'};
+  }
+  if(ilce||il){
+    const t=await geoSor([ilce,il,'Türkiye'].filter(Boolean).join(', '));
+    if(t)return {enlem:t.enlem,boylam:t.boylam,kaynak:'ilce'};
+  }
+  return null;
+}
+/* Kaydedilen müşterinin koordinatını yaz. Hata fırlatmaz. */
+async function konumIsle(custId,bilgi){
+  try{
+    const k=await konumBul(bilgi);
+    if(!k)return;
+    await upd('customers',custId,{enlem:k.enlem,boylam:k.boylam,
+      geo_kaynak:k.kaynak,geo_adres:geoImza(bilgi),geo_at:new Date().toISOString()});
+  }catch(e){/* zamanlanmış çevrim sonra halleder */}
 }
 
 /* ----- Randevular ----- */
@@ -3037,6 +3100,7 @@ function leadConvertGo(id,cid){
       const c=await ins('customers',{unvan:l.unvan,yetkili:l.yetkili||l.unvan,telefon:l.telefon,
         vkn:l.vkn||'',il:l.il||'',ilce:l.ilce||'',adres:l.adres||'',
         birim_id:l.birimId||null,saha_id:l.sahaId||null});
+      await konumIsle(c.id,{il:l.il||'',ilce:l.ilce||'',adres:l.adres||''});
       hedef=c.id;
     }
     await upd('leads',id,{durum:'Müşteriye aktarıldı',customer_id:hedef});
