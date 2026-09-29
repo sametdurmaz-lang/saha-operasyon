@@ -178,6 +178,9 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .harita-yok{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);padding:20px;text-align:center}
 .lejant{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
 .lejant i{display:inline-block;width:80px;height:9px;border-radius:5px;background:linear-gradient(90deg,#2563EB,#22C55E,#FACC15,#EF4444)}
+.lejant{flex-wrap:wrap;gap:6px}
+.lejant b{color:var(--ink);font-weight:600}
+.lejant-ara{display:inline-block;width:1px;height:12px;background:var(--line);margin:0 4px}
 .leaflet-popup-content{font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:13px;margin:10px 12px}
 .leaflet-popup-content b{font-size:14px}
 .arac-pin{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;
@@ -254,7 +257,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-b';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -985,9 +988,9 @@ function aracRenk(k){
 function haritaCanli(){
   const m=haritaKur();if(!m)return;
   haritaTemizle();
-  const noktalar=[];
-  const sec=state.hrt.emp;
-  takipliAraclar().filter(a=>!sec||a.holderId===sec).forEach(a=>{
+  const noktalar=[],f=state.hrt,sec=f.emp;
+  let aracAdet=0;
+  if(f.katArac)takipliAraclar().filter(a=>!sec||a.holderId===sec).forEach(a=>{
     const k=konumOf(a.id);
     if(!k||k.enlem==null||k.boylam==null)return;
     const h=emp(a.holderId),z=gecenSure(k.veriAt||k.guncelAt),renk=aracRenk(k);
@@ -1000,12 +1003,21 @@ function haritaCanli(){
       (k.adres?'<br><span style="color:#5C6B7D">'+esc(k.adres)+'</span>':'')+
       '<br><span style="color:#5C6B7D">'+esc(z.yazi)+'</span>'+
       '<br><a href="https://www.google.com/maps?q='+k.enlem+','+k.boylam+'" target="_blank" rel="noopener">Google Maps</a>');
-    _hrtKat.push(mk);noktalar.push([k.enlem,k.boylam]);
+    _hrtKat.push(mk);noktalar.push([k.enlem,k.boylam]);aracAdet++;
   });
+  const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,toplam:0};
   if(noktalar.length===1)m.setView(noktalar[0],14);
   else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
   const bilgi=$('#hrt-bilgi');
-  if(bilgi)bilgi.textContent=noktalar.length?(noktalar.length+' araç haritada'):'Konum verisi olan araç yok';
+  if(!bilgi)return;
+  const par=[];
+  if(f.katArac)par.push(aracAdet+' araç');
+  if(f.katRnd)par.push(r.adet+' randevu');
+  let yazi=par.length?par.join(' · ')+' haritada':'Gösterilecek katman seçilmedi';
+  if(f.katRnd&&r.yaklasik)yazi+=' · '+r.yaklasik+' randevu yaklaşık konumda';
+  if(f.katRnd&&r.konumsuz)yazi+=' · '+r.konumsuz+' adres çevrilmedi';
+  if(!noktalar.length&&par.length)yazi='Haritaya düşecek konum verisi yok';
+  bilgi.textContent=yazi;
 }
 /* --- Isı haritası: sunucudan toplanmış ızgara --- */
 async function haritaIsi(){
@@ -1032,10 +1044,7 @@ async function haritaIsi(){
   }
 }
 function haritaYenile(){
-  const v=state.hrt.sekme;
-  if(v==='isi')haritaIsi();
-  else if(v==='randevu')haritaRandevu();
-  else haritaCanli();
+  if(state.hrt.sekme==='isi')haritaIsi();else haritaCanli();
 }
 /* --- Açık randevular --- */
 const RND_RENK={gecmis:'#DC2626',bugun:'#D97706',gelecek:'#2563EB'};
@@ -1053,11 +1062,9 @@ function haritaRandevuListesi(){
     .filter(x=>x.c)
     .sort((x,y)=>(x.a.date||'').localeCompare(y.a.date||''));
 }
-function haritaRandevu(){
-  const m=haritaKur();if(!m)return;
-  haritaTemizle();
-  const liste=haritaRandevuListesi(),noktalar=[];
-  let yaklasik=0,konumsuz=0;
+function haritaRandevuCiz(m,noktalar){
+  const liste=haritaRandevuListesi();
+  let adet=0,yaklasik=0,konumsuz=0;
   liste.forEach(({a,c})=>{
     if(c.enlem==null||c.boylam==null){konumsuz++;return;}
     if(c.geoKaynak==='ilce')yaklasik++;
@@ -1075,14 +1082,9 @@ function haritaRandevu(){
       (c.adres?'<br><span style="color:#5C6B7D">'+esc([c.adres,c.ilce,c.il].filter(Boolean).join(', '))+'</span>':'')+
       (c.geoKaynak==='ilce'?'<br><span style="color:'+RND_RENK.bugun+'">Yaklaşık konum (ilçe merkezi)</span>':'')+
       '<br><a href="https://www.google.com/maps/dir/?api=1&destination='+c.enlem+','+c.boylam+'" target="_blank" rel="noopener">Yol tarifi</a>');
-    _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);
+    _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);adet++;
   });
-  if(noktalar.length===1)m.setView(noktalar[0],14);
-  else if(noktalar.length)m.fitBounds(L.latLngBounds(noktalar).pad(0.15));
-  const bilgi=$('#hrt-bilgi');
-  if(bilgi)bilgi.textContent=noktalar.length
-    ? noktalar.length+' randevu haritada'+(yaklasik?' · '+yaklasik+' tanesi yaklaşık':'')+(konumsuz?' · '+konumsuz+' adres çevrilmedi':'')
-    : (liste.length?liste.length+' açık randevu var ama hiçbirinin adresi koordinata çevrilmemiş.':'Açık randevu yok.');
+  return {adet,yaklasik,konumsuz,toplam:liste.length};
 }
 function haritaCiz(){
   /* DOM yerleşene kadar bekle */
@@ -1094,41 +1096,49 @@ function haritaCiz(){
 }
 function viewHarita(){
   const list=takipliAraclar(),aracVar=list.length>0;
-  /* Aracı olmayan kullanıcı yalnızca randevu haritasını görür */
-  if(!aracVar)state.hrt.sekme='randevu';
-  if(!aracVar&&!db.appointments.some(a=>a.status==='Açık'))
+  const acikRnd=db.appointments.filter(a=>a.status==='Açık');
+  if(!aracVar&&!acikRnd.length)
     return emptyView('Harita','Araçların ve randevuların haritadaki konumu.','',
       'Görebileceğiniz plakalı araç ya da açık randevu yok.');
-  const f=state.hrt,isi=f.sekme==='isi',rnd=f.sekme==='randevu';
-  const kisiler=(rnd
-      ? uniq(db.appointments.filter(a=>a.status==='Açık').map(a=>a.employeeId).filter(Boolean))
-      : uniq(list.map(a=>a.holderId).filter(Boolean)))
+  const f=state.hrt,isi=f.sekme==='isi';
+  if(!aracVar){f.sekme='canli';f.katArac=false;f.katRnd=true;}
+  if(!f.katArac&&!f.katRnd)f.katRnd=true;
+
+  /* Süzgeç iki katmanı birden kapsar: kişinin hem aracı hem randevuları */
+  const kisiler=uniq(list.map(a=>a.holderId).concat(acikRnd.map(a=>a.employeeId)).filter(Boolean))
     .map(id=>[id,(emp(id)||{}).name||''])
     .filter(x=>x[1])
     .sort((a,b)=>a[1].localeCompare(b[1],'tr'));
   haritaCiz();
+
+  const katDugme=(k,l,n)=>'<button data-act="hrt-kat" data-v="'+k+'" aria-pressed="'+(!!f[k])+'">'+l+' ('+n+')</button>';
+  const lejant=isi?'Seyrek <i></i> Yoğun'
+    :[(f.katArac?'<b class="sm">Araç:</b> <span style="color:'+HRT_RENK.hareket+'">●</span> Hareket'+
+        ' <span style="color:'+HRT_RENK.rolanti+'">●</span> Rölanti'+
+        ' <span style="color:'+HRT_RENK.duruyor+'">●</span> Duruyor'+
+        ' <span style="color:'+HRT_RENK.kapali+'">●</span> Kontak kapalı':''),
+      (f.katRnd?'<b class="sm">Randevu:</b> <span style="color:'+RND_RENK.gecmis+'">●</span> Tarihi geçmiş'+
+        ' <span style="color:'+RND_RENK.bugun+'">●</span> Bugün'+
+        ' <span style="color:'+RND_RENK.gelecek+'">●</span> İleri tarihli':'')]
+      .filter(Boolean).join('<span class="lejant-ara"></span>');
+
   return head('Harita',isi
       ?'Seçilen aralıkta araçların en çok bulunduğu bölgeler. Koyu kırmızı en yoğun, mavi en seyrek.'
-      :rnd?'Kapanmamış randevuların müşteri adresleri. Pine tıklayınca telefon ve yol tarifi açılır.'
-      :'Tüm araçların son konumu tek haritada. Pine tıklayınca ayrıntı açılır.','')+
-  '<div class="stack"><div class="seg" role="group" aria-label="Harita türü">'+
-    (aracVar?'<button data-act="hrt-sekme" data-v="canli" aria-pressed="'+(!isi&&!rnd)+'">Canlı konum</button>'+
-             '<button data-act="hrt-sekme" data-v="isi" aria-pressed="'+isi+'">Isı haritası</button>':'')+
-    '<button data-act="hrt-sekme" data-v="randevu" aria-pressed="'+(f.sekme==='randevu')+'">Açık randevular</button></div>'+
+      :'Araçların son konumu ve açık randevular aynı harita üzerinde. Pine tıklayınca ayrıntı açılır.','')+
+  (aracVar?'<div class="stack"><div class="seg" role="group" aria-label="Harita türü">'+
+    '<button data-act="hrt-sekme" data-v="canli" aria-pressed="'+(!isi)+'">Canlı durum</button>'+
+    '<button data-act="hrt-sekme" data-v="isi" aria-pressed="'+isi+'">Isı haritası</button></div>'
+   :'<div class="stack">')+
   '<section class="panel"><div class="panel-h">'+
-    (isi?'<label class="muted sm" for="hrt-bas">Başlangıç</label><input id="hrt-bas" type="date" value="'+esc(f.bas)+'" style="max-width:160px">'+
-         '<label class="muted sm" for="hrt-bit">Bitiş</label><input id="hrt-bit" type="date" value="'+esc(f.bit)+'" style="max-width:160px">'
-        :'')+
-    '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'',rnd?'Tüm randevular':'Tüm personel')+'</select>'+
+    (isi
+      ?'<label class="muted sm" for="hrt-bas">Başlangıç</label><input id="hrt-bas" type="date" value="'+esc(f.bas)+'" style="max-width:160px">'+
+       '<label class="muted sm" for="hrt-bit">Bitiş</label><input id="hrt-bit" type="date" value="'+esc(f.bit)+'" style="max-width:160px">'
+      :'<div class="seg" role="group" aria-label="Katmanlar">'+
+         (aracVar?katDugme('katArac','Araçlar',list.length):'')+
+         katDugme('katRnd','Randevular',acikRnd.length)+'</div>')+
+    '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>'+
     '<span class="muted sm" id="hrt-bilgi">Yükleniyor…</span>'+
-    (isi?'<span class="lejant" style="margin-left:auto">Seyrek <i></i> Yoğun</span>'
-        :rnd?'<span class="lejant" style="margin-left:auto"><span style="color:'+RND_RENK.gecmis+'">●</span> Tarihi geçmiş'+
-          ' <span style="color:'+RND_RENK.bugun+'">●</span> Bugün'+
-          ' <span style="color:'+RND_RENK.gelecek+'">●</span> İleri tarihli</span>'
-        :'<span class="lejant" style="margin-left:auto"><span style="color:'+HRT_RENK.hareket+'">●</span> Hareket'+
-         ' <span style="color:'+HRT_RENK.rolanti+'">●</span> Rölanti'+
-         ' <span style="color:'+HRT_RENK.duruyor+'">●</span> Duruyor'+
-         ' <span style="color:'+HRT_RENK.kapali+'">●</span> Kontak kapalı</span>')+
+    '<span class="lejant" style="margin-left:auto">'+lejant+'</span>'+
   '</div><div id="harita"></div></section></div>';
 }
 function viewZimmet(){
@@ -4156,7 +4166,9 @@ async function boot(){
 const actions={
   nav(el){state.view=el.dataset.v;state.menuAcik=false;render();window.scrollTo(0,0);},
   menu(){state.menuAcik=!state.menuAcik;render();},
-  'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;state.hrt.emp='';render();},
+  'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;render();},
+  'hrt-kat'(el){const k=el.dataset.v;state.hrt[k]=!state.hrt[k];
+    if(!state.hrt.katArac&&!state.hrt.katRnd)state.hrt[k]=true;render();},
   go(el){actions.nav(el);},
   'go-none'(){state.rep={company:'',dept:'__none',emp:'',cat:'',group:'kategori'};state.view='rapor';render();window.scrollTo(0,0);},
   dim(el){state.dim=el.dataset.v;render();},
@@ -4400,7 +4412,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',hrt:{sekme:'canli',emp:'',bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',inv:{q:''},aracQ:'',hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
