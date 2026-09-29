@@ -195,6 +195,10 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .leaflet-popup-content b{font-size:14px}
 .arac-pin{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;
   border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);color:#fff;font-size:11px;font-weight:600}
+.arac-etiket{display:inline-block;transform:translate(-50%,-50%);padding:4px 10px;border-radius:999px;
+  border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35);color:#fff;font-size:11.5px;font-weight:600;
+  white-space:nowrap;letter-spacing:.01em;line-height:1.25}
+.arac-etiket .pl{opacity:.75;font-weight:500;margin-left:5px}
 .field label{font-weight:500;font-size:13.5px}
 .err{color:var(--out);font-size:13px;min-height:18px;margin-top:10px}
 .dsec{padding:12px 0;border-bottom:1px solid var(--line)}
@@ -247,6 +251,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
   .main{padding:18px 14px 56px}
   .bar-row{grid-template-columns:1fr auto}
   .bar-row .bar-track{grid-column:1/-1;order:3}
+  .arac-etiket .pl{display:none}   /* dar ekranda etiket kısalsın; plaka baloncukta yazıyor */
   .fields{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -274,7 +279,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-e';   /* yayına alınan sürümün tarihi */
+const SURUM='30.09.2026-f';   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
@@ -1074,9 +1079,11 @@ function haritaCanli(){
     const k=konumOf(a.id);
     if(!k||k.enlem==null||k.boylam==null)return;
     const h=emp(a.holderId),z=gecenSure(k.veriAt||k.guncelAt),renk=aracRenk(k);
-    const pin=L.divIcon({className:'',iconSize:[30,30],iconAnchor:[15,15],
-      html:'<div class="arac-pin" style="background:'+renk+'">'+esc(a.plaka.slice(-3))+'</div>'});
-    const mk=L.marker([k.enlem,k.boylam],{icon:pin,title:a.plaka}).addTo(m);
+    const ad=h?h.name:'';
+    const pin=L.divIcon({className:'',iconSize:null,
+      html:'<div class="arac-etiket" style="background:'+renk+'">'+
+        (ad?esc(ad)+'<span class="pl">'+esc(a.plaka)+'</span>':esc(a.plaka))+'</div>'});
+    const mk=L.marker([k.enlem,k.boylam],{icon:pin,title:(ad?ad+' · ':'')+a.plaka}).addTo(m);
     mk.bindPopup('<b>'+esc(a.plaka)+'</b><br>'+esc(a.model)+
       '<br>'+(h?esc(h.name):'Zimmetli değil')+
       '<br>'+(k.kontak?(k.rolanti?'Rölanti':(num(k.hiz)>0?Math.round(num(k.hiz))+' km/s':'Duruyor')):'Kontak kapalı')+
