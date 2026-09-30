@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-d';
+const SURUM='01.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1990,7 +1990,7 @@ function haftaBasi(){
 function ayniBirim(x){return !!x&&x.birimId!=null&&x.birimId===birimKapsamim();}
 function duzenlenebilirMusteri(c){
   if(isUst()||isMuhasebe())return true;
-  if((isBirim()||isDestek()||isTLider())&&ayniBirim(c))return true;
+  if((isBirim()||isDestek()||isTelesatis()||isTLider())&&ayniBirim(c))return true;
   if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
   return new Date(c.createdAt)>=haftaBasi();
 }
@@ -2350,7 +2350,7 @@ function openAppointment(customerId,sahaId){
     '<div class="field"><label for="ap-oper">Mevcut operatör</label><select id="ap-oper">'+opt(OPERATORLER,'','Seçin')+'</select></div>'+
     '<div class="field"><label for="ap-hat">Hat adedi</label><input id="ap-hat" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
     '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
-      (isUst()||isBirim()||isDestek()||isTLider()
+      (isUst()||isBirim()||isDestek()||isTLider()   /* telesatış yalnızca kendi adına */
         ?'<select id="ap-alan">'+empSecim(me.employeeId||'','Personel seçin',aktifPersonel())+'</select>'
         :'<input id="ap-alan" type="hidden" value="'+esc(me.employeeId||'')+'"><div style="padding:10px 0;font-weight:500">'+esc((emp(me.employeeId)||{}).name||'')+'</div>')+
     '</div></div>'+
@@ -2734,8 +2734,8 @@ function openUser(uid){
   const bagli={};(db.users||[]).forEach(x=>{if(x.employeeId&&x.userId!==uid)bagli[x.employeeId]=x.email;});
   const empOpts=e=>e.name+(bagli[e.id]?' (kullanımda: '+bagli[e.id]+')':'');
   const roller=(isMaster()
-    ?['master','muhasebe','bayi_muduru','birim_muduru','telesatis_lideri','destek','saha']
-    :['birim_muduru','telesatis_lideri','destek','saha']).map(k=>[k,ROL_ADI[k]]);
+    ?['master','muhasebe','bayi_muduru','birim_muduru','telesatis_lideri','destek','telesatis','saha']
+    :['birim_muduru','telesatis_lideri','destek','telesatis','saha']).map(k=>[k,ROL_ADI[k]]);
   openDlg(dlgHtml('Kullanıcıyı düzenle',
     '<dl class="kv"><dt>E-posta</dt><dd>'+esc(u.email)+'</dd></dl>'+
     '<div class="fields">'+
@@ -3213,16 +3213,15 @@ function telBtn(tel,label){
   const d=String(tel||'').replace(/[^0-9+]/g,'');
   return d?'<a class="btn sm" href="tel:'+esc(d)+'">'+(label||'Ara')+'</a>':'';
 }
-/* Telesatış departmanında mı? Havuzdan kayıt çekme buna göre açılır. */
+/* Not: telesatış ayrımı artık departmandan değil ROLDEN geliyor
+   (isTelesatis). Bu işlev yalnızca bilgi amaçlı duruyor. */
 function telesatisMi(){
   if(!me||!me.employeeId)return false;
   const d=dept((emp(me.employeeId)||{}).departmentId);
   return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
-/* Havuzdan kayıt çekenler: telesatış personeli (yetkisi
-   "Satış destek / Telesatış" VE departmanı telesatış olanlar) ve
-   telesatış takım lideri — lider de kendisi arama yapıyor. */
-const havuzCekebilir=()=>(isDestek()&&telesatisMi())||isTLider();
+/* Havuzdan kayıt çekenler: telesatış personeli ve takım lideri */
+const havuzCekebilir=()=>isTelesatis()||isTLider();
 const havuzBtn=n=>havuzCekebilir()
   ?'<button class="btn" data-act="pot-pull">Potansiyel müşteri al ('+(n||10)+')</button>':'';
 function potansiyelAl(){
@@ -3294,7 +3293,7 @@ function openLead(id){
     (!id&&limitVarMi()
       ?'<p class="hint">Bugün <b>'+kalanHak()+'</b> kayıt hakkınız kaldı (günlük sınır '+gunlukLimit()+').</p>'
       :'')+
-    (!id&&!isMudur()&&!telesatisMi()
+    (!id&&!isMudur()&&!isTelesatis()&&!isTLider()
       ?'<p class="hint">Bu kayıt <b>birim havuzuna</b> eklenecek; telesatış sırası geldiğinde arayacak.'+
         (isSaha()?' Randevu alınırsa randevu otomatik olarak <b>size</b> atanır.':'')+'</p>'
       :'')+
@@ -3337,9 +3336,9 @@ function saveLead(){
   const at=$('#l-atanan');
   const row={unvan:x.unvan,yetkili:x.yetkili,telefon:x.telefon,vkn:x.vkn,il:x.il,ilce:x.ilce,
     adres:x.adres,kaynak:x.kaynak,kaynak_tip:'elle',durum:x.durum,note:x.note,son_arama:nz(x.son),
-    atanan_id:(!dlgState.id&&!isMudur()&&!telesatisMi())
+    atanan_id:(!dlgState.id&&(isSaha()||isDestek()))
       ? null                                  /* saha ve satış destek: havuza */
-      : nz(at?at.value:(me.employeeId||''))}; /* telesatış ve yönetim: seçilen kişi */
+      : nz(at?at.value:(me.employeeId||''))}; /* telesatış, lider ve yönetim: seçilen kişi */
   const id=dlgState.id;
   run('l-err',()=>id?upd('leads',id,row):ins('leads',row),'Potansiyel müşteri kaydedildi');
 }
@@ -3397,7 +3396,7 @@ function potSekmeler(){
         kapali=potFiltre('kapali').length;
   const ekledigim=potFiltre('ekledigim').length;
   const t=[['bende','Bende',bende],['tekrar','Tekrar aranacak',tekrar],['kapali','Sonuçlanan',kapali]];
-  if(ekledigim)t.splice((isSaha()||!telesatisMi())?0:3,0,['ekledigim','Eklediklerim',ekledigim]);
+  if(ekledigim)t.splice((isSaha()||isDestek())?0:3,0,['ekledigim','Eklediklerim',ekledigim]);
   if(isMudur()||isTLider())t.push(['havuz','Havuz',db.leads.filter(l=>!l.atananId).length],['hepsi','Tümü',db.leads.length]);
   return '<div class="seg" role="group" aria-label="Liste">'+
     t.map(([k,l,n])=>'<button data-act="pot-sekme" data-v="'+k+'" aria-pressed="'+(state.pot.sekme===k)+'">'+l+' ('+n+')</button>').join('')+'</div>';
@@ -3461,7 +3460,7 @@ function viewPotansiyel(){
     '<button class="btn" data-act="lead-next">Sıradaki</button>'+
     '<button class="btn primary" data-act="open-lead">Potansiyel ekle</button>')+
   '<div class="kpis">'+
-  ((isSaha()||!telesatisMi())&&!isMudur()&&!isTLider()
+  ((isSaha()||isDestek())&&!isMudur()&&!isTLider()
     ?'<div class="kpi"><span>Eklediğiniz kayıt</span><b>'+potFiltre('ekledigim').length+'</b></div>'+
      limitRozet()+
      (limitVarMi()?'':'<div class="kpi"><span>Henüz aranmamış</span><b>'+potFiltre('ekledigim').filter(x=>!x.sonArama).length+'</b></div>')
@@ -4619,10 +4618,10 @@ async function run(errId,work,okMsg,after){
 ----------------------------------------------------------------*/
 const ROL_ADI={master:'Master',muhasebe:'Muhasebe',bayi_muduru:'Bayi müdürü',
   birim_muduru:'Birim müdürü',telesatis_lideri:'Telesatış takım lideri',
-  destek:'Satış destek / Telesatış',saha:'Saha satış'};
-const ROL_SIRA={master:0,muhasebe:1,bayi_muduru:2,birim_muduru:3,telesatis_lideri:4,destek:5,saha:6};
+  destek:'Satış destek',telesatis:'Telesatış',saha:'Saha satış'};
+const ROL_SIRA={master:0,muhasebe:1,bayi_muduru:2,birim_muduru:3,telesatis_lideri:4,destek:5,telesatis:6,saha:7};
 const ROL_RENK={master:'ok',muhasebe:'warn',bayi_muduru:'warn',birim_muduru:'',
-  telesatis_lideri:'',destek:'',saha:''};
+  telesatis_lideri:'',destek:'',telesatis:'',saha:''};
 /* Eski rol adları yeni modele karşılık gelir (geçiş güvenliği) */
 const ROL_ESKI={sahip:'master',yonetici:'bayi_muduru',personel:'saha'};
 const rolAdi=r=>ROL_ESKI[r]||r||'saha';
@@ -4632,7 +4631,10 @@ const isMaster  =()=>rolum()==='master';
 const isMuhasebe=()=>rolum()==='muhasebe';
 const isBayi    =()=>rolum()==='bayi_muduru';
 const isBirim   =()=>rolum()==='birim_muduru';
+/* Satış destek: kendi birimindeki herkes adına kayıt girebilir */
 const isDestek  =()=>rolum()==='destek';
+/* Telesatış: yalnızca kendi adına satış ve randevu girer */
+const isTelesatis=()=>rolum()==='telesatis';
 /* Telesatış takım lideri: kendi biriminin telesatış ekibini yönetir,
    kendisi de randevu alıp potansiyel girer. */
 const isTLider  =()=>rolum()==='telesatis_lideri';
@@ -4677,6 +4679,7 @@ function satisYazabilecekler(){
   const hepsi=aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   if(isUst()||isMuhasebe())return hepsi;
   if(isBirim()||isDestek()||isTLider())return hepsi.filter(e=>ekipte(e.id));
+  /* Telesatış yalnızca kendi adına satış girer */
   return hepsi.filter(e=>e.id===me.employeeId);
 }
 /* Prim tutarlarının görünürlüğü. Şu an tüm rollere açık.
@@ -5081,7 +5084,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&!isMudur()&&!telesatisMi())?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
