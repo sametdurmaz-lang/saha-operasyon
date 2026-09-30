@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-n';
+const SURUM='30.09.2026-o';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -547,7 +547,7 @@ async function loadAll(){
   db={
     companies:companies.map(r=>({id:r.id,name:r.name,short:r.short})),
     departments:departments.map(r=>({id:r.id,companyId:r.company_id,name:r.name})),
-    birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null})),
+    birimler:birimler.map(r=>({id:r.id,name:r.name,companyId:r.company_id,mudurId:r.mudur_id||null,tliderId:r.tlider_id||null})),
     aracKonum:(aracKonum||[]).map(mapAracKonum),
     aracGunluk:(aracGunluk||[]).map(mapAracGunluk),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
@@ -765,13 +765,18 @@ function sahaPersoneliMi(e){
   if(!e)return false;
   /* Birim müdürleri ve Bayi Müdürü saha personeli sayılmaz */
   if(e.bayiMuduru)return false;
-  if((db.birimler||[]).some(b=>b.mudurId===e.id))return false;
+  if((db.birimler||[]).some(b=>b.mudurId===e.id||b.tliderId===e.id))return false;
   const u=(db.users||[]).find(x=>x.employeeId===e.id);
   if(u&&u.role)return rolAdi(u.role)==='saha';
   return trl((dept(e.departmentId)||{}).name||'').indexOf('saha')>=0;
 }
 /* Birim müdürü yalnızca saha personelini görür */
-const ekipSuzgeci=list=>isBirim()&&!isUst()&&!isMuhasebe()?list.filter(sahaPersoneliMi):list;
+const ekipSuzgeci=list=>{
+  if(isUst()||isMuhasebe())return list;
+  if(isBirim())return list.filter(sahaPersoneliMi);
+  if(isTLider())return list.filter(e=>telesatisciMi(e.id));
+  return list;
+};
 function birimOzetKpi(list,p){
   const ss=salesIn(p).filter(x=>list.some(e=>e.id===x.employeeId));
   const puan=ss.reduce((a,x)=>a+x.puan,0),prim=ss.reduce((a,x)=>a+x.prim,0);
@@ -1842,10 +1847,11 @@ function viewHedef(){
   if(!db.employees.length)return emptyView('Satış hedefleri','Her personelin kategori bazında aylık hedefi belirlenir; bazı personeller belirli hedeflerden muaf tutulabilir.','','Personel eklendiğinde hedef tablosu burada görünür.');
   const p=state.period;
   /* Kimin hedeflerini görebiliyorum */
-  const gorunur=ekipSuzgeci(aktifPersonel().filter(e=>isUst()||isMuhasebe()||(isBirim()&&ekipte(e.id))||e.id===me.employeeId));
+  const gorunur=ekipSuzgeci(aktifPersonel().filter(e=>isUst()||isMuhasebe()||((isBirim()||isTLider())&&ekipte(e.id))||e.id===me.employeeId));
   const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   const bloklar=birimler.map(b=>hedefGrubu(b.name,
-      (emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı',
+      [((emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı'),
+       ((emp(b.tliderId)||{}).name?'Telesatış lideri: '+(emp(b.tliderId)||{}).name:'')].filter(Boolean).join(' · '),
       gorunur.filter(e=>e.birimId===b.id),p)).join('');
   const birimsiz=gorunur.filter(e=>!e.birimId||!byId(db.birimler,e.birimId));
   return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
@@ -1947,7 +1953,7 @@ function haftaBasi(){
 function ayniBirim(x){return !!x&&x.birimId!=null&&x.birimId===birimKapsamim();}
 function duzenlenebilirMusteri(c){
   if(isUst()||isMuhasebe())return true;
-  if((isBirim()||isDestek())&&ayniBirim(c))return true;
+  if((isBirim()||isDestek()||isTLider())&&ayniBirim(c))return true;
   if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
   return new Date(c.createdAt)>=haftaBasi();
 }
@@ -2278,7 +2284,7 @@ function openAppointment(customerId,sahaId){
     '<div class="field"><label for="ap-oper">Mevcut operatör</label><select id="ap-oper">'+opt(OPERATORLER,'','Seçin')+'</select></div>'+
     '<div class="field"><label for="ap-hat">Hat adedi</label><input id="ap-hat" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
     '<div class="field"><label for="ap-alan">Randevuyu alan</label>'+
-      (isUst()||isBirim()||isDestek()
+      (isUst()||isBirim()||isDestek()||isTLider()
         ?'<select id="ap-alan">'+empSecim(me.employeeId||'','Personel seçin',aktifPersonel())+'</select>'
         :'<input id="ap-alan" type="hidden" value="'+esc(me.employeeId||'')+'"><div style="padding:10px 0;font-weight:500">'+esc((emp(me.employeeId)||{}).name||'')+'</div>')+
     '</div></div>'+
@@ -2564,8 +2570,8 @@ function openUser(uid){
   const bagli={};(db.users||[]).forEach(x=>{if(x.employeeId&&x.userId!==uid)bagli[x.employeeId]=x.email;});
   const empOpts=e=>e.name+(bagli[e.id]?' (kullanımda: '+bagli[e.id]+')':'');
   const roller=(isMaster()
-    ?['master','muhasebe','bayi_muduru','birim_muduru','destek','saha']
-    :['birim_muduru','destek','saha']).map(k=>[k,ROL_ADI[k]]);
+    ?['master','muhasebe','bayi_muduru','birim_muduru','telesatis_lideri','destek','saha']
+    :['birim_muduru','telesatis_lideri','destek','saha']).map(k=>[k,ROL_ADI[k]]);
   openDlg(dlgHtml('Kullanıcıyı düzenle',
     '<dl class="kv"><dt>E-posta</dt><dd>'+esc(u.email)+'</dd></dl>'+
     '<div class="fields">'+
@@ -3022,7 +3028,7 @@ function openLead(id){
   const v=id?(lead(id)||{}):{durum:'Yeni',atananId:me.employeeId||''};
   dlgState={kind:'lead',id:id||null};
   const atanabilir=v.atananId||'';
-  const silinebilir=id&&(isUst()||(isBirim()&&ayniBirim(v))||v.atananId===me.employeeId||v.createdBy===me.userId);
+  const silinebilir=id&&(isUst()||((isBirim()||isTLider())&&ayniBirim(v))||v.atananId===me.employeeId||v.createdBy===me.userId);
   openDlg(dlgHtml(id?'Potansiyel müşteri':'Potansiyel müşteri ekle','<div class="fields">'+
     '<div class="field full"><label for="l-unvan">Firma ünvanı</label><input id="l-unvan" type="text" value="'+esc(v.unvan||'')+'" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
     '<div class="field"><label for="l-yetkili">Yetkili adı soyadı</label><input id="l-yetkili" type="text" value="'+esc(v.yetkili||'')+'" placeholder="Örn. Ahmet Yılmaz"></div>'+
@@ -3146,7 +3152,7 @@ function potSekmeler(){
   const ekledigim=potFiltre('ekledigim').length;
   const t=[['bende','Bende',bende],['tekrar','Tekrar aranacak',tekrar],['kapali','Sonuçlanan',kapali]];
   if(ekledigim)t.splice((isSaha()||!telesatisMi())?0:3,0,['ekledigim','Eklediklerim',ekledigim]);
-  if(isMudur())t.push(['havuz','Havuz',db.leads.filter(l=>!l.atananId).length],['hepsi','Tümü',db.leads.length]);
+  if(isMudur()||isTLider())t.push(['havuz','Havuz',db.leads.filter(l=>!l.atananId).length],['hepsi','Tümü',db.leads.length]);
   return '<div class="seg" role="group" aria-label="Liste">'+
     t.map(([k,l,n])=>'<button data-act="pot-sekme" data-v="'+k+'" aria-pressed="'+(state.pot.sekme===k)+'">'+l+' ('+n+')</button>').join('')+'</div>';
 }
@@ -3156,7 +3162,7 @@ function potFiltre(sekme){
   if(sekme==='ekledigim')return l.filter(x=>x.createdBy===me.userId||(x.sahaId&&x.sahaId===benim));
   if(sekme==='bende')  return l.filter(x=>x.atananId===benim&&(x.durum==='Yeni'||x.durum==='Ulaşılamadı'));
   if(sekme==='tekrar') return l.filter(x=>x.atananId===benim&&x.durum==='Tekrar aranacak');
-  if(sekme==='kapali') return l.filter(x=>POT_KAPALI.has(x.durum)&&(isMudur()||x.atananId===benim));
+  if(sekme==='kapali') return l.filter(x=>POT_KAPALI.has(x.durum)&&(isMudur()||isTLider()||x.atananId===benim));
   if(sekme==='havuz')  return l.filter(x=>!x.atananId);
   return l.slice();
 }
@@ -3201,15 +3207,15 @@ function potTable(){
 function viewPotansiyel(){
   const f=state.pot;
   const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length;
-  const randevu=db.leads.filter(l=>(l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı')&&(isMudur()||l.atananId===me.employeeId)).length;
+  const randevu=db.leads.filter(l=>(l.durum==='Randevu alındı'||l.durum==='Müşteriye aktarıldı')&&(isMudur()||isTLider()||l.atananId===me.employeeId)).length;
   return head('Potansiyel müşteriler',
     'Havuzdan çekerken her kayıt ekleyenden sırayla birer adet alınır; böylece her saha satışçısının kayıtları aynı hızda aranır. Arama sonucuna göre kayıt listenizde kalır, kapanır veya havuza geri döner.',
     havuzBtn(10)+
-    (isMudur()?'<button class="btn" data-act="lead-import">Excel listesi yükle</button>':'')+
+    (isMudur()||isTLider()?'<button class="btn" data-act="lead-import">Excel listesi yükle</button>':'')+
     '<button class="btn" data-act="lead-next">Sıradaki</button>'+
     '<button class="btn primary" data-act="open-lead">Potansiyel ekle</button>')+
   '<div class="kpis">'+
-  ((isSaha()||!telesatisMi())&&!isMudur()
+  ((isSaha()||!telesatisMi())&&!isMudur()&&!isTLider()
     ?'<div class="kpi"><span>Eklediğiniz kayıt</span><b>'+potFiltre('ekledigim').length+'</b></div>'+
      limitRozet()+
      (limitVarMi()?'':'<div class="kpi"><span>Henüz aranmamış</span><b>'+potFiltre('ekledigim').filter(x=>!x.sonArama).length+'</b></div>')
@@ -3381,7 +3387,7 @@ const FINANS_TABLO=new Set(['accounts','transactions','payrolls','repairs','empl
 const ALAN_ADI={amount:'Tutar',salary:'Maaş',paid:'Ödenen',cost:'Maliyet',date:'Tarih',
   status:'Durum',unvan:'Ünvan',name:'Ad',descr:'Açıklama',telefon:'Telefon',vkn:'VKN',
   adres:'Adres',qty:'Adet',prim:'Prim',puan:'Puan',role:'Yetki',employee_id:'Personel',
-  atanan_id:'Atanan',durum:'Durum',onay_durumu:'Onay',birim_id:'Birim',mudur_id:'Müdür',
+  atanan_id:'Atanan',durum:'Durum',onay_durumu:'Onay',birim_id:'Birim',mudur_id:'Müdür',tlider_id:'Telesatış lideri',
   son_arama:'Son arama',deneme:'Arama sayısı',note:'Not',category:'Kategori',
   close_descr:'Kapanış açıklaması',close_date:'Kapanış tarihi',alan_id:'Randevuyu alan'};
 const alanAdi=k=>ALAN_ADI[k]||k;
@@ -4135,9 +4141,10 @@ function birimlerBolumu(){
   return '<section class="panel"><div class="panel-h"><div><h2>Birimler</h2>'+
     '<p class="muted sm">Her birimin kendi potansiyel müşteri ve müşteri havuzu vardır. Birim müdürü yalnızca kendi biriminin kayıtlarını görür.</p></div>'+
     '<button class="btn primary" data-act="open-birim">Birim ekle</button></div>'+
-    (list.length?'<div class="scroll"><table><thead><tr><th>Birim</th><th>Birim müdürü</th><th class="num">Personel</th><th class="num">Potansiyel</th><th class="num">Müşteri</th><th></th></tr></thead><tbody>'+
+    (list.length?'<div class="scroll"><table><thead><tr><th>Birim</th><th>Birim müdürü</th><th>Telesatış lideri</th><th class="num">Personel</th><th class="num">Potansiyel</th><th class="num">Müşteri</th><th></th></tr></thead><tbody>'+
       list.map(b=>'<tr><td><b>'+esc(b.name)+'</b><div class="muted sm">'+esc((comp(b.companyId)||{}).name||'Şirket seçilmedi')+'</div></td>'+
         '<td>'+esc((emp(b.mudurId)||{}).name||'—')+'</td>'+
+        '<td>'+esc((emp(b.tliderId)||{}).name||'—')+'</td>'+
         '<td class="num">'+birimEkip(b.id).length+'</td>'+
         '<td class="num">'+db.leads.filter(l=>l.birimId===b.id).length+'</td>'+
         '<td class="num">'+db.customers.filter(c=>c.birimId===b.id).length+'</td>'+
@@ -4149,7 +4156,7 @@ function birimlerBolumu(){
 function openBirim(id){
   const b=id?byId(db.birimler,id):null;
   if(!b&&!db.companies.length)return needDlg('Birim ekle','Önce bir şirket tanımlayın.');
-  const v=b||{name:'',companyId:(db.companies[0]||{}).id||'',mudurId:''};
+  const v=b||{name:'',companyId:(db.companies[0]||{}).id||'',mudurId:'',tliderId:''};
   dlgState={kind:'birim',id:id||null};
   const ekip=b?birimEkip(b.id):[];
 
@@ -4157,8 +4164,9 @@ function openBirim(id){
     '<div class="field full"><label for="bi-name">Birim adı</label><input id="bi-name" type="text" value="'+esc(v.name)+'" placeholder="Örn. İzmir 1. Bölge"></div>'+
     '<div class="field"><label for="bi-company">Şirket</label><select id="bi-company">'+companyOptions(v.companyId)+'</select></div>'+
     '<div class="field"><label for="bi-mudur">Birim müdürü</label><select id="bi-mudur">'+empSecim(v.mudurId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
+    '<div class="field"><label for="bi-tlider">Telesatış takım lideri</label><select id="bi-tlider">'+empSecim(v.tliderId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
     '</div>'+
-    '<p class="hint">Birim müdürü olarak seçtiğiniz kişinin kullanıcı yetkisini Kullanıcılar sayfasından “Birim müdürü” yapmayı unutmayın; yetki oradan gelir.</p>'+
+    '<p class="hint">Seçtiğiniz kişilerin kullanıcı yetkisini Kullanıcılar sayfasından “Birim müdürü” ve “Telesatış takım lideri” yapmayı unutmayın; yetki oradan gelir. Birim müdürü birimin saha ekibini, takım lideri telesatış ekibini yönetir.</p>'+
     (ekip.length?'<div class="dsec"><h3>Bu birimdeki personel ('+ekip.length+')</h3><p class="muted sm">'+ekip.map(e=>esc(e.name)).join(', ')+'</p></div>'
       :(b?'<p class="hint">Bu birime henüz personel bağlanmamış. Personel sayfasından kişilerin “Bağlı olduğu birim” alanını doldurun.</p>':''))+
     '<p class="err" id="bi-err"></p>',
@@ -4168,13 +4176,17 @@ function openBirim(id){
 }
 function saveBirim(){
   const name=norm($('#bi-name').value),cid=$('#bi-company').value,mid=$('#bi-mudur').value;
+  const tid=($('#bi-tlider')||{}).value||'';
   const err=m=>{$('#bi-err').textContent=m;},id=dlgState.id;
   if(!name)return err('Birim adını girin.');
   if((db.birimler||[]).some(b=>b.id!==id&&same(b.name,name)))return err('Bu adla kayıtlı bir birim zaten var.');
   if(mid&&(db.birimler||[]).some(b=>b.id!==id&&b.mudurId===mid))
     return err('Bu kişi zaten başka bir birimin müdürü. Bir kişi tek birim yönetebilir.');
-  run('bi-err',()=>id?upd('birimler',id,{name,company_id:nz(cid),mudur_id:nz(mid)})
-                    :ins('birimler',{name,company_id:nz(cid),mudur_id:nz(mid)}),'Birim kaydedildi');
+  if(tid&&(db.birimler||[]).some(b=>b.id!==id&&b.tliderId===tid))
+    return err('Bu kişi zaten başka bir birimin telesatış takım lideri.');
+  if(tid&&tid===mid)return err('Aynı kişi hem birim müdürü hem takım lideri olamaz.');
+  const row={name,company_id:nz(cid),mudur_id:nz(mid),tlider_id:nz(tid)};
+  run('bi-err',()=>id?upd('birimler',id,row):ins('birimler',row),'Birim kaydedildi');
 }
 function openAccount(id){
   const a=id?acct(id):null;
@@ -4360,9 +4372,11 @@ async function run(errId,work,okMsg,after){
    master · muhasebe · bayi_muduru · birim_muduru · destek · saha
 ----------------------------------------------------------------*/
 const ROL_ADI={master:'Master',muhasebe:'Muhasebe',bayi_muduru:'Bayi müdürü',
-  birim_muduru:'Birim müdürü',destek:'Satış destek / Telesatış',saha:'Saha satış'};
-const ROL_SIRA={master:0,muhasebe:1,bayi_muduru:2,birim_muduru:3,destek:4,saha:5};
-const ROL_RENK={master:'ok',muhasebe:'warn',bayi_muduru:'warn',birim_muduru:'',destek:'',saha:''};
+  birim_muduru:'Birim müdürü',telesatis_lideri:'Telesatış takım lideri',
+  destek:'Satış destek / Telesatış',saha:'Saha satış'};
+const ROL_SIRA={master:0,muhasebe:1,bayi_muduru:2,birim_muduru:3,telesatis_lideri:4,destek:5,saha:6};
+const ROL_RENK={master:'ok',muhasebe:'warn',bayi_muduru:'warn',birim_muduru:'',
+  telesatis_lideri:'',destek:'',saha:''};
 /* Eski rol adları yeni modele karşılık gelir (geçiş güvenliği) */
 const ROL_ESKI={sahip:'master',yonetici:'bayi_muduru',personel:'saha'};
 const rolAdi=r=>ROL_ESKI[r]||r||'saha';
@@ -4373,6 +4387,9 @@ const isMuhasebe=()=>rolum()==='muhasebe';
 const isBayi    =()=>rolum()==='bayi_muduru';
 const isBirim   =()=>rolum()==='birim_muduru';
 const isDestek  =()=>rolum()==='destek';
+/* Telesatış takım lideri: kendi biriminin telesatış ekibini yönetir,
+   kendisi de randevu alıp potansiyel girer. */
+const isTLider  =()=>rolum()==='telesatis_lideri';
 const isSaha    =()=>rolum()==='saha';
 /* Tüm operasyonu gören kademe */
 const isUst   =()=>isMaster()||isBayi();
@@ -4381,15 +4398,23 @@ const isFinans=()=>isMaster()||isMuhasebe();
 /* Ekip yöneten kademe */
 const isMudur =()=>isUst()||isBirim();
 /* Rapor görebilenler */
-const raporcu =()=>isUst()||isMuhasebe()||isBirim();
+const raporcu =()=>isUst()||isMuhasebe()||isBirim()||isTLider();
 
 /* Yönettiğim birim; birim müdürüysem yönettiğim, değilsem bağlı olduğum */
 function birimKapsamim(){
   if(!me||!me.employeeId)return null;
   const y=(db.birimler||[]).find(b=>b.mudurId===me.employeeId);
   if(y)return y.id;
+  const t=(db.birimler||[]).find(b=>b.tliderId===me.employeeId);
+  if(t)return t.id;
   const e=emp(me.employeeId);
   return e?(e.birimId||null):null;
+}
+/* Personel telesatış departmanında mı? */
+function telesatisciMi(eid){
+  const e=emp(eid);if(!e)return false;
+  const d=dept(e.departmentId);
+  return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
 /* Bu personel benim kapsamımda mı? (kendim dahil) */
 function ekipte(eid){
@@ -4397,13 +4422,15 @@ function ekipte(eid){
   if(eid===me.employeeId)return true;
   const k=birimKapsamim();if(!k)return false;
   const e=emp(eid);
-  return !!e&&e.birimId===k;
+  if(!e||e.birimId!==k)return false;
+  /* Takım lideri yalnızca telesatış personelini kapsar */
+  return isTLider()?telesatisciMi(eid):true;
 }
 /* Satış kaydı hangi personeller adına girilebilir */
 function satisYazabilecekler(){
   const hepsi=aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   if(isUst()||isMuhasebe())return hepsi;
-  if(isBirim()||isDestek())return hepsi.filter(e=>ekipte(e.id));
+  if(isBirim()||isDestek()||isTLider())return hepsi.filter(e=>ekipte(e.id));
   return hepsi.filter(e=>e.id===me.employeeId);
 }
 /* Prim tutarlarının görünürlüğü. Şu an tüm rollere açık.
