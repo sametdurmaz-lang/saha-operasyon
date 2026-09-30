@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-u';
+const SURUM='30.09.2026-v';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3050,13 +3050,14 @@ function telesatisMi(){
   const d=dept((emp(me.employeeId)||{}).departmentId);
   return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
-/* Havuzdan kayıt çekme yalnızca telesatış personelinde:
-   yetkisi "Satış destek / Telesatış" VE departmanı telesatış olanlar */
-const havuzCekebilir=()=>isDestek()&&telesatisMi();
+/* Havuzdan kayıt çekenler: telesatış personeli (yetkisi
+   "Satış destek / Telesatış" VE departmanı telesatış olanlar) ve
+   telesatış takım lideri — lider de kendisi arama yapıyor. */
+const havuzCekebilir=()=>(isDestek()&&telesatisMi())||isTLider();
 const havuzBtn=n=>havuzCekebilir()
   ?'<button class="btn" data-act="pot-pull">Potansiyel müşteri al ('+(n||10)+')</button>':'';
 function potansiyelAl(){
-  if(!havuzCekebilir())return needDlg('Potansiyel müşteri al','Havuzdan kayıt çekmeyi yalnızca telesatış personeli yapabilir.');
+  if(!havuzCekebilir())return needDlg('Potansiyel müşteri al','Havuzdan kayıt çekmeyi telesatış personeli ve takım lideri yapabilir.');
   if(!me.employeeId)return needDlg('Potansiyel müşteri al','Kullanıcınız bir personel kaydına bağlı değil. Yöneticinizden eşleştirme isteyin.');
   let alinan=0;
   run(null,async()=>{
