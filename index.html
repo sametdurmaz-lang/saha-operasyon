@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026';
+const SURUM='01.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2919,17 +2919,39 @@ const adOf=(o,k)=>(o&&o[k])||'';
 function seriOf(sale){
   return (sale.items||[]).map(it=>(byId(db.stock,it.unitId)||{}).serial).filter(Boolean).join(', ');
 }
+/* Bir toplamı parçalara bölerken kuruş kaybolmasın: her parça iki
+   haneye yuvarlanır, artan fark ilk satıra eklenir. Böylece sütun
+   toplamı gerçek toplamla birebir aynı kalır. */
+function pay(toplam,adet){
+  const t=num(toplam),n=Math.max(1,adet);
+  if(!t)return new Array(n).fill(0);
+  const birim=Math.round((t/n)*100)/100;
+  const out=new Array(n).fill(birim);
+  out[0]=Math.round((t-birim*(n-1))*100)/100;
+  return out;
+}
 function satisExportRows(){
   const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Kategori','Marka',
               'Adet','Tutar','Puan'].concat(primGor()?['Prim']:[]).concat(
-              ['Abone no','Seri no','Hedef kategorisi','Satış no']);
-  const rows=db.sales.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(x=>{
+              ['Abone no','Seri no','Satır','Hedef kategorisi','Satış no']);
+  const rows=[];
+  db.sales.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).forEach(x=>{
     const e=emp(x.employeeId)||{},p=byId(db.products,x.productId)||{},
           c=x.customerId?(byId(db.customers,x.customerId)||{}):{};
-    return [dIso(x.date),adOf(e,'name'),adOf(dept(x.departmentId),'name'),adOf(comp(x.companyId),'name'),
-      c.unvan||x.customer||'',adOf(p,'name'),adOf(p,'category'),adOf(p,'brand'),
-      x.qty||0,x.amount||0,x.puan||0].concat(primGor()?[x.prim||0]:[]).concat(
-      [(x.abone||[]).join(', '),seriOf(x),adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id]);
+    const abone=(x.abone||[]).filter(Boolean);
+    const seri=(x.items||[]).map(it=>(byId(db.stock,it.unitId)||{}).serial).filter(Boolean);
+    /* Her abone numarası ve her seri no ayrı satır olur. İkisi de varsa
+       sırayla eşleştirilir; biri eksikse o hücre boş kalır. */
+    const adet=Math.max(abone.length,seri.length,1);
+    const tutar=pay(x.amount,adet),puan=pay(x.puan,adet),prim=pay(x.prim,adet);
+    const miktar=pay(x.qty||adet,adet).map(v=>Math.round(v*1000)/1000);
+    for(let i=0;i<adet;i++){
+      rows.push([dIso(x.date),adOf(e,'name'),adOf(dept(x.departmentId),'name'),adOf(comp(x.companyId),'name'),
+        c.unvan||x.customer||'',adOf(p,'name'),adOf(p,'category'),adOf(p,'brand'),
+        miktar[i],tutar[i],puan[i]].concat(primGor()?[prim[i]]:[]).concat(
+        [abone[i]||'',seri[i]||'',(i+1)+'/'+adet,
+         adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id]));
+    }
   });
   return [head].concat(rows);
 }
@@ -2969,7 +2991,7 @@ function exportExcel(which){
   const wb=XLSX.utils.book_new();
   let ad='saha';
   if(which!=='randevu'){
-    XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,26,16,14,8,12,10,12,22,26,20,14]),'Satışlar');
+    XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,26,16,14,8,12,10,12,22,26,8,20,14]),'Satışlar');
     ad='satislar';
   }
   if(which==='randevu'||which==='hepsi'){
