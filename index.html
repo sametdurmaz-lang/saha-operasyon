@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-t';
+const SURUM='30.09.2026-u';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2059,7 +2059,21 @@ async function quickCreateCustomer(pre,dupKey){
   if(!yetkili)return {error:'Yeni müşterinin yetkili adını girin.'};
   if(!tel)return {error:'Yeni müşterinin irtibat numarasını girin.'};
   /* Satışta akış durmaz: uyarı ünvanın altında zaten duruyor ve
-     mevcut firma tek tuşla seçilebiliyor. Randevuda onay istenir. */
+     mevcut firma tek tuşla seçilebiliyor.
+     Randevuda ise başka birimin müşterisi/potansiyeli için kesin
+     engel vardır; kendi birimimizdeki benzer kayıt için onay istenir. */
+  if(pre!=='sl'){
+    let dis=[];
+    try{dis=(await cifteBak({unvan,yetkili,telefon:tel,vkn:'',adres:($('#'+pre+'-cadres')||{}).value||''},null))
+      .filter(baskaBirimKaydi);}catch(e){dis=[];}
+    if(dis.length){
+      const kutu=$('#'+pre+'-benzer');
+      if(kutu)kutu.innerHTML=benzerPanel(dis,'Bu firma başka bir birimin listesinde. Randevu açılamaz; ilgili birimle görüşün.',pre);
+      const b=[...new Set(dis.map(m=>m.birim))].join(', ');
+      const tur=dis.every(m=>m.kind==='potansiyel')?'potansiyel müşterisi':'müşterisi';
+      return {error:'“'+unvan+'” '+b+' biriminin '+tur+'. Randevu açılamaz; o birimle görüşün.'};
+    }
+  }
   if(dupKey&&!dlgState[dupKey]&&pre!=='sl'){
     let benzer=[];
     try{benzer=await cifteBak({unvan,yetkili,telefon:tel,vkn:'',adres:($('#'+pre+'-cadres')||{}).value||''},null);}
@@ -2963,11 +2977,14 @@ async function cifteBak(x,exceptId){
   });
   return out.sort((a,b)=>b.w-a.w).slice(0,8);
 }
+/* Gerçekten başka bir birime ait mi? Birimi atanmamış kayıt
+   (birim adı boş) kimsenin birimine ait değildir, engellenmez. */
+const baskaBirimKaydi=m=>!!(m.disBirim&&m.birim);
 function benzerSatir(m,secimPre){
   const r=m.rec;
   /* Kayıtlı müşteriyse ve listemizde varsa doğrudan seçtirelim:
      mükerrer açmak yerine mevcut kayıtla devam edilir. */
-  const secilebilir=secimPre&&m.kind==='musteri'&&r.id;
+  const secilebilir=secimPre&&m.kind==='musteri'&&r.id&&(secimPre==='sl'||!baskaBirimKaydi(m));
   return '<div style="margin-top:8px">'+
     (secilebilir?'<button class="btn sm primary" style="float:right;margin-left:10px" data-act="hizli-mus-sec" data-pre="'+esc(secimPre)+'" data-id="'+esc(r.id)+'" data-unvan="'+esc(r.unvan)+'">Bu müşteriyi seç</button>':'')+
     (m.kind==='musteri'?'<span class="badge bad">Mevcut müşteri</span> ':'<span class="badge warn">Potansiyel listede</span> ')+
