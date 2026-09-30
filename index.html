@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-c';
+const SURUM='01.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1543,6 +1543,9 @@ function slRead(){
     if((x=v('slt-'+L.id))!==undefined)L.tip=x;
   });
 }
+/* Kayan nokta artıklarını temizler: 1,2*3 = 3,5999999999999996 → 3,6 */
+const yuvarla=(v,h)=>{const n=Number(v)||0,k=Math.pow(10,h===undefined?4:h);
+  return Math.round(n*k)/k;};
 function lineCalc(L){
   const p=byId(db.products,L.prod);
   if(!p)return {p:null,qty:0,amount:0,prim:0,puan:0};
@@ -1556,7 +1559,11 @@ function lineCalc(L){
     return {p,g,mobil:true,qty:adet,amount:0,carpan:k,bazPrim,bazPuan,
             prim:bazPrim*k*adet,puan:bazPuan*k*adet,gelir:bazGelir*k*adet};
   }
-  const qty=p.stocked?parseSerials(L.serials).length:Math.max(0,parseInt(L.qty,10)||0);
+  /* Abone/hizmet numarası girildiyse adet numara sayısıdır. DSL ve
+     PSTN'de her numara bir hizmettir; mobil hatta olduğu gibi sayılır. */
+  const numaraAdet=parseSerials(L.abone).length;
+  const qty=p.stocked?parseSerials(L.serials).length
+           :(numaraAdet?numaraAdet:Math.max(0,parseInt(L.qty,10)||0));
   const amount=needsAmount(p)?Math.max(0,parseFloat(String(L.amount).replace(',','.'))||0):0;
   const prim=p.calcType==='yuzde'?amount*(p.primPct||0)/100:qty*(p.prim||0);
   const puan=p.calcType==='yuzde'?amount*(p.puanPct||0)/100:qty*(p.puan||0);
@@ -1576,7 +1583,10 @@ function lineHtml(L,i){
       :'')+
     (p&&!mobilMi(p)?(p.stocked
       ?'<div class="field full"><label for="sls-'+L.id+'">Seri numaraları</label><textarea id="sls-'+L.id+'" rows="3" placeholder="Her satıra bir seri no yazın veya okutun">'+esc(L.serials)+'</textarea><span class="muted sm" id="slsc-'+L.id+'">'+parseSerials(L.serials).length+' seri no okundu</span></div>'
-      :'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" min="1" step="1" inputmode="numeric" value="'+esc(L.qty)+'"></div>'):'')+
+      :(function(){const n=parseSerials(L.abone).length;
+         return n
+           ?'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" value="'+n+'" disabled><span class="muted sm">Girilen hizmet numarası sayısı</span></div>'
+           :'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" min="1" step="1" inputmode="numeric" value="'+esc(L.qty)+'"></div>';})()):'')+
     (p&&needsAmount(p)?'<div class="field"><label for="sla-'+L.id+'">Satış tutarı (₺)</label><input id="sla-'+L.id+'" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="'+esc(L.amount)+'"></div>':'')+
     (p?'<div class="field full"><label for="slab-'+L.id+'">'+(mobilMi(p)?'Telefon numaraları':'Abone / hizmet numaraları (isteğe bağlı)')+'</label><textarea id="slab-'+L.id+'" rows="2" placeholder="'+(mobilMi(p)?'Her satıra bir numara. Aynı tarifeden birden fazla hat satıldıysa hepsini buraya yazın.':'Her satıra bir numara yazın veya virgülle ayırın')+'">'+esc(L.abone)+'</textarea><span class="muted sm" id="slabc-'+L.id+'">'+parseSerials(L.abone).length+' numara girildi</span></div>':'')+
   '</div>'+
@@ -1688,8 +1698,18 @@ function saveSale(){
       if(unavail.length)return err(no+unavail.length+' seri no satışa uygun değil (satılmış, fire veya başka personelde): '+missingText(unavail));
       qty=units.length;
     }else{
-      qty=parseInt(L.qty,10)||0;
-      if(qty<1)return err(no+'adet en az 1 olmalı.');
+      const nolar=parseSerials(L.abone);
+      if(nolar.length){
+        /* Numara girildiyse adet numara sayısıdır */
+        const gorulen=new Set(),tekrar=[];
+        nolar.forEach(x=>{const k=x.replace(/\s/g,'').toLocaleLowerCase('tr');
+          if(gorulen.has(k))tekrar.push(x);gorulen.add(k);});
+        if(tekrar.length)return err(no+'aynı numara birden fazla girilmiş: '+missingText(tekrar));
+        qty=nolar.length;
+      }else{
+        qty=parseInt(L.qty,10)||0;
+        if(qty<1)return err(no+'adet en az 1 olmalı.');
+      }
     }
     let amount=0;
     if(needsAmount(p)){
@@ -1722,9 +1742,11 @@ function saveSale(){
         company_id:nz(e.companyId),customer_id:custId,customer,product_id:L.p.id,qty:L.qty,
         amount:L.amount,calc_type:L.calc,hedef_kat:L.p.hedefKat||'',batch_id:batch,
         unit_prim:L.calc==='yuzde'?(L.p.primPct||0):(L.p.prim||0),
-        unit_puan:L.calc==='yuzde'?(L.p.puanPct||0):(L.p.puan||0),prim:L.prim,puan:L.puan,
+        unit_puan:L.calc==='yuzde'?(L.p.puanPct||0):(L.p.puan||0),
+        /* Ondalık çarpımlarda 3,5999999999999996 gibi artıklar kalmasın */
+        prim:yuvarla(L.prim),puan:yuvarla(L.puan),
         gb_product_id:L.gb?L.gb.id:null,hat_tip:L.hatTip||null,
-        gelir:L.gelir||0,gelir_alan_id:alan,gelir_pay:pay});
+        gelir:yuvarla(L.gelir||0),gelir_alan_id:alan,gelir_pay:pay});
       if(L.abone.length){
         const ar=await sb.from('sale_subscriptions').insert(
           L.abone.map(x=>({sale_id:sale.id,abone_no:x,created_by:me.userId})));
@@ -5098,7 +5120,12 @@ function init(){
     else if(/^sls-/.test(el.id||'')){const k=el.id.slice(4);const c=$('#slsc-'+k);
       if(c)c.textContent=parseSerials(el.value).length+' seri no okundu';updateLinePreview(k);updateSaleTotals();}
     else if(/^slab-/.test(el.id||'')){const k=el.id.slice(5);const c=$('#slabc-'+k);
-      if(c)c.textContent=parseSerials(el.value).length+' numara girildi';updateLinePreview(k);updateSaleTotals();}
+      const n=parseSerials(el.value).length;
+      if(c)c.textContent=n+' numara girildi';
+      /* Numara sayısı adedi belirliyor: adet kutusunu da güncelle */
+      const q=$('#slq-'+k);
+      if(q){if(n){q.value=n;q.disabled=true;}else{q.disabled=false;}}
+      updateLinePreview(k);updateSaleTotals();}
     else if(/^slq-/.test(el.id||'')){updateLinePreview(el.id.slice(4));updateSaleTotals();}
     else if(/^sla-/.test(el.id||'')){updateLinePreview(el.id.slice(4));updateSaleTotals();}
     else if(el.id==='slq'){state.sat.q=el.value;const box=$('#satlist');if(box)box.innerHTML=satTable();}
