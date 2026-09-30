@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-g';
+const SURUM='01.10.2026-h';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1817,9 +1817,16 @@ function hedefCell(empId,kat,period){
   const sar=(ic)=>yz
     ?'<button class="hcell" data-act="open-target" data-emp="'+empId+'" data-kat="'+kat.id+'">'+ic+'</button>'
     :'<div class="hcell salt">'+ic+'</div>';
-  if(t.exempt)return sar('<span class="badge">Muaf</span>');
   const r=realizedFor(empId,kat.id,period);
-  if(!t.defined)return sar('<span class="muted sm">Hedef yok</span>');
+  if(t.exempt)return sar('<span class="badge">Muaf</span>'+
+    (r?'<span class="muted sm">'+(kat.kind==='tutar'?money(r):nf.format(r))+'</span>':''));
+  /* Hedef girilmemiş olması gerçekleşen satışı gizlememeli:
+     satış varsa değeri göster, hedefin yokluğunu not düş. */
+  if(!t.defined){
+    if(!r)return sar('<span class="muted sm">Hedef yok</span>');
+    const d=kat.kind==='tutar'?money(r):nf.format(r);
+    return sar('<b>'+d+'</b><span class="muted sm">hedef yok</span>');
+  }
   const pc=pct(r,t.value),fmt=kat.kind==='tutar'?money(r)+' / '+money(t.value):nf.format(r)+' / '+nf.format(t.value);
   return sar('<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><span class="hbar"><span style="width:'+clamp(pc,0,100)+'%"></span></span><span class="muted sm">'+fmt+'</span>');
 }
