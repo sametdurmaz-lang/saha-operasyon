@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-p';
+const SURUM='30.09.2026-s';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2044,12 +2044,13 @@ const NEW_CUST='__new__';
 function quickCustomerFields(pre){
   return '<div id="'+pre+'-newcust" class="dsec" style="display:none"><h3>Yeni müşteri</h3><div class="fields">'+
     '<div class="field full"><label for="'+pre+'-cu">Müşteri ünvanı</label><input id="'+pre+'-cu" type="text" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
+    '<div class="field full" id="'+pre+'-benzer"></div>'+
     '<div class="field"><label for="'+pre+'-cy">Yetkili adı soyadı</label><input id="'+pre+'-cy" type="text" placeholder="Örn. Ahmet Yılmaz"></div>'+
     '<div class="field"><label for="'+pre+'-ct">İrtibat numarası</label><input id="'+pre+'-ct" type="text" placeholder="0532 000 00 00"></div>'+
     '<div class="field"><label for="'+pre+'-cil">İl</label><select id="'+pre+'-cil">'+ilOptions('')+'</select></div>'+
     '<div class="field"><label for="'+pre+'-cilce">İlçe</label><select id="'+pre+'-cilce">'+ilceOptions('','')+'</select></div>'+
     '<div class="field full"><label for="'+pre+'-cadres">Açık adres</label><input id="'+pre+'-cadres" type="text" placeholder="Örn. Kazımdirik Mah. Ankara Cad. No:12"></div>'+
-    '</div><p class="hint">Açık adres girilirse randevu haritada doğru noktaya düşer. Diğer bilgileri (VKN, hizmetler) sonra Müşteriler sayfasından tamamlayabilirsiniz.</p></div>';
+    '</div><p class="hint">Ünvan veya telefon yazdıkça tüm birimlerin kayıtları taranır. Açık adres girilirse randevu haritada doğru noktaya düşer. Diğer bilgileri (VKN, hizmetler) sonra Müşteriler sayfasından tamamlayabilirsiniz.</p></div>';
 }
 async function quickCreateCustomer(pre,dupKey){
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
@@ -2057,9 +2058,18 @@ async function quickCreateCustomer(pre,dupKey){
   if(!unvan)return {error:'Yeni müşterinin ünvanını girin.'};
   if(!yetkili)return {error:'Yeni müşterinin yetkili adını girin.'};
   if(!tel)return {error:'Yeni müşterinin irtibat numarasını girin.'};
-  const dup=findDuplicateCustomer(unvan,tel,'',null);
-  if(dup){
-    if(!dlgState[dupKey]){dlgState[dupKey]=true;return {error:'“'+dup.c.unvan+'” ünvanı veya telefonuyla kayıtlı bir müşteri var. Mükerrer değilse tekrar basın.'};}
+  /* Satışta akış durmaz: uyarı ünvanın altında zaten duruyor ve
+     mevcut firma tek tuşla seçilebiliyor. Randevuda onay istenir. */
+  if(dupKey&&!dlgState[dupKey]&&pre!=='sl'){
+    let benzer=[];
+    try{benzer=await cifteBak({unvan,yetkili,telefon:tel,vkn:'',adres:($('#'+pre+'-cadres')||{}).value||''},null);}
+    catch(e){const d=findDuplicateCustomer(unvan,tel,'',null);benzer=d?[{rec:d.c,kind:'musteri',w:1}]:[];}
+    if(benzer.length){
+      dlgState[dupKey]=true;
+      const kutu=$('#'+pre+'-benzer');
+      if(kutu)kutu.innerHTML=benzerPanel(benzer,'Aynı firmaysa yeni kayıt açmayın. Farklı bir firma olduğundan eminseniz kaydet düğmesine tekrar basın.');
+      return {error:benzer.length+' benzer kayıt bulundu. Yukarıdakileri kontrol edin; farklıysa tekrar basın.'};
+    }
   }
   const il=$('#'+pre+'-cil')?$('#'+pre+'-cil').value:'',ilce=$('#'+pre+'-cilce')?$('#'+pre+'-cilce').value:'';
   const adres=$('#'+pre+'-cadres')?$('#'+pre+'-cadres').value.trim():'';
@@ -2932,9 +2942,13 @@ async function cifteBak(x,exceptId){
   });
   return out.sort((a,b)=>b.w-a.w).slice(0,8);
 }
-function benzerSatir(m){
+function benzerSatir(m,secimPre){
   const r=m.rec;
+  /* Kayıtlı müşteriyse ve listemizde varsa doğrudan seçtirelim:
+     mükerrer açmak yerine mevcut kayıtla devam edilir. */
+  const secilebilir=secimPre&&m.kind==='musteri'&&!!byId(db.customers,r.id);
   return '<div style="margin-top:8px">'+
+    (secilebilir?'<button class="btn sm primary" style="float:right;margin-left:10px" data-act="hizli-mus-sec" data-pre="'+esc(secimPre)+'" data-id="'+esc(r.id)+'">Bu müşteriyi seç</button>':'')+
     (m.kind==='musteri'?'<span class="badge bad">Mevcut müşteri</span> ':'<span class="badge warn">Potansiyel listede</span> ')+
     '<b>'+esc(r.unvan)+'</b>'+(r.yetkili?' — '+esc(r.yetkili):'')+
     '<div class="muted sm">'+[r.telefon?'Tel: '+esc(r.telefon):'',r.vkn?'VKN: '+esc(r.vkn):'',
@@ -2943,10 +2957,10 @@ function benzerSatir(m){
       (m.birim?' · <b>Birim:</b> '+esc(m.birim)+(m.disBirim?' <span class="badge bad">Başka birim</span>':''):'')+
       (m.durum&&m.kind==='potansiyel'?' · '+esc(m.durum):'')+'</div></div>';
 }
-function benzerPanel(list,son){
+function benzerPanel(list,son,secimPre){
   if(!list.length)return '';
   return '<div class="ro-banner"><b>'+list.length+' benzer kayıt bulundu.</b>'+
-    list.map(benzerSatir).join('')+
+    list.map(m=>benzerSatir(m,secimPre)).join('')+
     (son?'<div class="sm" style="margin-top:10px">'+son+'</div>':'')+'</div>';
 }
 let benzerTimer=null;
@@ -2962,6 +2976,29 @@ function leadBenzerYenile(){
     const hepsi=await cifteBak(x,kim);
     const b2=$('#l-benzer');
     if(b2&&dlgState.kind==='lead')b2.innerHTML=benzerPanel(hepsi,'Aynı firmaysa yeni kayıt açmayın. Başka birimde kayıtlıysa o birimle görüşün.');
+  },450);
+}
+/* Hızlı müşteri formunda yazarken mükerrer kontrolü.
+   Önce yerel kayıtlar anında, ardından sunucudan TÜM birimlerin
+   verisi üzerinde arama. Kullanıcı bir düğmeye basmak zorunda değil. */
+let hizliBenzerTimer=null;
+function hizliBenzerYenile(pre){
+  const box=$('#'+pre+'-benzer');if(!box)return;
+  const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
+  const x={unvan:g(pre+'-cu'),yetkili:g(pre+'-cy'),telefon:g(pre+'-ct'),vkn:'',adres:g(pre+'-cadres')};
+  dlgState.hizliBenzer=[];
+  if(trl(x.unvan).length<3&&!x.telefon){box.innerHTML='';return;}
+  box.innerHTML=benzerPanel(benzerKayitlar(x,null),'Aynı firmaysa yeni kayıt açmayın.',pre);
+  clearTimeout(hizliBenzerTimer);
+  const tur=dlgState.kind;
+  hizliBenzerTimer=setTimeout(async()=>{
+    let hepsi=[];
+    try{hepsi=await cifteBak(x,null);}catch(e){return;}
+    if(dlgState.kind!==tur)return;
+    dlgState.hizliBenzer=hepsi;
+    const b2=$('#'+pre+'-benzer');
+    if(b2)b2.innerHTML=benzerPanel(hepsi,
+      'Kayıtlı bir firmaysa “Bu müşteriyi seç” ile devam edin; mükerrer kayıt açmayın. Başka birimde kayıtlıysa o birimle görüşün.',pre);
   },450);
 }
 function telBtn(tel,label){
@@ -4569,6 +4606,16 @@ const actions={
     else if(k==='hafta')state.arac={bas:gunOnce(6),bit:TODAY};
     else if(k==='ay')state.arac={bas:gunOnce(29),bit:TODAY};
     render();},
+  'hizli-mus-sec'(el){
+    const pre=el.dataset.pre,id=el.dataset.id;
+    const sel=$('#'+pre+'-cust');if(!sel)return;
+    sel.value=id;
+    sel.dispatchEvent(new Event('change',{bubbles:true}));
+    const kutu=$('#'+pre+'-benzer');if(kutu)kutu.innerHTML='';
+    const err=$('#'+pre+'-err');if(err)err.textContent='';
+    const c=byId(db.customers,id);
+    toast((c?c.unvan:'Müşteri')+' seçildi');
+  },
   'hrt-kat'(el){const k=el.dataset.v;state.hrt[k]=!state.hrt[k];
     if(!state.hrt.katArac&&!state.hrt.katRnd)state.hrt[k]=true;render();},
   go(el){actions.nav(el);},
@@ -4870,6 +4917,11 @@ function init(){
     else if(el.id==='potq'){state.pot.q=el.value;state.pot.page=0;const box=$('#potlist');if(box)box.innerHTML=potTable();}
     else if(dlgState.kind==='lead'&&['l-unvan','l-tel','l-vkn','l-yetkili','l-adres'].indexOf(el.id)>=0){
       dlgState.leadConfirmed=false;leadBenzerYenile();}
+    /* Hızlı müşteri formu: satış (sl-), randevu (ap-) pencerelerinde */
+    else if(/^(sl|ap)-(cu|ct|cy|cadres)$/.test(el.id||'')){
+      const pre=el.id.split('-')[0];
+      dlgState.apDup=false;dlgState.slDup=false;
+      hizliBenzerYenile(pre);}
     else if(el.id==='rq'){state.rand.q=el.value;const box=$('#randlist');if(box)box.innerHTML=apptTable();}
     else if((el.id==='c-unvan'||el.id==='c-tel'||el.id==='c-vkn'||el.id==='c-yetkili'||el.id==='c-adres')&&dlgState.kind==='cust'){
       dlgState.dupConfirmed=false;const b=$('#c-benzer');if(b)b.innerHTML='';}
