@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-h';
+const SURUM='01.10.2026-i';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4607,8 +4607,22 @@ function dbErr(e){
 }
 const nz=v=>(v===''||v===undefined)?null:v;
 async function ins(t,row){const r=await sb.from(t).insert({...row,created_by:me.userId}).select().single();if(r.error)throw r.error;return r.data;}
-async function upd(t,id,row){const r=await sb.from(t).update(row).eq('id',id);if(r.error)throw r.error;}
-async function del(t,id){const r=await sb.from(t).delete().eq('id',id);if(r.error)throw r.error;}
+/* ÖNEMLİ: Postgres'te yetki kuralı bir satırı gizlerse UPDATE ve
+   DELETE hata vermez, sadece hiçbir satıra dokunmaz. Bu da "işlem
+   oldu" sanılmasına yol açar. Bu yüzden etkilenen satırı geri
+   isteyip gerçekten değiştiğini doğruluyoruz. */
+async function upd(t,id,row){
+  const r=await sb.from(t).update(row).eq('id',id).select('id');
+  if(r.error)throw r.error;
+  if(!r.data||!r.data.length)
+    throw new Error('Kayıt güncellenemedi: bu kayıt üzerinde değişiklik yapma yetkiniz yok.');
+}
+async function del(t,id){
+  const r=await sb.from(t).delete().eq('id',id).select('id');
+  if(r.error)throw r.error;
+  if(!r.data||!r.data.length)
+    throw new Error('Kayıt silinemedi: bu kayıt üzerinde silme yetkiniz yok. Kendi girdiğiniz kayıtları yalnızca aynı hafta içinde silebilirsiniz; başkasının kaydı için müdürünüze başvurun.');
+}
 
 let busy=false;
 /* İşi çalıştırır, veriyi tazeler, diyaloğu kapatır. Hata olursa diyalogda gösterir. */
@@ -5033,6 +5047,12 @@ const actions={
   'confirm-del-sale'(el){
     const s=byId(db.sales,el.dataset.id);if(!s)return;
     run(null,async()=>{
+      /* Önce satışı sil: yetki yoksa burada durur ve stoğa
+         dokunmadan hata verir. Aksi halde stok geri alınıp satış
+         yerinde kalabilir, puan ve prim yanlış kalırdı.
+         Satış kalemleri ve abone numaraları veri tabanında zincirle
+         birlikte siliniyor. */
+      await del('sales',s.id);
       for(const it of s.items){
         const u=byId(db.stock,it.unitId);if(!u)continue;
         const geri=it.fromHolder&&emp(it.fromHolder)
@@ -5041,7 +5061,6 @@ const actions={
         await upd('stock_units',u.id,{...geri,note:'',sale_id:null});
         await ins('stock_logs',{unit_id:u.id,date:TODAY,text:'Satış iptal edildi, stoğa geri alındı'});
       }
-      await del('sales',s.id);
     },'Satış iptal edildi');
   },
   satgroup(el){state.sat.group=el.dataset.v;render();},
