@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-e';
+const SURUM='01.10.2026-g';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2920,7 +2920,10 @@ function viewRapor(){
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
     xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('gelir','Personel geliri')+xlBtn('hepsi','Hepsi')+
-  '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. Dışa aktarma yalnızca yöneticilere açıktır.</p></div></section>'+
+  '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. '+
+    (isUst()||isMuhasebe()
+      ?'Tüm kayıtlar aktarılır.'
+      :'Yalnızca görebildiğiniz kayıtlar, yani kendi ekibinizin verisi aktarılır.')+'</p></div></section>'+
   stokDegerBolumu()+
   gelirMaliyetBolumu()+
   girisRaporBolum()+
@@ -3012,7 +3015,10 @@ function sheetOf(aoa,dateCols,widths){
   return ws;
 }
 /* Excel: master, bayi müdürü ve muhasebe */
-const excelYetkisi=()=>isUst()||isMuhasebe();
+/* Excel'e aktarma: master, bayi müdürü, muhasebe ile birlikte
+   birim müdürü ve telesatış takım lideri. Müdürler yalnızca kendi
+   ekiplerinin verisini görebildiği için dosyaya da o kadarı iner. */
+const excelYetkisi=()=>isUst()||isMuhasebe()||isBirim()||isTLider();
 function exportExcel(which){
   if(!excelYetkisi())return;
   if(!XL_HAZIR())return needDlg('Excel dışa aktarma','Excel bileşeni yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.');
@@ -4582,6 +4588,10 @@ function applyFilter(dim,key){
 /* ---------- Sunucuya yazma ---------- */
 function dbErr(e){
   const m=(e&&e.message)||String(e);
+  if(/profiles_role_chk|role_chk/i.test(m))
+    return 'Bu yetki veri tabanında henüz tanımlı değil. Supabase üzerinde ilgili SQL dosyasını çalıştırmanız gerekiyor (rol listesini genişleten dosya).';
+  if(/arac_senk_log_tur_check/i.test(m))
+    return 'Bu senkron türü veri tabanında tanımlı değil; ilgili SQL dosyasını çalıştırın.';
   if(/row-level security|violates row-level/i.test(m))return 'Bu işlem için yetkiniz yok.';
   if(/duplicate key|unique constraint/i.test(m))return 'Aynı kayıt zaten var.';
   if(/foreign key/i.test(m))return 'Bu kayda bağlı başka kayıtlar var, önce onları düzenleyin.';
