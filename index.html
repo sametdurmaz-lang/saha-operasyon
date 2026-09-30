@@ -306,7 +306,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='30.09.2026-s';
+const SURUM='30.09.2026-t';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2874,10 +2874,28 @@ const LEAD_ROZET={'Yeni':'','Ulaşılamadı':'warn','Tekrar aranacak':'warn','İ
 const lead=id=>byId(db.leads,id);
 const trl=x=>String(x==null?'':x).toLocaleLowerCase('tr');
 const telKey=t=>{const d=String(t||'').replace(/\D/g,'');return d.length>10?d.slice(-10):d;};
-const UNVAN_EK=/(^|\s)(a\.?ş\.?|ltd\.?|şti\.?|sti\.?|san\.?|tic\.?|ith\.?|ihr\.?|paz\.?|hizm\.?|inş\.?|ins\.?|koll\.?|kom\.?|anonim|limited|şirketi|sirketi|sanayi|ticaret|ve)(?=\s|$)/g;
-const unvanKey=u=>trl(u).replace(/[.,'"\/\\_-]/g,' ').replace(/\s+/g,' ').replace(UNVAN_EK,' ').replace(/\s+/g,' ').trim();
-const adKey=a=>trl(a).replace(/[^a-zçğıöşü0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-const adresKey=a=>trl(a).replace(/[^a-zçğıöşü0-9]/g,'');
+/* Şirket ekleri — harf katlamasından SONRA uygulanır (hepsi ASCII) */
+const UNVAN_EK_A=/(^|\s)(a s|as|ltd|sti|san|tic|ith|ihr|paz|hizm|ins|koll|kom|anonim|limited|sirketi|sanayi|ticaret|ve)(?=\s|$)/g;
+/* Türkçe harfleri ASCII'ye katlar: İ,I,ı→i · ş→s · ğ→g · ü→u · ö→o · ç→c
+   Böylece "YAZILIM" ile "Yazılım" aynı anahtara düşer. */
+const TR_KATLA={'İ':'i','I':'i','ı':'i','Ş':'s','ş':'s','Ğ':'g','ğ':'g',
+  'Ü':'u','ü':'u','Ö':'o','ö':'o','Ç':'c','ç':'c'};
+const katla=x=>String(x==null?'':x).replace(/[İIıŞşĞğÜüÖöÇç]/g,c=>TR_KATLA[c]).toLowerCase();
+const unvanKey=u=>katla(u).replace(/[^a-z0-9]+/g,' ').replace(UNVAN_EK_A,' ').replace(/\s+/g,' ').trim();
+const adKey=a=>katla(a).replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const adresKey=a=>katla(a).replace(/[^a-z0-9]/g,'');
+/* İki metnin harf çifti benzerliği (0-1). Tek harf hatasını yakalar. */
+function benzerlikOrani(a,b){
+  a=String(a||'');b=String(b||'');
+  if(!a||!b)return 0;
+  if(a===b)return 1;
+  if(a.length<2||b.length<2)return 0;
+  const cift=x=>{const m=new Map();for(let i=0;i<x.length-1;i++){const k=x.slice(i,i+2);m.set(k,(m.get(k)||0)+1);}return m;};
+  const A=cift(a),B=cift(b);let ortak=0,tA=0,tB=0;
+  A.forEach((v,k)=>{tA+=v;if(B.has(k))ortak+=Math.min(v,B.get(k));});
+  B.forEach(v=>{tB+=v;});
+  return (2*ortak)/(tA+tB);
+}
 
 /* Ortak alanlara bakarak iki kaydın ne kadar örtüştüğünü bulur. */
 function eslesmeNedenleri(x,r){
@@ -2888,7 +2906,10 @@ function eslesmeNedenleri(x,r){
   if(t&&rt&&t.length>=7&&t===rt)n.push({t:'Telefon aynı',w:3});
   const u=unvanKey(x.unvan),ru=unvanKey(r.unvan);
   if(u&&ru&&u===ru)n.push({t:'Ünvan aynı',w:3});
-  else if(u&&ru&&u.length>=5&&ru.length>=5&&(u.indexOf(ru)>=0||ru.indexOf(u)>=0))n.push({t:'Ünvan çok benzer',w:2});
+  /* Kısmi yazım ve harf hatası tek başına listede görünmeye yetsin:
+     mükerrer kaydı gizlemektense fazladan uyarmak yeğdir. */
+  else if(u&&ru&&u.length>=4&&(u.indexOf(ru)>=0||ru.indexOf(u)>=0))n.push({t:'Ünvan çok benzer',w:3});
+  else if(u&&ru&&u.length>=5&&ru.length>=5&&benzerlikOrani(u,ru)>=0.62)n.push({t:'Ünvan benziyor',w:3});
   const y=adKey(x.yetkili),ry=adKey(r.yetkili);
   if(y&&ry&&y.length>=5&&y===ry)n.push({t:'Yetkili adı aynı',w:2});
   const a=adresKey(x.adres),ra=adresKey(r.adres);
@@ -2946,15 +2967,16 @@ function benzerSatir(m,secimPre){
   const r=m.rec;
   /* Kayıtlı müşteriyse ve listemizde varsa doğrudan seçtirelim:
      mükerrer açmak yerine mevcut kayıtla devam edilir. */
-  const secilebilir=secimPre&&m.kind==='musteri'&&!!byId(db.customers,r.id);
+  const secilebilir=secimPre&&m.kind==='musteri'&&r.id;
   return '<div style="margin-top:8px">'+
-    (secilebilir?'<button class="btn sm primary" style="float:right;margin-left:10px" data-act="hizli-mus-sec" data-pre="'+esc(secimPre)+'" data-id="'+esc(r.id)+'">Bu müşteriyi seç</button>':'')+
+    (secilebilir?'<button class="btn sm primary" style="float:right;margin-left:10px" data-act="hizli-mus-sec" data-pre="'+esc(secimPre)+'" data-id="'+esc(r.id)+'" data-unvan="'+esc(r.unvan)+'">Bu müşteriyi seç</button>':'')+
     (m.kind==='musteri'?'<span class="badge bad">Mevcut müşteri</span> ':'<span class="badge warn">Potansiyel listede</span> ')+
     '<b>'+esc(r.unvan)+'</b>'+(r.yetkili?' — '+esc(r.yetkili):'')+
     '<div class="muted sm">'+[r.telefon?'Tel: '+esc(r.telefon):'',r.vkn?'VKN: '+esc(r.vkn):'',
       [r.il,r.ilce].filter(Boolean).map(esc).join(' / ')].filter(Boolean).join(' · ')+'</div>'+
     '<div class="sm"><b>Eşleşme:</b> '+esc(m.nedenler.join(', '))+
-      (m.birim?' · <b>Birim:</b> '+esc(m.birim)+(m.disBirim?' <span class="badge bad">Başka birim</span>':''):'')+
+      (m.birim?' · <b>Birim:</b> '+esc(m.birim)+(m.disBirim?' <span class="badge bad">Başka birim</span>':'')
+             :(m.disBirim?' · <span class="badge warn">Birimi atanmamış</span>':''))+
       (m.durum&&m.kind==='potansiyel'?' · '+esc(m.durum):'')+'</div></div>';
 }
 function benzerPanel(list,son,secimPre){
@@ -4607,14 +4629,24 @@ const actions={
     else if(k==='ay')state.arac={bas:gunOnce(29),bit:TODAY};
     render();},
   'hizli-mus-sec'(el){
-    const pre=el.dataset.pre,id=el.dataset.id;
+    const pre=el.dataset.pre,id=el.dataset.id,unvan=el.dataset.unvan||'';
     const sel=$('#'+pre+'-cust');if(!sel)return;
+    /* Kayıt bizim listemizde yoksa (başka birimde veya birimi
+       atanmamışsa) seçeneği anlık ekleyip seçilebilir yapıyoruz. */
+    if(!byId(db.customers,id)&&![...sel.options].some(o=>o.value===id)){
+      const o=document.createElement('option');
+      o.value=id;o.textContent=unvan+' (başka birimde kayıtlı)';
+      sel.appendChild(o);
+    }
     sel.value=id;
     sel.dispatchEvent(new Event('change',{bubbles:true}));
     const kutu=$('#'+pre+'-benzer');if(kutu)kutu.innerHTML='';
     const err=$('#'+pre+'-err');if(err)err.textContent='';
     const c=byId(db.customers,id);
-    toast((c?c.unvan:'Müşteri')+' seçildi');
+    const ad=c?c.unvan:unvan;
+    /* Müşteri adı alanı db'den dolduruluyor; listemizde yoksa elle yaz */
+    if(!c){const m=$('#'+pre+'-customer');if(m)m.value=ad;}
+    toast((ad||'Müşteri')+' seçildi');
   },
   'hrt-kat'(el){const k=el.dataset.v;state.hrt[k]=!state.hrt[k];
     if(!state.hrt.katArac&&!state.hrt.katRnd)state.hrt[k]=true;render();},
