@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-o';
+const SURUM='01.10.2026-p';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -488,18 +488,50 @@ async function aracGunlukGetir(){
   }).catch(()=>{_aracGunlukIsi=null;return [];});
   return _aracGunlukIsi;
 }
+/* PostgREST bir istekte en çok 1000 satır döndürüyor. Sayfaları tek tek
+   beklemek yerine, ilk sayfa doluysa kalanları paralel çekiyoruz.
+   Tek sayfalık tablolar (çoğu) tek istekte ve sayım maliyeti olmadan gelir. */
 async function q(t){
   const N=1000,key=PK_KOLON[t]||'id';
-  let out=[],from=0;
+  const sayfa=(a,b)=>sb.from(t).select('*').order(key,{ascending:true}).range(a,b);
+  const ilk=await sayfa(0,N-1);
+  if(ilk.error)throw new Error(t+': '+ilk.error.message);
+  let out=ilk.data||[];
+  if(out.length<N)return out;            /* tabloların çoğu burada biter */
+  /* İlk sayfa dolu. Kalan sayfaları tek tek beklemek yerine körlemesine
+     ama paralel istiyoruz; her turda istek sayısını katlayarak büyük
+     tablolarda tur sayısını düşürüyoruz. Fazladan istenen boş sayfanın
+     maliyeti, sıradaki her sayfa için ayrı gidiş-dönüşten düşük. */
+  let bas=N,adet=3;
   for(;;){
-    const r=await sb.from(t).select('*').order(key,{ascending:true}).range(from,from+N-1);
-    if(r.error)throw new Error(t+': '+r.error.message);
-    const d=r.data||[];
-    out=out.length?out.concat(d):d;
-    if(d.length<N)break;
-    from+=d.length;
+    const isler=[];
+    for(let i=0;i<adet;i++)isler.push(sayfa(bas+i*N,bas+(i+1)*N-1));
+    const turlar=await Promise.all(isler);
+    let bitti=false;
+    for(const r of turlar){
+      if(r.error)throw new Error(t+': '+r.error.message);
+      const d=r.data||[];
+      out=out.concat(d);
+      if(d.length<N)bitti=true;
+    }
+    if(bitti)return out;
+    bas+=adet*N;adet=Math.min(adet*2,16);
   }
-  return out;
+}
+
+/* Potansiyel müşteri listesi tek başına en ağır tablo (binlerce satır).
+   Her kayıttan sonra yeniden indirmek yerine elde tutuyoruz; yalnızca
+   gerçekten değiştiğinde, elle yenilendiğinde veya bayatladığında
+   tekrar çekiyoruz. */
+let _leadsOnbellek=null,_leadsZaman=0,_leadsKirli=true;
+const LEADS_TAZELIK=3*60*1000;
+function leadsKirlet(){_leadsKirli=true;}
+async function leadsGetir(zorla){
+  const bayat=Date.now()-_leadsZaman>LEADS_TAZELIK;
+  if(!zorla&&!_leadsKirli&&!bayat&&_leadsOnbellek)return _leadsOnbellek;
+  const r=await q('leads');
+  _leadsOnbellek=r;_leadsZaman=Date.now();_leadsKirli=false;
+  return r;
 }
 /* Aşama 1'de yazma kapalı; save() yerel önbelleği korur, sunucuya yazmaz. */
 function save(){}
@@ -531,7 +563,7 @@ const mapAracGunluk=r=>({assetId:r.asset_id,gun:r.gun,
   durusDk:r.durus_dk==null?null:num(r.durus_dk),
   ihlal:num(r.ihlal_adedi),ilk:r.ilk_hareket||'',son:r.son_hareket||''});
 
-async function loadAll(){
+async function loadAll(zorla){
   const [companies,departments,employees,salaries,accounts,transactions,payrolls,
          assets,assetLogs,repairs,products,warehouses,stockUnits,stockLogs,
          sales,saleItems,targets,customers,appointments,apptLogs]=await Promise.all([
@@ -547,7 +579,7 @@ async function loadAll(){
   const bos=p=>p.catch(()=>[]);
   const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz]=await Promise.all([
     q('sale_subscriptions'),
-    q('leads'),
+    leadsGetir(zorla),
     q('birimler'),
     bos(q('arac_konum')),                 /* araç takip kurulmadıysa boş kalır */
     bos(q('mobil_carpan')),               /* tablo yoksa varsayılan çarpanlar */
@@ -3302,6 +3334,7 @@ function potansiyelAl(){
   if(!me.employeeId)return needDlg('Potansiyel müşteri al','Kullanıcınız bir personel kaydına bağlı değil. Yöneticinizden eşleştirme isteyin.');
   let alinan=0;
   run(null,async()=>{
+    leadsKirlet();   /* havuzdan çekme listeyi değiştirir */
     const r=await sb.rpc('potansiyel_al',{adet:10});
     if(r.error)throw r.error;
     alinan=r.data||0;
@@ -3640,6 +3673,7 @@ async function liSunucuKontrol(rows){
   const err=m=>{const e=$('#li-err');if(e)e.textContent=m;};
   try{
     const payload=rows.map(r=>({unvan:r.unvan,telefon:r.telefon,vkn:r.vkn}));
+    leadsKirlet();   /* toplu liste yüklemesi */
     const r=await sb.rpc('cift_kayit_toplu',{p_rows:payload});
     if(r.error)throw r.error;
     (r.data||[]).forEach(h=>{
@@ -4673,18 +4707,21 @@ function dbErr(e){
   return m;
 }
 const nz=v=>(v===''||v===undefined)?null:v;
-async function ins(t,row){const r=await sb.from(t).insert({...row,created_by:me.userId}).select().single();if(r.error)throw r.error;return r.data;}
+async function ins(t,row){if(t==='leads')leadsKirlet();
+  const r=await sb.from(t).insert({...row,created_by:me.userId}).select().single();if(r.error)throw r.error;return r.data;}
 /* ÖNEMLİ: Postgres'te yetki kuralı bir satırı gizlerse UPDATE ve
    DELETE hata vermez, sadece hiçbir satıra dokunmaz. Bu da "işlem
    oldu" sanılmasına yol açar. Bu yüzden etkilenen satırı geri
    isteyip gerçekten değiştiğini doğruluyoruz. */
 async function upd(t,id,row){
+  if(t==='leads')leadsKirlet();
   const r=await sb.from(t).update(row).eq('id',id).select('id');
   if(r.error)throw r.error;
   if(!r.data||!r.data.length)
     throw new Error('Kayıt güncellenemedi: bu kayıt üzerinde değişiklik yapma yetkiniz yok.');
 }
 async function del(t,id){
+  if(t==='leads')leadsKirlet();
   const r=await sb.from(t).delete().eq('id',id).select('id');
   if(r.error)throw r.error;
   if(!r.data||!r.data.length)
@@ -4887,7 +4924,7 @@ async function afterLogin(){
     const pr=await sb.from('profiles').select('role,employee_id').eq('user_id',user.id).maybeSingle();
     if(pr.error)return renderLogin('Profil okunamadı: '+pr.error.message);
     me={userId:user.id,email:user.email,role:pr.data?pr.data.role:'saha',employeeId:pr.data?pr.data.employee_id:null};
-    await loadAll();
+    await loadAll(true);
     state=defaultState();
     render();
   }catch(e){
@@ -4896,7 +4933,7 @@ async function afterLogin(){
 }
 
 async function reloadData(){
-  try{await loadAll();render();toast('Veriler yenilendi');}
+  try{await loadAll(true);render();toast('Veriler yenilendi');}
   catch(e){toast('Yenilenemedi: '+(e&&e.message?e.message:e));}
 }
 
