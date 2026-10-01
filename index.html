@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-z';
+const SURUM='02.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -433,19 +433,40 @@ const IL_ILCE={
 const ILLER=Object.keys(IL_ILCE);
 const ilOptions=(sel)=>{let list=ILLER.slice();if(sel&&!list.includes(sel))list=[sel,...list];return opt(list.map(i=>[i,i]),sel,'İl seçin');};
 const ilceOptions=(il,sel)=>{let list=(IL_ILCE[il]||[]).slice();if(sel&&!list.includes(sel))list=[sel,...list];return opt(list.map(i=>[i,i]),sel,'İlçe seçin');};
-const HEDEF_KATS=[
-  {id:'mobil',name:'Mobil Puan',unit:'puan',kind:'puan'},
-  {id:'dsl',name:'DSL Puan',unit:'puan',kind:'puan'},
-  {id:'pstn',name:'PSTN Puan',unit:'puan',kind:'puan'},
-  {id:'cihaz',name:'Cihaz Puan',unit:'puan',kind:'puan'},
-  {id:'taahhut',name:'Taahhüt Puan',unit:'puan',kind:'puan'},
-  {id:'metro',name:'Metro satış tutarı',unit:'₺',kind:'tutar'},
-  {id:'metro_taahhut',name:'Metro taahhüt satış tutarı',unit:'₺',kind:'tutar'},
-  {id:'alsat',name:'Al-sat satış tutarı',unit:'₺',kind:'tutar'},
-  {id:'randevu',name:'Randevu Adedi',unit:'adet',kind:'randevu'},
-  {id:'donusum',name:'Randevu Dönüşüm',unit:'adet',kind:'donusum'}
+/* Hedef kategorileri artık hedef_kat tablosundan geliyor. Tablo yoksa
+   (SQL henüz çalıştırılmadıysa) bu varsayılan liste kullanılır, yani
+   eski kurulumlar da çalışmaya devam eder.
+   TUM_KATS pasifleri de içerir: geçmiş hedef ve satışların kategori
+   adı okunabilsin diye. HEDEF_KATS yalnızca ekranlarda gösterilenler. */
+const VARSAYILAN_KATS=[
+  {id:'mobil',name:'Mobil Puan',unit:'puan',kind:'puan',sira:10,aktif:true},
+  {id:'dsl',name:'DSL Puan',unit:'puan',kind:'puan',sira:20,aktif:true},
+  {id:'pstn',name:'PSTN Puan',unit:'puan',kind:'puan',sira:30,aktif:true},
+  {id:'cihaz',name:'Cihaz Puan',unit:'puan',kind:'puan',sira:40,aktif:true},
+  {id:'taahhut',name:'Taahhüt Puan',unit:'puan',kind:'puan',sira:50,aktif:true},
+  {id:'metro',name:'Metro satış tutarı',unit:'₺',kind:'tutar',sira:60,aktif:true},
+  {id:'metro_taahhut',name:'Metro taahhüt satış tutarı',unit:'₺',kind:'tutar',sira:70,aktif:true},
+  {id:'alsat',name:'Al-sat satış tutarı',unit:'₺',kind:'tutar',sira:80,aktif:true},
+  {id:'randevu',name:'Randevu Adedi',unit:'adet',kind:'randevu',sira:90,aktif:true},
+  {id:'donusum',name:'Randevu Dönüşüm',unit:'adet',kind:'donusum',sira:100,aktif:true}
 ];
-const hedefKat=id=>HEDEF_KATS.find(k=>k.id===id);
+const KAT_TURLERI=[['puan','Puan — bu kategoriye etiketli ürünlerin satış puanı'],
+                   ['tutar','Satış tutarı — bu kategoriye etiketli ürünlerin tutarı'],
+                   ['randevu','Randevu adedi — alınan randevular sayılır'],
+                   ['donusum','Randevu dönüşümü — satışa dönen randevular sayılır']];
+const KAT_BIRIM={puan:'puan',tutar:'₺',randevu:'adet',donusum:'adet'};
+let TUM_KATS=VARSAYILAN_KATS.slice();
+let HEDEF_KATS=VARSAYILAN_KATS.slice();
+function katlariKur(satirlar){
+  const liste=(satirlar&&satirlar.length)
+    ? satirlar.map(r=>({id:r.id,name:r.name,unit:r.unit||KAT_BIRIM[r.kind]||'',
+        kind:r.kind,sira:num(r.sira),aktif:r.aktif!==false}))
+    : VARSAYILAN_KATS.slice();
+  liste.sort((a,b)=>(a.sira-b.sira)||a.name.localeCompare(b.name,'tr'));
+  TUM_KATS=liste;
+  HEDEF_KATS=liste.filter(k=>k.aktif);
+}
+const hedefKat=id=>TUM_KATS.find(k=>k.id===id);
 
 let db=null, state=null, dlgState={}, seq=0;
 const uid=p=>p+Date.now().toString(36)+(seq++).toString(36);
@@ -589,7 +610,7 @@ async function loadAll(zorla){
      sürekli büyüyor ve ekranı hiç açmayan personele de iniyordu;
      artık o ekran açılınca yükleniyor (aracGunlukGetir). */
   const bos=p=>p.catch(()=>[]);
-  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz]=await Promise.all([
+  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -598,7 +619,9 @@ async function loadAll(zorla){
     bos(q('ayarlar')),
     q('profiles'),
     sb.rpc('bugunku_potansiyel').then(r=>r.error?0:(r.data||0)).catch(()=>0),
-    sb.rpc('havuz_sayisi').then(r=>r.error?0:(r.data||0)).catch(()=>0)]);
+    sb.rpc('havuz_sayisi').then(r=>r.error?0:(r.data||0)).catch(()=>0),
+    bos(q('hedef_kat'))]);          /* tablo yoksa varsayılan kategoriler */
+  katlariKur(katlar);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
 
   const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
@@ -1980,13 +2003,106 @@ function viewHedef(){
        ((emp(b.tliderId)||{}).name?'Telesatış lideri: '+(emp(b.tliderId)||{}).name:'')].filter(Boolean).join(' · '),
       gorunur.filter(e=>e.birimId===b.id),p)).join('');
   const birimsiz=gorunur.filter(e=>!e.birimId||!byId(db.birimler,e.birimId));
-  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel())+
+  const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
+  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel()+katBtn)+
   '<div class="stack">'+
   (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
   (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
   hedefGrubu('Birime bağlı olmayan personel','Bu kişileri Personel sayfasından bir birime bağlayın',birimsiz,p)+
   '</div>'+
   '<p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır. Toplam satırında muaf tutulan personel sayılmaz.</p>';
+}
+/* ----- Hedef kategorileri ----- */
+function katKullanim(id){
+  return {hedef:(db.targets||[]).filter(t=>t.kat===id).length,
+          urun:(db.products||[]).filter(p=>p.hedefKat===id).length,
+          satis:(db.sales||[]).filter(x=>x.hedefKat===id).length};
+}
+/* Kimlik, hedef ve ürün kayıtlarında metin olarak saklanır; Türkçe
+   harfleri önce karşılıklarına katlıyoruz, yoksa "taahhüt" -> "taahh_t"
+   gibi okunaksız kimlikler çıkıyor. */
+const KAT_HARF={'ş':'s','ğ':'g','ü':'u','ö':'o','ç':'c','ı':'i','İ':'i','I':'i'};
+function katKimlik(ad){
+  const katlanmis=String(ad||'').replace(/[şğüöçıİI]/g,c=>KAT_HARF[c]||c);
+  const taban=trl(katlanmis).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'kat';
+  let id=taban,n=2;
+  while(TUM_KATS.some(k=>k.id===id)){id=taban+'_'+n;n++;}
+  return id;
+}
+function openHedefKats(){
+  if(!isFinans())return needDlg('Hedef kategorileri','Kategorileri yalnızca Master ve Muhasebe değiştirebilir.');
+  dlgState={kind:'hedefkats'};
+  const satirlar=TUM_KATS.map(k=>{
+    const u=katKullanim(k.id),bagli=u.hedef+u.urun+u.satis;
+    return '<tr><td><div>'+esc(k.name)+'</div><div class="muted sm">'+esc(k.id)+'</div></td>'+
+      '<td>'+esc((KAT_TURLERI.find(t=>t[0]===k.kind)||['','?'])[1].split(' — ')[0])+'</td>'+
+      '<td class="num">'+k.sira+'</td>'+
+      '<td>'+(k.aktif?'<span class="badge ok">Aktif</span>':'<span class="badge">Pasif</span>')+'</td>'+
+      '<td class="muted sm">'+(bagli?u.hedef+' hedef · '+u.urun+' ürün · '+u.satis+' satış':'kullanılmıyor')+'</td>'+
+      '<td class="num nowrap"><button class="btn sm" data-act="open-hedefkat" data-id="'+esc(k.id)+'">Düzenle</button></td></tr>';
+  }).join('');
+  openDlg(dlgHtml('Hedef kategorileri',
+    '<p class="hint">Kategoriler hedef tablosunun sütunlarıdır. Pasife alınan kategori ekranlardan kalkar ama geçmiş hedef ve satışlar bozulmaz.</p>'+
+    '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Tür</th><th class="num">Sıra</th><th>Durum</th><th>Kullanım</th><th></th></tr></thead><tbody>'+
+    (satirlar||'<tr><td colspan="6"><div class="empty">Kategori yok.</div></td></tr>')+
+    '</tbody></table></div>',
+    '<button class="btn" data-act="close">Kapat</button>'+
+    '<button class="btn primary" data-act="open-hedefkat">Kategori ekle</button>'));
+}
+function openHedefKat(id){
+  if(!isFinans())return;
+  const k=id?hedefKat(id):null;
+  dlgState={kind:'hedefkat',id:id||null};
+  const u=id?katKullanim(id):{hedef:0,urun:0,satis:0};
+  const bagli=u.hedef+u.urun+u.satis;
+  const sonSira=TUM_KATS.reduce((m,x)=>Math.max(m,x.sira||0),0)+10;
+  openDlg(dlgHtml(id?'Kategoriyi düzenle':'Kategori ekle','<div class="fields">'+
+    '<div class="field full"><label for="hk-ad">Kategori adı</label>'+
+      '<input id="hk-ad" type="text" value="'+esc(k?k.name:'')+'" placeholder="Örn. Fiber Puan"></div>'+
+    '<div class="field full"><label for="hk-tur">Tür</label><select id="hk-tur"'+(bagli?' disabled':'')+'>'+
+      opt(KAT_TURLERI,k?k.kind:'puan')+'</select>'+
+      (bagli?'<p class="hint" style="margin-top:4px">Bu kategori kullanımda olduğu için türü değiştirilemez; geçmiş hesaplar bozulur.</p>'
+            :'<p class="hint" style="margin-top:4px">Puan ve tutar, ürünlere bu kategoriyi etiketleyerek hesaplanır. Randevu ve dönüşüm satıştan değil randevudan gelir.</p>')+'</div>'+
+    '<div class="field"><label for="hk-sira">Sıra</label>'+
+      '<input id="hk-sira" type="number" step="1" value="'+(k?k.sira:sonSira)+'"></div>'+
+    '<div class="field"><label for="hk-birim">Birim</label>'+
+      '<input id="hk-birim" type="text" value="'+esc(k?k.unit:'puan')+'" placeholder="puan / ₺ / adet"></div>'+
+    '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400">'+
+      '<input id="hk-aktif" type="checkbox" style="width:auto"'+(!k||k.aktif?' checked':'')+'> Aktif (hedef tablosunda görünsün)</label></div>'+
+    '</div>'+
+    (id?'<dl class="kv"><dt>Kimlik</dt><dd>'+esc(id)+'</dd><dt>Kullanım</dt><dd>'+
+       u.hedef+' hedef · '+u.urun+' ürün · '+u.satis+' satış</dd></dl>':'')+
+    '<p class="err" id="hk-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    (id&&!bagli?'<button class="btn danger" data-act="del-hedefkat" data-id="'+esc(id)+'">Sil</button>':'')+
+    '<button class="btn primary" data-act="save-hedefkat">Kaydet</button>'));
+}
+function saveHedefKat(){
+  const err=m=>{$('#hk-err').textContent=m;};
+  const ad=norm($('#hk-ad').value),id=dlgState.id;
+  const tur=($('#hk-tur')||{}).value||(id?(hedefKat(id)||{}).kind:'puan');
+  const sira=Math.round(Number($('#hk-sira').value)||0);
+  const birim=norm($('#hk-birim').value)||KAT_BIRIM[tur]||'puan';
+  const aktif=!!$('#hk-aktif').checked;
+  if(!ad)return err('Kategori adını girin.');
+  if(TUM_KATS.some(k=>k.id!==id&&same(k.name,ad)))return err('Bu adla bir kategori zaten var.');
+  const row={name:ad,unit:birim,kind:tur,sira,aktif};
+  run('hk-err',async()=>{
+    if(id)await upd('hedef_kat',id,row);
+    else{
+      const yeni={...row,id:katKimlik(ad)};
+      const r=await sb.from('hedef_kat').insert({...yeni,created_by:me.userId}).select().single();
+      if(r.error)throw new Error(dbErr(r.error));
+    }
+  },'Kategori kaydedildi',()=>openHedefKats());
+}
+function delHedefKat(id){
+  run(null,async()=>{
+    const r=await sb.from('hedef_kat').delete().eq('id',id).select('id');
+    if(r.error)throw new Error(dbErr(r.error));
+    if(!r.data||!r.data.length)
+      throw new Error('Kategori silinemedi: kullanımda olabilir ya da yetkiniz yok. Silmek yerine pasife alın.');
+  },'Kategori silindi',()=>openHedefKats());
 }
 function openTarget(empId,katId){
   const kat=hedefKat(katId),e=emp(empId);if(!kat||!e)return;
@@ -4250,7 +4366,13 @@ function openProd(id,pre){
   const p=id?byId(db.products,id):null,v=p||pre||{category:'',brand:'',name:'',stocked:false,hedefKat:'',calcType:'sabit',prim:0,puan:0,primPct:0,puanPct:0};dlgState={kind:'prod',id:id||null};
   openDlg(dlgHtml(p?'Ürünü düzenle':'Ürün ekle','<div class="fields"><div class="field full"><label for="pr-cat">Kategori</label><input id="pr-cat" list="dl-pcat" type="text" value="'+esc(v.category)+'" placeholder="Örn. Cep telefonu"></div>'+
     '<div class="field"><label for="pr-brand">Marka</label><input id="pr-brand" list="dl-pbrand" type="text" value="'+esc(v.brand)+'" placeholder="Örn. Samsung"></div><div class="field"><label for="pr-name">Ürün adı</label><input id="pr-name" type="text" value="'+esc(v.name)+'" placeholder="Örn. Galaxy A54"></div>'+
-    '<div class="field"><label for="pr-hedef">Hedef kategorisi</label><select id="pr-hedef">'+opt(HEDEF_KATS.map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
+    /* Ürün pasife alınmış bir kategoriye bağlıysa o seçenek listede
+       kalsın; aksi halde ürünü kaydederken kategorisi sessizce silinir. */
+    '<div class="field"><label for="pr-hedef">Hedef kategorisi</label><select id="pr-hedef">'+
+      opt(HEDEF_KATS.concat(
+            (v.hedefKat&&!HEDEF_KATS.some(k=>k.id===v.hedefKat)&&hedefKat(v.hedefKat))
+              ? [{...hedefKat(v.hedefKat),name:hedefKat(v.hedefKat).name+' (pasif)'}] : []
+          ).map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
     '<div class="field"><label for="pr-gelirtip">Gelir hesabı</label><select id="pr-gelirtip">'+opt(GELIR_TIP,v.gelirTip||'sabit')+'</select></div>'+
     '<div class="field"><label for="pr-gelir">Gelir</label><input id="pr-gelir" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.gelir||0)+'" placeholder="0"></div>'+
     '<div class="field"><label for="pr-mobil">Mobil hat bileşeni</label><select id="pr-mobil">'+
@@ -5253,6 +5375,12 @@ const actions={
     },'Satış iptal edildi');
   },
   satgroup(el){state.sat.group=el.dataset.v;render();},
+  'open-hedefkats'(){openHedefKats();},
+  'open-hedefkat'(el){openHedefKat(el.dataset.id||null);},
+  'save-hedefkat'(){saveHedefKat();},
+  'del-hedefkat'(el){const id=el.dataset.id;
+    confirmDlg('Kategoriyi sil','Bu kategori hiçbir hedefe, ürüne veya satışa bağlı değil. Silinsin mi?','confirm-del-hedefkat',id,'Sil');},
+  'confirm-del-hedefkat'(el){delHedefKat(el.dataset.id);},
   'open-target'(el){openTarget(el.dataset.emp,el.dataset.kat);},
   'save-target'(){saveTarget();},
   cust(el){openCustomer(el.dataset.id);},
