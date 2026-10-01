@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-e';
+const SURUM='02.10.2026-f';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1697,10 +1697,11 @@ function lineSummary(L){
     if(!c.g)return 'GB paketini seçin.';
     if(!c.qty)return 'Telefon numarasını girin.';
     return c.qty+' hat · baz '+money(c.bazPrim)+' × '+nf.format(c.carpan)+' ('+(c.p&&L.tip?L.tip:'BASE')+')'+
-      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+(c.gelir?', '+money(c.gelir)+' gelir':'');
+      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+      (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
   }
   return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
-    (c.gelir?', '+money(c.gelir)+' gelir':'');
+    (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
 }
 function updateLinePreview(lid){
   slRead();
@@ -3147,6 +3148,7 @@ function gelirMaliyetRows(period){
   }).filter(r=>r.gelir||r.maliyet||r.satis).sort((a,b)=>b.gelir-a.gelir);
 }
 function gelirMaliyetBolumu(){
+  if(!gelirGor())return '';     /* gelir yalnızca master ve muhasebede */
   const p=state.period,rows=gelirMaliyetRows(p);
   if(!rows.length)return '';
   const fin=isFinans();
@@ -3207,7 +3209,7 @@ function viewRapor(){
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
-    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+xlBtn('gelir','Personel geliri')+xlBtn('hepsi','Hepsi')+
+    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+(gelirGor()?xlBtn('gelir','Personel geliri'):'')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. '+
     (isUst()||isMuhasebe()
       ?'Tüm kayıtlar aktarılır.'
@@ -3324,7 +3326,7 @@ function exportExcel(which){
     XLSX.utils.book_append_sheet(wb,sheetOf(denetimExportRows(),[0],[18,26,16,12,18,28,14,60]),'Hareket kaydı');
     ad='hareket-kaydi';
   }
-  if(which==='gelir'||which==='hepsi'){
+  if((which==='gelir'||which==='hepsi')&&gelirGor()){
     XLSX.utils.book_append_sheet(wb,sheetOf(gelirExportRows(),[],[26,18,10,16,14,14,14,14,14]),'Personel geliri');
     if(which==='gelir')ad='personel-geliri';
   }
@@ -5076,6 +5078,9 @@ function adinaYazabilecekler(){
 /* Prim tutarlarının görünürlüğü. Şu an tüm rollere açık.
    Birim müdüründen gizlemek istenirse: const primGor=()=>!isBirim(); */
 const primGor=()=>true;
+/* Gelir, şirketin operatörden aldığı hakediştir; satış ekibini
+   ilgilendirmez. Yalnızca master ve muhasebe görür. */
+const gelirGor=()=>isFinans();
 const isSahip=()=>isMaster();
 const isAdmin=()=>isUst();
 /* Yalnızca yönetimin göreceği ekranlar */
