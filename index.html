@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-j';
+const SURUM='02.10.2026-k';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1472,7 +1472,9 @@ function prodTable(){
   list.map(p=>{const kat=hedefKat(p.hedefKat),isPct=p.calcType==='yuzde';
     const primCell=isPct?'%'+nf.format(p.primPct||0):money(p.prim||0);
     const puanCell=isPct?'%'+nf.format(p.puanPct||0):nf.format(p.puan||0);
-    return '<tr><td>'+esc(p.category)+'</td><td>'+esc(p.brand)+'</td><td><b>'+esc(p.name)+'</b></td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+'</td><td class="num">'+(p.gelir?esc(gelirEtiketi(p)):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
+    const rolAd={dakika:'Mobil hat',gb:'GB paketi',tarife:'PSTN tarifesi',upcell:'PSTN Upcell'}[p.mobilTip||''];
+    return '<tr><td>'+esc(p.category)+'</td><td>'+esc(p.brand)+'</td><td><b>'+esc(p.name)+'</b>'+
+      (rolAd?'<div class="muted sm">'+esc(rolAd)+'</div>':'')+'</td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+'</td><td class="num">'+(p.gelir?esc(gelirEtiketi(p)):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewUrun(){
   const pr=state.prod;
