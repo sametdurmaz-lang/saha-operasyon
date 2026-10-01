@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-i';
+const SURUM='01.10.2026-j';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1996,8 +1996,8 @@ function haftaBasi(){
 }
 function ayniBirim(x){return !!x&&x.birimId!=null&&x.birimId===birimKapsamim();}
 function duzenlenebilirMusteri(c){
-  if(isUst()||isMuhasebe())return true;
-  if((isBirim()||isDestek()||isTelesatis()||isTLider())&&ayniBirim(c))return true;
+  if(isUst()||isMuhasebe()||isDestek())return true;
+  if((isBirim()||isTelesatis()||isTLider())&&ayniBirim(c))return true;
   if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
   return new Date(c.createdAt)>=haftaBasi();
 }
@@ -4708,8 +4708,9 @@ function ekipte(eid){
 /* Satış kaydı hangi personeller adına girilebilir */
 function satisYazabilecekler(){
   const hepsi=aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
-  if(isUst()||isMuhasebe())return hepsi;
-  if(isBirim()||isDestek()||isTLider())return hepsi.filter(e=>ekipte(e.id));
+  /* Satış destek birim ayrımı olmadan herkes adına satış girer */
+  if(isUst()||isMuhasebe()||isDestek())return hepsi;
+  if(isBirim()||isTLider())return hepsi.filter(e=>ekipte(e.id));
   /* Telesatış yalnızca kendi adına satış girer */
   return hepsi.filter(e=>e.id===me.employeeId);
 }
