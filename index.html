@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-b';
+const SURUM='02.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1963,10 +1963,19 @@ function toplamHucre(list,kat,period){
 /* toplamGoster=false: yalnızca kendi hedefini gören personel için.
    Tek kişilik listede "birim toplamı" satırı, kişinin kendi rakamını
    birimin toplamıymış gibi gösteriyordu. */
+/* Hedef tablosunda personel önce departmanına, sonra adına göre
+   sıralanır; saha, telesatış ve satış destek iç içe geçmesin.
+   Departmanı girilmemiş olanlar en sona iner. */
+const departmanAdi=e=>(dept(e.departmentId)||{}).name||'';
+function personelSirasi(a,b){
+  const da=departmanAdi(a),db2=departmanAdi(b);
+  if(!da!==!db2)return da?-1:1;
+  return da.localeCompare(db2,'tr')||a.name.localeCompare(b.name,'tr');
+}
 function hedefGrubu(baslik,altBaslik,list,period,toplamGoster){
   if(!list.length)return '';
   const toplamVar=toplamGoster!==false;
-  const sirali=list.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const sirali=list.slice().sort(personelSirasi);
   return '<section class="panel"><div class="panel-h"><div><h2>'+esc(baslik)+'</h2>'+
     (altBaslik?'<p class="muted sm">'+esc(altBaslik)+'</p>':'')+'</div>'+
     (toplamVar?'<span class="muted sm">'+sirali.length+' personel</span>':'')+'</div>'+
