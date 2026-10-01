@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-k';
+const SURUM='01.10.2026-l';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1177,7 +1177,7 @@ function haritaCanli(koru){
       '<br><a href="https://www.google.com/maps?q='+k.enlem+','+k.boylam+'" target="_blank" rel="noopener">Google Maps</a>');
     _hrtKat.push(mk);noktalar.push([k.enlem,k.boylam]);aracAdet++;
   });
-  const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,bekleyen:[],toplam:0};
+  const r=f.katRnd?haritaRandevuCiz(m,noktalar):{adet:0,yaklasik:0,konumsuz:0,musterisiz:0,bekleyen:[],toplam:0};
   /* Otomatik tazelemede kullanıcının baktığı yeri değiştirme */
   if(!koru){
     if(noktalar.length===1)m.setView(noktalar[0],14);
@@ -1194,7 +1194,10 @@ function haritaCanli(koru){
   let yazi=par.length?par.join(' · ')+' haritada':'Gösterilecek katman seçilmedi';
   if(f.katRnd&&r.yaklasik)yazi+=' · '+r.yaklasik+' randevu yaklaşık konumda';
   if(f.katRnd&&r.konumsuz)yazi+=' · '+r.konumsuz+' randevunun konumu hazırlanıyor';
-  if(!noktalar.length&&par.length)yazi='Haritaya düşecek konum verisi yok';
+  if(f.katRnd&&r.musterisiz)yazi+=' · '+r.musterisiz+' randevunun müşteri kaydını göremiyorsunuz';
+  /* Sebebi zaten yazdıysak genel "veri yok" mesajıyla üstünü örtmeyelim */
+  if(!noktalar.length&&par.length&&!r.konumsuz&&!r.musterisiz)
+    yazi='Haritaya düşecek konum verisi yok';
   bilgi.textContent=yazi;
   const not=$('#hrt-bekleyen');
   if(not)not.innerHTML=(f.katRnd&&r.bekleyen&&r.bekleyen.length)
@@ -1241,16 +1244,20 @@ function randevuRenk(tarih){
 }
 function haritaRandevuListesi(){
   const sec=state.hrt.emp;
+  /* Süzgeç hem randevuyu alana hem atanan personele bakar: randevular
+     otomatik olarak bayi müdürüne atandığı için yalnızca atanan
+     personele bakmak telesatış ekibini haritada görünmez yapıyordu. */
   return db.appointments.filter(a=>a.status==='Açık')
-    .filter(a=>!sec||a.employeeId===sec)
+    .filter(a=>!sec||a.employeeId===sec||a.alanId===sec)
     .map(a=>({a,c:byId(db.customers,a.customerId)}))
-    .filter(x=>x.c)
     .sort((x,y)=>(x.a.date||'').localeCompare(y.a.date||''));
 }
 function haritaRandevuCiz(m,noktalar){
   const liste=haritaRandevuListesi();
-  let adet=0,yaklasik=0,konumsuz=0;const bekleyen=[];
+  let adet=0,yaklasik=0,konumsuz=0,musterisiz=0;const bekleyen=[];
   liste.forEach(({a,c})=>{
+    /* Müşteri kaydını okuma yetkimiz yoksa randevuyu sessizce yutmayalım */
+    if(!c){musterisiz++;return;}
     if(c.enlem==null||c.boylam==null){konumsuz++;
       if(bekleyen.indexOf(c.unvan)<0)bekleyen.push(c.unvan);return;}
     if(c.geoKaynak==='ilce')yaklasik++;
@@ -1277,7 +1284,7 @@ function haritaRandevuCiz(m,noktalar){
       '<br><a href="https://www.google.com/maps/dir/?api=1&destination='+c.enlem+','+c.boylam+'" target="_blank" rel="noopener">Yol tarifi</a>');
     _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);adet++;
   });
-  return {adet,yaklasik,konumsuz,bekleyen,toplam:liste.length};
+  return {adet,yaklasik,konumsuz,musterisiz,bekleyen,toplam:liste.length};
 }
 function haritaCiz(){
   /* DOM yerleşene kadar bekle */
@@ -1298,7 +1305,10 @@ function viewHarita(){
   if(!f.katArac&&!f.katRnd)f.katRnd=true;
 
   /* Süzgeç iki katmanı birden kapsar: kişinin hem aracı hem randevuları */
-  const kisiler=uniq(list.map(a=>a.holderId).concat(acikRnd.map(a=>a.employeeId)).filter(Boolean))
+  const kisiler=uniq(list.map(a=>a.holderId)
+      .concat(acikRnd.map(a=>a.employeeId))
+      .concat(acikRnd.map(a=>a.alanId))
+      .filter(Boolean))
     .map(id=>[id,(emp(id)||{}).name||''])
     .filter(x=>x[1])
     .sort((a,b)=>a[1].localeCompare(b[1],'tr'));
@@ -2418,6 +2428,12 @@ function saveAppointment(){
     const h=randevuSahibi(custId);
     const a=await ins('appointments',{customer_id:custId,employee_id:h.emp.id,alan_id:alan,
       date,descr:desc,status:'Açık'});
+    /* Randevu alınan müşterinin haritada yeri yoksa koordinatı şimdi ara.
+       Mevcut bir müşteriye randevu alındığında daha önce hiçbir şey
+       tetiklenmiyordu; pin ancak zamanlanmış çevrimde oluşuyordu. */
+    const mus=byId(db.customers,custId);
+    if(mus&&(mus.enlem==null||mus.boylam==null))
+      await konumIsle(custId,{il:mus.il||'',ilce:mus.ilce||'',adres:mus.adres||''});
     const sh=sahaSahibiOf(custId);
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
       text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Operatör: '+oper+(oper!=='Hattı yok'?' ('+hat+' hat)':'')+
