@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-r';
+const SURUM='01.10.2026-s';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1924,16 +1924,20 @@ function toplamHucre(list,kat,period){
                               :nf.format(t.gercek)+' / '+nf.format(t.hedef);
   return '<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><div class="muted sm">'+fmt+'</div>';
 }
-function hedefGrubu(baslik,altBaslik,list,period){
+/* toplamGoster=false: yalnızca kendi hedefini gören personel için.
+   Tek kişilik listede "birim toplamı" satırı, kişinin kendi rakamını
+   birimin toplamıymış gibi gösteriyordu. */
+function hedefGrubu(baslik,altBaslik,list,period,toplamGoster){
   if(!list.length)return '';
+  const toplamVar=toplamGoster!==false;
   const sirali=list.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   return '<section class="panel"><div class="panel-h"><div><h2>'+esc(baslik)+'</h2>'+
     (altBaslik?'<p class="muted sm">'+esc(altBaslik)+'</p>':'')+'</div>'+
-    '<span class="muted sm">'+sirali.length+' personel</span></div>'+
+    (toplamVar?'<span class="muted sm">'+sirali.length+' personel</span>':'')+'</div>'+
     '<div class="scroll"><table><thead><tr><th>Personel</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
-    '<tr class="total-top"><td>'+esc(baslik)+' toplamı</td>'+
-      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(sirali,k,period)+'</td>').join('')+'</tr>'+
+    (toplamVar?'<tr class="total-top"><td>'+esc(baslik)+' toplamı</td>'+
+      HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(sirali,k,period)+'</td>').join('')+'</tr>':'')+
     sirali.map(e=>'<tr><td><div>'+esc(e.name)+'</div><div class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</div></td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+hedefCell(e.id,k,period)+'</td>').join('')+'</tr>').join('')+
     '</tbody></table></div></section>';
@@ -1958,6 +1962,14 @@ function viewHedef(){
   const p=state.period;
   /* Kimin hedeflerini görebiliyorum */
   const gorunur=ekipSuzgeci(aktifPersonel().filter(e=>isUst()||isMuhasebe()||((isBirim()||isTLider())&&ekipte(e.id))||e.id===me.employeeId));
+  /* Yalnızca kendi hedefini gören personele birim toplamı gösterilmez */
+  if(!(isUst()||isMuhasebe()||isBirim()||isTLider()))
+    return head('Satış hedefleri','Kendi aylık hedefleriniz ve seçtiğiniz dönemdeki gerçekleşmeniz.',periodSel())+
+      '<div class="stack">'+
+      (hedefGrubu('Hedeflerim','',gorunur,p,false)
+        ||'<div class="empty">Sizin için henüz hedef tanımlanmamış.</div>')+
+      '</div><p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, '+
+      'belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlarınızdan hesaplanır.</p>';
   const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   const bloklar=birimler.map(b=>hedefGrubu(b.name,
       [((emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı'),
