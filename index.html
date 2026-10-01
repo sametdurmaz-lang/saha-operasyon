@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-u';
+const SURUM='01.10.2026-v';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -742,11 +742,12 @@ function monthsList(){
   s.add(TODAY.slice(0,7));
   return [...s].sort().reverse();
 }
-function defaultPeriod(){
-  const cur=TODAY.slice(0,7);
-  if(db.transactions.some(t=>t.date.startsWith(cur)))return cur;
-  return monthsList().find(m=>db.transactions.some(t=>t.date.startsWith(m)))||cur;
-}
+/* Açılışta içinde bulunulan ay seçili gelir.
+   Eskiden kasa hareketlerine bakıp en son hareketin olduğu aya
+   düşüyordu; ayın ilk günlerinde henüz kasa hareketi olmadığı için
+   ekran bir önceki ayda açılıyordu. Üstelik dönem süzgeci satış,
+   randevu ve hedef ekranlarını yönetiyor, kasayı değil. */
+function defaultPeriod(){ return TODAY.slice(0,7); }
 function keyFor(dim,t){return dim==='departman'?(t.departmentId||''):dim==='personel'?(t.employeeId||''):dim==='kategori'?t.category:dim==='sirket'?(t.companyId||''):t.date.slice(0,7);}
 function labelFor(dim,key){
   if(dim==='departman')return key?(dept(key)||{name:'Silinmiş departman'}).name:'Departmana bağlı değil';
