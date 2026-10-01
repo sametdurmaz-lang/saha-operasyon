@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-c';
+const SURUM='02.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1966,6 +1966,15 @@ function toplamHucre(list,kat,period){
 /* Hedef tablosunda personel önce departmanına, sonra adına göre
    sıralanır; saha, telesatış ve satış destek iç içe geçmesin.
    Departmanı girilmemiş olanlar en sona iner. */
+/* Kişinin ait olduğu birim. Müdür ve takım liderinin personel
+   kaydındaki birim alanı boş veya farklı olabiliyor; yönettikleri
+   birim önce gelir. birim_kapsamim() ile aynı öncelik sırası. */
+function personelBirimi(e){
+  if(!e)return null;
+  const bl=db.birimler||[];
+  const y=bl.find(b=>b.mudurId===e.id)||bl.find(b=>b.tliderId===e.id);
+  return y?y.id:(e.birimId||null);
+}
 const departmanAdi=e=>(dept(e.departmentId)||{}).name||'';
 function personelSirasi(a,b){
   const da=departmanAdi(a),db2=departmanAdi(b);
@@ -2006,7 +2015,13 @@ function viewHedef(){
   if(!db.employees.length)return emptyView('Satış hedefleri','Her personelin kategori bazında aylık hedefi belirlenir; bazı personeller belirli hedeflerden muaf tutulabilir.','','Personel eklendiğinde hedef tablosu burada görünür.');
   const p=state.period;
   /* Kimin hedeflerini görebiliyorum */
-  const gorunur=ekipSuzgeci(aktifPersonel().filter(e=>isUst()||isMuhasebe()||((isBirim()||isTLider())&&ekipte(e.id))||e.id===me.employeeId));
+  /* Hedef ekranında birim müdürü ve takım lideri de listelenir; onların
+     da hedefi var. Burada bilerek ekipSuzgeci kullanılmıyor: o süzgeç
+     (sahaPersoneliMi üzerinden) yönetici ve liderleri eliyor, çünkü
+     havuz dağıtımı gibi yerlerde "saf saha ekibi" gerekiyor. */
+  const gorunur=aktifPersonel().filter(e=>isUst()||isMuhasebe()
+    ||((isBirim()||isTLider())&&ekipte(e.id))
+    ||e.id===me.employeeId);
   /* Yalnızca kendi hedefini gören personele birim toplamı gösterilmez */
   if(!(isUst()||isMuhasebe()||isBirim()||isTLider()))
     return head('Satış hedefleri','Kendi aylık hedefleriniz ve seçtiğiniz dönemdeki gerçekleşmeniz.',periodSel())+
@@ -2019,8 +2034,9 @@ function viewHedef(){
   const bloklar=birimler.map(b=>hedefGrubu(b.name,
       [((emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı'),
        ((emp(b.tliderId)||{}).name?'Telesatış lideri: '+(emp(b.tliderId)||{}).name:'')].filter(Boolean).join(' · '),
-      gorunur.filter(e=>e.birimId===b.id),p)).join('');
-  const birimsiz=gorunur.filter(e=>!e.birimId||!byId(db.birimler,e.birimId));
+      gorunur.filter(e=>personelBirimi(e)===b.id),p)).join('');
+  const birimsiz=gorunur.filter(e=>{const k=personelBirimi(e);
+    return !k||!byId(db.birimler,k);});
   const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
   return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel()+katBtn)+
   '<div class="stack">'+
