@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-i';
+const SURUM='02.10.2026-j';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4534,8 +4534,12 @@ function saveProd(next){
              prim,puan,prim_pct:primPct,puan_pct:puanPct,mobil_tip:nz(mobilTip),
              gelir:gelirV,gelir_tip:gelirTip};
   run('pr-err',()=>id?upd('products',id,row):ins('products',row),'Ürün kaydedildi').then(()=>{
+    /* Arka arkaya ürün girerken özel rol ve gelir ayarı da taşınsın;
+       on tarifeyi sırayla girerken her seferinde yeniden seçmek
+       gerekmesin. Yalnızca ürün adı ve tutarlar sıfırlanır. */
     if(next&&!$('#pr-err'))openProd(null,{category:cat,brand,name:'',stocked,hedefKat:hedefKatV,
-      calcType,prim:0,puan:0,primPct:0,puanPct:0});
+      calcType,prim:0,puan:0,primPct:0,puanPct:0,
+      mobilTip,gelir:gelirV,gelirTip});
   });
 }
 
