@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='01.10.2026-n';
+const SURUM='01.10.2026-o';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -474,6 +474,20 @@ const num=v=>v==null?0:Number(v);
 /* Supabase tek istekte en fazla 1000 satır döndürür. Tabloyu
    sıralı sayfalar hâlinde, sonuna kadar okuruz. */
 const PK_KOLON={arac_konum:'asset_id',profiles:'user_id',employee_salaries:'employee_id',mobil_carpan:'tip'};
+/* Araç günlükleri yalnızca Araç takip ekranında gerekiyor ve tablo
+   sürekli büyüyor. Açılışta indirmiyoruz; ekran açılınca bir kez
+   yükleyip burada tutuyoruz. */
+let _aracGunluk=[],_aracGunlukGeldi=false,_aracGunlukIsi=null;
+async function aracGunlukGetir(){
+  if(_aracGunlukGeldi)return _aracGunluk;
+  if(_aracGunlukIsi)return _aracGunlukIsi;
+  _aracGunlukIsi=q('arac_gunluk').then(r=>{
+    _aracGunluk=r;_aracGunlukGeldi=true;_aracGunlukIsi=null;
+    db.aracGunluk=r.map(mapAracGunluk);
+    return r;
+  }).catch(()=>{_aracGunlukIsi=null;return [];});
+  return _aracGunlukIsi;
+}
 async function q(t){
   const N=1000,key=PK_KOLON[t]||'id';
   let out=[],from=0;
@@ -525,20 +539,23 @@ async function loadAll(){
     q('transactions'),q('payrolls'),q('assets'),q('asset_logs'),q('repairs'),
     q('products'),q('warehouses'),q('stock_units'),q('stock_logs'),
     q('sales'),q('sale_items'),q('targets'),q('customers'),q('appointments'),q('appointment_logs')]);
-  const subs=await q('sale_subscriptions');
-  const leads=await q('leads');
-  const birimler=await q('birimler');
-  let aracKonum=[],aracGunluk=[];
-  try{aracKonum=await q('arac_konum');}catch(e){}   /* araç takip kurulmadıysa boş kalır */
-  try{aracGunluk=await q('arac_gunluk');}catch(e){}
-  let carpanlar=[];
-  try{carpanlar=await q('mobil_carpan');}catch(e){}  /* tablo yoksa varsayılan çarpanlar kullanılır */
-  let ayarlar=[],bugunku=0;
-  try{ayarlar=await q('ayarlar');}catch(e){}
-  try{const br=await sb.rpc('bugunku_potansiyel');if(!br.error)bugunku=br.data||0;}catch(e){}
-  let havuz=0;
-  try{const hr=await sb.rpc('havuz_sayisi');if(!hr.error)havuz=hr.data||0;}catch(e){}
-  const users=await q('profiles');
+  /* Bunlar da paralel gitsin. Tek tek beklendiğinde her tablo için
+     ayrı bir gidiş-dönüş ekleniyor ve açılış saniyelerce uzuyordu.
+     arac_gunluk burada YOK: yalnızca Araç takip ekranında kullanılıyor,
+     sürekli büyüyor ve ekranı hiç açmayan personele de iniyordu;
+     artık o ekran açılınca yükleniyor (aracGunlukGetir). */
+  const bos=p=>p.catch(()=>[]);
+  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz]=await Promise.all([
+    q('sale_subscriptions'),
+    q('leads'),
+    q('birimler'),
+    bos(q('arac_konum')),                 /* araç takip kurulmadıysa boş kalır */
+    bos(q('mobil_carpan')),               /* tablo yoksa varsayılan çarpanlar */
+    bos(q('ayarlar')),
+    q('profiles'),
+    sb.rpc('bugunku_potansiyel').then(r=>r.error?0:(r.data||0)).catch(()=>0),
+    sb.rpc('havuz_sayisi').then(r=>r.error?0:(r.data||0)).catch(()=>0)]);
+  const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
 
   const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
   const groupLogs=(rows,key)=>{const m={};rows.forEach(r=>{(m[r[key]]=m[r[key]]||[]).push({date:r.date,text:r.text});});
@@ -3857,11 +3874,12 @@ async function canliVeriTazele(){
   try{
     const [kon,gun,apt,cus]=await Promise.all([
       q('arac_konum').catch(()=>null),
-      q('arac_gunluk').catch(()=>null),
+      /* Günlükler harita ekranında kullanılmıyor, boşuna indirmeyelim */
+      (state&&state.view==='arac'?q('arac_gunluk').catch(()=>null):Promise.resolve(null)),
       q('appointments'),
       q('customers')]);
     if(kon)db.aracKonum=kon.map(mapAracKonum);
-    if(gun)db.aracGunluk=gun.map(mapAracGunluk);
+    if(gun){db.aracGunluk=gun.map(mapAracGunluk);_aracGunluk=gun;_aracGunlukGeldi=true;}
     if(apt){
       const eskiLog={};db.appointments.forEach(a=>{eskiLog[a.id]=a.log||[];});
       db.appointments=apt.map(r=>mapRandevu(r,eskiLog[r.id]));
@@ -3918,6 +3936,10 @@ function render(){
   if(!gorebilir(state.view))state.view=ilkEkran();
   $('#app').innerHTML='<div class="shell">'+sidebar()+'<main class="main" id="main">'+
     (WRITE_ENABLED?'':roBanner())+VIEWS[state.view]()+'</main></div>';
+  /* Araç günlükleri ilk kez bu ekranda gerekiyor; gelince tekrar çiz */
+  if(state.view==='arac'&&!_aracGunlukGeldi)aracGunlukGetir().then(()=>{
+    if(state&&state.view==='arac')render();
+  });
   canliSayacAyarla();
 }
 function renderEslesmemis(){
