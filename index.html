@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-f';
+const SURUM='02.10.2026-g';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -463,7 +463,7 @@ function katlariKur(satirlar){
     ? satirlar.map(r=>({id:r.id,name:r.name,unit:r.unit||KAT_BIRIM[r.kind]||'',
         kind:r.kind,sira:num(r.sira),aktif:r.aktif!==false,kaynak:r.kaynak||''}))
     : VARSAYILAN_KATS.slice();
-  liste.sort((a,b)=>(a.sira-b.sira)||a.name.localeCompare(b.name,'tr'));
+  liste.sort((a,b)=>(a.sira-b.sira)||a.name.localeCompare(b.name,'tr',SAYISAL));
   TUM_KATS=liste;
   HEDEF_KATS=liste.filter(k=>k.aktif);
 }
@@ -473,6 +473,10 @@ let db=null, state=null, dlgState={}, seq=0;
 const uid=p=>p+Date.now().toString(36)+(seq++).toString(36);
 const $=(s,r)=>(r||document).querySelector(s);
 const nf=new Intl.NumberFormat('tr-TR',{maximumFractionDigits:2});
+/* Sıralama seçeneği: metin içindeki sayılar sayı gibi kıyaslanır.
+   Böylece "DSL 24 MBPS" < "DSL 100 MBPS" olur; düz alfabetik
+   sıralamada 100 ve 1000, 24'ten önce geliyordu. */
+const SAYISAL={numeric:true};
 const money=n=>{n=Math.round((+n||0)*100)/100;return (n<0?'-':'')+'₺'+nf.format(Math.abs(n));};
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDate=iso=>iso.split('-').reverse().join('.');
@@ -808,11 +812,11 @@ function empOptGroups(list,sel,ph,etiket){
     const d=(dept(e.departmentId)||{}).name;
     if(d)(gruplar[d]=gruplar[d]||[]).push(e);else sirasiz.push(e);
   });
-  const adlar=Object.keys(gruplar).sort((a,b)=>a.localeCompare(b,'tr'));
+  const adlar=Object.keys(gruplar).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
   const satir=e=>'<option value="'+esc(e.id)+'"'+(e.id===sel?' selected':'')+'>'+
     esc(etiket?etiket(e):e.name)+(ayrildi(e)?' (ayrıldı)':'')+'</option>';
   const grup=(ad,ls)=>'<optgroup label="'+esc(ad)+'">'+
-    ls.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(satir).join('')+'</optgroup>';
+    ls.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)).map(satir).join('')+'</optgroup>';
   return (ph!==undefined?'<option value="">'+esc(ph)+'</option>':'')+
     adlar.map(a=>grup(a,gruplar[a])).join('')+
     (sirasiz.length?grup('Departman atanmamış',sirasiz):'');
@@ -926,7 +930,7 @@ function viewOzetBirim(){
     '<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>'+
   '</div>'+
   '<div class="stack">'+
-  (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')),p):'')+
+  (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)),p):'')+
   (ekip.length
     ?(hepsi?'':hedefGrubu(birim?birim.name:'Biriminiz',
         'Saha satış ekibi · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p))+
@@ -1082,7 +1086,7 @@ function zimmetKapsami(list){
 /* Görünürlük zimmetle aynı: müdürler ekibini, personel kendi aracını. */
 function takipliAraclar(){
   return zimmetKapsami(aktifCihazlar()).filter(a=>a.plaka)
-    .sort((x,y)=>x.plaka.localeCompare(y.plaka,'tr'));
+    .sort((x,y)=>x.plaka.localeCompare(y.plaka,'tr',SAYISAL));
 }
 const konumOf=id=>db.aracKonum.find(k=>k.assetId===id)||null;
 const gunlukOf=(id,gun)=>db.aracGunluk.find(g=>g.assetId===id&&g.gun===gun)||null;
@@ -1397,7 +1401,7 @@ function viewHarita(){
       .filter(Boolean))
     .map(id=>[id,(emp(id)||{}).name||''])
     .filter(x=>x[1])
-    .sort((a,b)=>a[1].localeCompare(b[1],'tr'));
+    .sort((a,b)=>a[1].localeCompare(b[1],'tr',SAYISAL));
   haritaCiz();
 
   const katDugme=(k,l,n)=>'<button data-act="hrt-kat" data-v="'+k+'" aria-pressed="'+(!!f[k])+'">'+l+' ('+n+')</button>';
@@ -1448,14 +1452,14 @@ function viewZimmet(){
   '<div class="stack"><div class="seg" role="group" aria-label="Kategori">'+tabs+'</div><section class="panel"><div class="panel-h"><input id="iq" type="search" placeholder="Model, seri no, açıklama veya personel ara" value="'+esc(state.inv.q)+'" style="max-width:380px" aria-label="Ara"></div><div id="invlist">'+invTable()+'</div></section></div>';
 }
 
-const prodCats=()=>uniq(db.products.map(p=>p.category)).sort((a,b)=>a.localeCompare(b,'tr'));
-const prodBrands=()=>uniq(db.products.map(p=>p.brand)).sort((a,b)=>a.localeCompare(b,'tr'));
+const prodCats=()=>uniq(db.products.map(p=>p.category)).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
+const prodBrands=()=>uniq(db.products.map(p=>p.brand)).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
 function prodTable(){
   const pr=state.prod,q=pr.q.trim().toLocaleLowerCase('tr');
   let list=db.products.slice();
   if(pr.cat)list=list.filter(p=>p.category===pr.cat);
   if(q)list=list.filter(p=>[p.category,p.brand,p.name].join(' ').toLocaleLowerCase('tr').includes(q));
-  list.sort((a,b)=>a.category.localeCompare(b.category,'tr')||a.brand.localeCompare(b.brand,'tr')||a.name.localeCompare(b.name,'tr'));
+  list.sort((a,b)=>a.category.localeCompare(b.category,'tr',SAYISAL)||a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
   if(!list.length)return '<div class="empty">Bu filtrede ürün yok. Yeni ürün eklemek için "Ürün ekle" düğmesini kullanın.</div>';
   return '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Marka</th><th>Ürün adı</th><th>Hedef kategorisi</th><th class="num">Gelir</th><th class="num">Prim</th><th class="num">Puan</th><th>Stok</th><th></th></tr></thead><tbody>'+
   list.map(p=>{const kat=hedefKat(p.hedefKat),isPct=p.calcType==='yuzde';
@@ -1472,7 +1476,7 @@ function viewUrun(){
 
 /* ----- Stok ve depo ----- */
 const wh=id=>byId(db.warehouses,id);
-const stockedProds=()=>db.products.filter(p=>p.stocked).sort((a,b)=>a.category.localeCompare(b.category,'tr')||a.brand.localeCompare(b.brand,'tr')||a.name.localeCompare(b.name,'tr'));
+const stockedProds=()=>db.products.filter(p=>p.stocked).sort((a,b)=>a.category.localeCompare(b.category,'tr',SAYISAL)||a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
 const prodLabel=p=>p?p.brand+' '+p.name:'Silinmiş ürün';
 const stockBySerial=s=>db.stock.find(u=>same(u.serial,s));
 const parseSerials=t=>String(t||'').split(/[\n\r,;]+/).map(norm).filter(Boolean);
@@ -1502,7 +1506,7 @@ function stokTable(){
   const f=state.stok,q=f.q.trim().toLocaleLowerCase('tr');
   let list=db.stock.filter(u=>(!f.prod||u.productId===f.prod)&&(!f.status||u.status===f.status)&&(!f.wh||(f.wh==='none'?!u.warehouseId:u.warehouseId===f.wh)));
   if(q)list=list.filter(u=>{const p=byId(db.products,u.productId);return [u.serial,prodLabel(p),p?p.category:'',unitLoc(u)].join(' ').toLocaleLowerCase('tr').includes(q);});
-  list.sort((a,b)=>prodLabel(byId(db.products,a.productId)).localeCompare(prodLabel(byId(db.products,b.productId)),'tr')||a.serial.localeCompare(b.serial));
+  list.sort((a,b)=>prodLabel(byId(db.products,a.productId)).localeCompare(prodLabel(byId(db.products,b.productId)),'tr',SAYISAL)||a.serial.localeCompare(b.serial,'tr',SAYISAL));
   if(!list.length)return '<div class="empty">Bu filtrede stok kaydı yok.</div>';
   const shown=list.slice(0,100);
   return '<div class="panel-b muted sm">'+list.length+' kayıt'+(list.length>shown.length?', ilk 100 tanesi gösteriliyor. Aramayı daraltın.':'.')+'</div><div class="scroll"><table><thead><tr><th>Seri no</th><th>Ürün</th><th>Konum</th><th>Durum</th><th></th></tr></thead><tbody>'+
@@ -1674,7 +1678,7 @@ function lineHtml(L,i){
     '<div class="field"><label for="slp-'+L.id+'">Ürün</label><select id="slp-'+L.id+'">'+saleProdOptions(L.cat,L.prod)+'</select></div>'+
     (mobilMi(p)
       ?'<div class="field"><label for="slg-'+L.id+'">GB paketi</label><select id="slg-'+L.id+'">'+
-         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr')).map(x=>[x.id,x.name]),L.gb||'','GB paketi seçin')+'</select></div>'+
+         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,x.name]),L.gb||'','GB paketi seçin')+'</select></div>'+
        '<div class="field"><label for="slt-'+L.id+'">Hat tipi</label><select id="slt-'+L.id+'">'+opt(HAT_TIP,L.tip||'BASE')+'</select></div>'
       :'')+
     (p&&!mobilMi(p)?(p.stocked
@@ -1725,7 +1729,7 @@ function openSale(){
   if(!db.employees.length)return needDlg('Satış ekle','Önce personel ekleyin. Satış, satışı yapan personele bağlanır.');
   if(!db.products.length)return needDlg('Satış ekle','Önce Ürünler sayfasından ürün ve hizmetlerinizi tanımlayın.');
   dlgState={kind:'sale',lines:[newLine()]};
-  const custs=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr'));
+  const custs=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr',SAYISAL));
   openDlg(dlgHtml('Satış ekle','<div class="fields">'+
     '<div class="field"><label for="sl-date">Tarih</label><input id="sl-date" type="date" value="'+TODAY+'"></div>'+
     (function(){const ks=adinaYazabilecekler();
@@ -1748,7 +1752,7 @@ function openSale(){
 function saleProdOptions(cat,sel){
   if(!cat)return opt([],sel,'Önce kategori seçin');
   const list=db.products.filter(p=>p.category===cat&&(p.mobilTip!=='gb'||p.id===sel))
-    .sort((a,b)=>a.brand.localeCompare(b.brand,'tr')||a.name.localeCompare(b.name,'tr'));
+    .sort((a,b)=>a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
   return opt(list.map(p=>[p.id,prodLabel(p)+(p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]),sel,'Ürün seçin');
 }
 function saveSale(){
@@ -1980,7 +1984,7 @@ const departmanAdi=e=>(dept(e.departmentId)||{}).name||'';
 function personelSirasi(a,b){
   const da=departmanAdi(a),db2=departmanAdi(b);
   if(!da!==!db2)return da?-1:1;
-  return da.localeCompare(db2,'tr')||a.name.localeCompare(b.name,'tr');
+  return da.localeCompare(db2,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL);
 }
 function hedefGrubu(baslik,altBaslik,list,period,toplamGoster){
   if(!list.length)return '';
@@ -2031,7 +2035,7 @@ function viewHedef(){
         ||'<div class="empty">Sizin için henüz hedef tanımlanmamış.</div>')+
       '</div><p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, '+
       'belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlarınızdan hesaplanır.</p>';
-  const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL));
   const bloklar=birimler.map(b=>hedefGrubu(b.name,
       [((emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı'),
        ((emp(b.tliderId)||{}).name?'Telesatış lideri: '+(emp(b.tliderId)||{}).name:'')].filter(Boolean).join(' · '),
@@ -2180,7 +2184,7 @@ function custTable(){
   const q=state.cust.q.trim().toLocaleLowerCase('tr');
   let list=db.customers.slice();
   if(q)list=list.filter(c=>[c.unvan,c.yetkili,c.telefon,c.il,c.ilce].join(' ').toLocaleLowerCase('tr').includes(q));
-  list.sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr'));
+  list.sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr',SAYISAL));
   if(!list.length)return '<div class="empty">Bu aramayla eşleşen müşteri yok. Yeni eklemek için "Müşteri ekle" düğmesini kullanın.</div>';
   const act2=c=>duzenlenebilirMusteri(c)?'cust':'cust-info';
   return '<div class="scroll"><table><thead><tr><th>Ünvan</th><th>Yetkili</th><th>İrtibat</th><th>İl / İlçe</th><th>Hizmetler</th><th></th></tr></thead><tbody>'+
@@ -2609,7 +2613,7 @@ function acikRandevuUyari(cid){
 function openAppointment(customerId,sahaId){
   if(!db.employees.length)return needDlg('Randevu ekle','Önce personel ekleyin ve içlerinden birini Bayi Müdürü olarak işaretleyin.');
   dlgState={kind:'appt',sahaId:sahaId||null};
-  const cust=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr')),bm=bayiMuduru();
+  const cust=db.customers.slice().sort((a,b)=>a.unvan.localeCompare(b.unvan,'tr',SAYISAL)),bm=bayiMuduru();
   openDlg(dlgHtml('Randevu ekle','<div class="fields">'+
     '<div class="field full"><label for="ap-cust">Müşteri</label><select id="ap-cust"><option value="">Müşteri seçin</option><option value="'+NEW_CUST+'">+ Yeni müşteri ekle</option>'+cust.map(c=>'<option value="'+c.id+'"'+(c.id===customerId?' selected':'')+'>'+esc(c.unvan+' — '+c.yetkili)+'</option>').join('')+'</select></div>'+
     '<div class="field full" id="ap-openwarn">'+acikRandevuUyari(customerId)+'</div>'+
@@ -2990,7 +2994,7 @@ function rolVerebilirim(r){
 }
 function viewKullanici(){
   const users=(db.users||[]).slice().sort((a,b)=>
-    (ROL_SIRA[rolAdi(a.role)]-ROL_SIRA[rolAdi(b.role)])||a.email.localeCompare(b.email,'tr'));
+    (ROL_SIRA[rolAdi(a.role)]-ROL_SIRA[rolAdi(b.role)])||a.email.localeCompare(b.email,'tr',SAYISAL));
   const bagsiz=users.filter(u=>!u.employeeId).length;
   return head('Kullanıcılar','Uygulamaya giriş yapabilen hesaplar. Personel kendi hesabını açar; siz yalnızca personel kaydıyla eşleştirirsiniz.','')+
   '<div class="kpis"><div class="kpi"><span>Toplam hesap</span><b>'+users.length+'</b></div>'+
@@ -3717,7 +3721,7 @@ function potTable(){
   list.sort((a,b)=>{
     const aa=LEAD_ACIK.has(a.durum)?0:1,bb=LEAD_ACIK.has(b.durum)?0:1;
     if(aa!==bb)return aa-bb;
-    return a.unvan.localeCompare(b.unvan,'tr');
+    return a.unvan.localeCompare(b.unvan,'tr',SAYISAL);
   });
   if(!list.length)return '<div class="empty">'+
     (f.sekme==='ekledigim'?'Henüz potansiyel müşteri eklemediniz. “Potansiyel ekle” ile başlayın; kayıtlarınız birim havuzuna düşer ve telesatış arar.'
@@ -4014,7 +4018,7 @@ function viewDenetim(){
   const list=denetimSatirlari();
   const kullanicilar=[];const gor={};
   (db.denetim||[]).forEach(d=>{if(d.kullanici&&!gor[d.kullanici]){gor[d.kullanici]=1;kullanicilar.push([d.kullanici,d.eposta||d.kullanici]);}});
-  const tablolar=Object.keys(TABLO_ADI).map(k=>[k,TABLO_ADI[k]]).sort((a,b)=>a[1].localeCompare(b[1],'tr'));
+  const tablolar=Object.keys(TABLO_ADI).map(k=>[k,TABLO_ADI[k]]).sort((a,b)=>a[1].localeCompare(b[1],'tr',SAYISAL));
   const silinen=list.filter(d=>d.islem==='DELETE').length;
   const degisen=list.filter(d=>d.islem==='UPDATE').length;
   const finans=list.filter(d=>FINANS_TABLO.has(d.tablo)).length;
@@ -4585,7 +4589,7 @@ function openEmp(id){
   openDlg(dlgHtml(e?'Personeli düzenle':'Personel ekle','<div class="fields"><div class="field full"><label for="p-name">Ad soyad</label><input id="p-name" type="text" value="'+esc(e?e.name:'')+'"></div>'+
     '<div class="field"><label for="p-company">Şirket</label><select id="p-company">'+companyOptions(cid)+'</select></div><div class="field"><label for="p-dept">Departman</label><select id="p-dept">'+deptOptions(cid,e?e.departmentId:'','Departman seçin')+'</select></div>'+
     '<div class="field full"><label for="p-birim">Bağlı olduğu birim</label><select id="p-birim">'+
-      opt((db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(b=>[b.id,b.name+((emp(b.mudurId)||{}).name?' — '+(emp(b.mudurId)||{}).name:'')]),e?(e.birimId||''):'','Birime bağlı değil')+
+      opt((db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)).map(b=>[b.id,b.name+((emp(b.mudurId)||{}).name?' — '+(emp(b.mudurId)||{}).name:'')]),e?(e.birimId||''):'','Birime bağlı değil')+
       '</select></div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
@@ -4699,7 +4703,7 @@ function geriAl(id){
 function birimEkip(bid){return db.employees.filter(e=>e.birimId===bid);}
 function birimlerBolumu(){
   if(!(isFinans()||isUst()))return '';
-  const list=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const list=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL));
   return '<section class="panel"><div class="panel-h"><div><h2>Birimler</h2>'+
     '<p class="muted sm">Her birimin kendi potansiyel müşteri ve müşteri havuzu vardır. Birim müdürü yalnızca kendi biriminin kayıtlarını görür.</p></div>'+
     '<button class="btn primary" data-act="open-birim">Birim ekle</button></div>'+
