@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-g';
+const SURUM='02.10.2026-i';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -674,6 +674,7 @@ async function loadAll(zorla){
       unitPrim:num(r.unit_prim),unitPuan:num(r.unit_puan),prim:num(r.prim),puan:num(r.puan),
       gbProductId:r.gb_product_id||null,hatTip:r.hat_tip||'',
       gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
+      upcellEski:r.upcell_eski||null,upcellYeni:r.upcell_yeni||null,
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
     targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
     customers:customers.map(mapMusteri),
@@ -1453,6 +1454,12 @@ function viewZimmet(){
 }
 
 const prodCats=()=>uniq(db.products.map(p=>p.category)).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
+/* Satış ekranı için: içinde seçilebilir ürün olmayan kategoriler
+   listelenmez. GB paketleri ve PSTN tarifeleri doğrudan satılmaz,
+   satır içinde seçilir; kendi kategorileri boş görünmesin. */
+const satilabilirMi=p=>p.mobilTip!=='gb'&&p.mobilTip!=='tarife';
+const satisCats=()=>uniq(db.products.filter(satilabilirMi).map(p=>p.category))
+  .sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
 const prodBrands=()=>uniq(db.products.map(p=>p.brand)).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL));
 function prodTable(){
   const pr=state.prod,q=pr.q.trim().toLocaleLowerCase('tr');
@@ -1554,7 +1561,8 @@ function satTable(){
   const shown=list.slice(0,100);
   return '<div class="panel-b muted sm">'+list.length+' satış'+(list.length>shown.length?', ilk 100 tanesi gösteriliyor. Aramayı daraltın.':'.')+'</div><div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'<th></th></tr></thead><tbody>'+
   shown.map(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
-    return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?e.name:'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num"><b>'+money(s.prim)+'</b></td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>';
+    return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+
+      (s.upcellYeni?' · '+esc((byId(db.products,s.upcellEski)||{}).name||'')+' → '+esc((byId(db.products,s.upcellYeni)||{}).name||''):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?e.name:'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num"><b>'+money(s.prim)+'</b></td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewSatis(){
   const st=state.sat,list=salesIn(state.period);
@@ -1581,6 +1589,17 @@ const mobilGb=()=>db.products.filter(p=>p.mobilTip==='gb');
 const mobilVar=()=>mobilDk().length>0;
 const carpanOf=t=>{const c=(db.carpan||{})[t||'BASE'];return c===undefined?1:c;};
 const mobilMi=p=>!!p&&p.mobilTip==='dakika';
+/* PSTN tarife yükseltme. Tarife ürünlerinin prim alanı operatörün o
+   tarife için ödediği hakedişi tutar; satırda iki tarife seçilir ve
+   aradaki fark hesaba girer. */
+const upcellMi=p=>!!p&&p.mobilTip==='upcell';
+const tarifeler=()=>db.products.filter(p=>p.mobilTip==='tarife');
+function upcellFark(L){
+  const e=L.eski?byId(db.products,L.eski):null;
+  const y=L.yeni?byId(db.products,L.yeni):null;
+  if(!e||!y)return {e,y,fark:0,eksik:true};
+  return {e,y,fark:(y.prim||0)-(e.prim||0),eksik:false};
+}
 function hatEtiket(s){
   const p=byId(db.products,s.productId),g=s.gbProductId?byId(db.products,s.gbProductId):null;
   return (p?p.name:'Silinmiş tarife')+(g?' + '+g.name:'')+(s.hatTip?' ('+s.hatTip+')':'');
@@ -1627,7 +1646,7 @@ function personelGelir(empId,period){
   return t;
 }
 function needsAmount(p){return !!p&&(p.calcType==='yuzde'||(hedefKat(p.hedefKat)||{}).kind==='tutar');}
-function newLine(){return {id:'L'+(seq++).toString(36),cat:'',prod:'',qty:'1',amount:'',serials:'',abone:'',gb:'',tip:'BASE'};}
+function newLine(){return {id:'L'+(seq++).toString(36),cat:'',prod:'',qty:'1',amount:'',serials:'',abone:'',gb:'',tip:'BASE',eski:'',yeni:''};}
 /* Ekrandaki değerleri satır durumuna aktarır (yeniden çizimde kaybolmasın) */
 function slRead(){
   (dlgState.lines||[]).forEach(L=>{
@@ -1641,6 +1660,8 @@ function slRead(){
     if((x=v('slab-'+L.id))!==undefined)L.abone=x;
     if((x=v('slg-'+L.id))!==undefined)L.gb=x;
     if((x=v('slt-'+L.id))!==undefined)L.tip=x;
+    if((x=v('sle-'+L.id))!==undefined)L.eski=x;
+    if((x=v('sly-'+L.id))!==undefined)L.yeni=x;
   });
 }
 /* Kayan nokta artıklarını temizler: 1,2*3 = 3,5999999999999996 → 3,6 */
@@ -1659,6 +1680,16 @@ function lineCalc(L){
     return {p,g,mobil:true,qty:adet,amount:0,carpan:k,bazPrim,bazPuan,
             prim:bazPrim*k*adet,puan:bazPuan*k*adet,gelir:bazGelir*k*adet};
   }
+  if(upcellMi(p)){
+    const u=upcellFark(L);
+    const adet=parseSerials(L.abone).length||Math.max(0,parseInt(L.qty,10)||0);
+    const tutar=Math.max(0,u.fark)*adet;
+    const prim=p.calcType==='yuzde'?tutar*(p.primPct||0)/100:adet*(p.prim||0);
+    const puan=p.calcType==='yuzde'?tutar*(p.puanPct||0)/100:adet*(p.puan||0);
+    /* Fark doğrudan şirketin geliridir */
+    return {p,upcell:true,eski:u.e,yeni:u.y,fark:u.fark,eksik:u.eksik,
+            qty:adet,amount:tutar,prim,puan,gelir:tutar};
+  }
   /* Abone/hizmet numarası girildiyse adet numara sayısıdır. DSL ve
      PSTN'de her numara bir hizmettir; mobil hatta olduğu gibi sayılır. */
   const numaraAdet=parseSerials(L.abone).length;
@@ -1674,20 +1705,32 @@ function lineHtml(L,i){
   return '<div class="sline"><div class="sline-h"><b>'+(i+1)+'. ürün</b>'+
     (n>1?'<button class="btn sm danger" type="button" data-act="sl-del" data-id="'+L.id+'">Satırı sil</button>':'')+'</div>'+
   '<div class="fields">'+
-    '<div class="field"><label for="slc-'+L.id+'">Kategori</label><select id="slc-'+L.id+'">'+opt(prodCats().map(x=>[x,x]),L.cat,'Kategori seçin')+'</select></div>'+
+    '<div class="field"><label for="slc-'+L.id+'">Kategori</label><select id="slc-'+L.id+'">'+opt(satisCats().map(x=>[x,x]),L.cat,'Kategori seçin')+'</select></div>'+
     '<div class="field"><label for="slp-'+L.id+'">Ürün</label><select id="slp-'+L.id+'">'+saleProdOptions(L.cat,L.prod)+'</select></div>'+
     (mobilMi(p)
       ?'<div class="field"><label for="slg-'+L.id+'">GB paketi</label><select id="slg-'+L.id+'">'+
          opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,x.name]),L.gb||'','GB paketi seçin')+'</select></div>'+
        '<div class="field"><label for="slt-'+L.id+'">Hat tipi</label><select id="slt-'+L.id+'">'+opt(HAT_TIP,L.tip||'BASE')+'</select></div>'
       :'')+
-    (p&&!mobilMi(p)?(p.stocked
+    (upcellMi(p)
+      ?(function(){const tl=tarifeler().slice().sort((a,b)=>(a.prim||0)-(b.prim||0));
+          const ops=tl.map(x=>[x.id,x.name+' — '+money(x.prim||0)]);
+          return '<div class="field"><label for="sle-'+L.id+'">Eski tarife</label><select id="sle-'+L.id+'">'+
+            opt(ops,L.eski||'','Eski tarifeyi seçin')+'</select></div>'+
+            '<div class="field"><label for="sly-'+L.id+'">Yeni tarife</label><select id="sly-'+L.id+'">'+
+            opt(ops,L.yeni||'','Yeni tarifeyi seçin')+'</select></div>';})()
+      :'')+
+    (p&&!mobilMi(p)&&!upcellMi(p)?(p.stocked
       ?'<div class="field full"><label for="sls-'+L.id+'">Seri numaraları</label><textarea id="sls-'+L.id+'" rows="3" placeholder="Her satıra bir seri no yazın veya okutun">'+esc(L.serials)+'</textarea><span class="muted sm" id="slsc-'+L.id+'">'+parseSerials(L.serials).length+' seri no okundu</span></div>'
       :(function(){const n=parseSerials(L.abone).length;
          return n
            ?'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" value="'+n+'" disabled><span class="muted sm">Girilen hizmet numarası sayısı</span></div>'
            :'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" min="1" step="1" inputmode="numeric" value="'+esc(L.qty)+'"></div>';})()):'')+
-    (p&&needsAmount(p)?'<div class="field"><label for="sla-'+L.id+'">Satış tutarı (₺)</label><input id="sla-'+L.id+'" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="'+esc(L.amount)+'"></div>':'')+
+    (p&&needsAmount(p)&&!upcellMi(p)?'<div class="field"><label for="sla-'+L.id+'">Satış tutarı (₺)</label><input id="sla-'+L.id+'" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="'+esc(L.amount)+'"></div>':'')+
+    (upcellMi(p)?(function(){const n=parseSerials(L.abone).length;
+      return n
+        ?'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" value="'+n+'" disabled><span class="muted sm">Girilen hizmet numarası sayısı</span></div>'
+        :'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" min="1" step="1" inputmode="numeric" value="'+esc(L.qty)+'"></div>';})():'')+
     (p?'<div class="field full"><label for="slab-'+L.id+'">'+(mobilMi(p)?'Telefon numaraları':'Abone / hizmet numaraları (isteğe bağlı)')+'</label><textarea id="slab-'+L.id+'" rows="2" placeholder="'+(mobilMi(p)?'Her satıra bir numara. Aynı tarifeden birden fazla hat satıldıysa hepsini buraya yazın.':'Her satıra bir numara yazın veya virgülle ayırın')+'">'+esc(L.abone)+'</textarea><span class="muted sm" id="slabc-'+L.id+'">'+parseSerials(L.abone).length+' numara girildi</span></div>':'')+
   '</div>'+
   (p?'<div class="preview sm" id="slpv-'+L.id+'">'+lineSummary(L)+'</div>'
@@ -1703,6 +1746,14 @@ function lineSummary(L){
     return c.qty+' hat · baz '+money(c.bazPrim)+' × '+nf.format(c.carpan)+' ('+(c.p&&L.tip?L.tip:'BASE')+')'+
       ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
       (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
+  }
+  if(c.upcell){
+    if(c.eksik)return 'Eski ve yeni tarifeyi seçin.';
+    if(c.fark<=0)return 'Yeni tarife eskisinden yüksek olmalı. Seçilen fark: '+money(c.fark)+'.';
+    if(!c.qty)return 'Adet girin veya hizmet numarası yazın.';
+    return c.eski.name+' → '+c.yeni.name+' · fark '+money(c.fark)+' × '+c.qty+' adet = '+money(c.amount)+
+      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+      (gelirGor()?', '+money(c.gelir)+' gelir':'');
   }
   return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
     (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
@@ -1751,7 +1802,7 @@ function openSale(){
 /* GB paketleri tek başına satılmaz; yalnızca dakika satırının içinde seçilir */
 function saleProdOptions(cat,sel){
   if(!cat)return opt([],sel,'Önce kategori seçin');
-  const list=db.products.filter(p=>p.category===cat&&(p.mobilTip!=='gb'||p.id===sel))
+  const list=db.products.filter(p=>p.category===cat&&((p.mobilTip!=='gb'&&p.mobilTip!=='tarife')||p.id===sel))
     .sort((a,b)=>a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
   return opt(list.map(p=>[p.id,prodLabel(p)+(p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]),sel,'Ürün seçin');
 }
@@ -1767,6 +1818,21 @@ function saveSale(){
   for(let i=0;i<lines.length;i++){
     const L=lines[i],no=(i+1)+'. ürün: ',p=byId(db.products,L.prod);
     if(!p)return err(no+'ürün seçin.');
+    if(upcellMi(p)){
+      const u=upcellFark(L);
+      if(u.eksik)return err(no+'eski ve yeni tarifeyi seçin.');
+      if(u.e.id===u.y.id)return err(no+'eski ve yeni tarife aynı olamaz.');
+      if(u.fark<=0)return err(no+'yeni tarife eskisinden yüksek olmalı ('+u.e.name+' → '+u.y.name+').');
+      const nolar=parseSerials(L.abone);
+      const adet=nolar.length||Math.max(0,parseInt(L.qty,10)||0);
+      if(!adet)return err(no+'adet girin veya hizmet numarası yazın.');
+      const tutar=u.fark*adet;
+      const prim=p.calcType==='yuzde'?tutar*(p.primPct||0)/100:adet*(p.prim||0);
+      const puan=p.calcType==='yuzde'?tutar*(p.puanPct||0)/100:adet*(p.puan||0);
+      hazir.push({p,qty:adet,units:[],amount:tutar,calc:p.calcType,abone:nolar,
+        prim,puan,gelir:tutar,upcellEski:u.e.id,upcellYeni:u.y.id});
+      continue;
+    }
     if(mobilMi(p)){
       const g=L.gb?byId(db.products,L.gb):null;
       if(!g)return err(no+'GB paketini seçin.');
@@ -1847,7 +1913,8 @@ function saveSale(){
         /* Ondalık çarpımlarda 3,5999999999999996 gibi artıklar kalmasın */
         prim:yuvarla(L.prim),puan:yuvarla(L.puan),
         gb_product_id:L.gb?L.gb.id:null,hat_tip:L.hatTip||null,
-        gelir:yuvarla(L.gelir||0),gelir_alan_id:alan,gelir_pay:pay});
+        gelir:yuvarla(L.gelir||0),gelir_alan_id:alan,gelir_pay:pay,
+        upcell_eski:L.upcellEski||null,upcell_yeni:L.upcellYeni||null});
       if(L.abone.length){
         const ar=await sb.from('sale_subscriptions').insert(
           L.abone.map(x=>({sale_id:sale.id,abone_no:x,created_by:me.userId})));
@@ -1872,7 +1939,12 @@ function openSaleDetail(id){
   const kardes=s.batchId?db.sales.filter(x=>x.batchId===s.batchId&&x.id!==s.id):[];
   const rateLine=s.calcType==='yuzde'?('Satış tutarının %'+nf.format(s.unitPrim)+'’i prim, %'+nf.format(s.unitPuan)+'’i puan'):('Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim));
   const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
-  openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd><dt>Satışı yapan</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
+  openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd>'+
+    (s.upcellYeni?'<dt>Tarife yükseltme</dt><dd>'+
+      esc((byId(db.products,s.upcellEski)||{}).name||'—')+' → '+
+      esc((byId(db.products,s.upcellYeni)||{}).name||'—')+
+      (s.qty>1?' · '+s.qty+' hizmet':'')+'</dd>':'')+
+    '<dt>Satışı yapan</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
     (s.amount?'<dt>Satış tutarı</dt><dd>'+money(s.amount)+'</dd>':'')+
     '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd><dt>Toplam prim</dt><dd>'+(primGor()?money(s.prim):'—')+'</dd></dl>'+
     ((s.abone&&s.abone.length)?'<section class="dsec"><h3>Abone / hizmet numaraları</h3><div>'+
@@ -3250,7 +3322,7 @@ function pay(toplam,adet){
   return out;
 }
 function satisExportRows(){
-  const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Dakika paketi','GB paketi','Hat tipi',
+  const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Dakika paketi','GB paketi','Hat tipi','Tarife yükseltme',
               'Kategori','Marka',
               'Adet','Tutar','Puan'].concat(primGor()?['Prim']:[]).concat(
               ['Abone no','Seri no','Satır','Hedef kategorisi','Satış no']);
@@ -3272,6 +3344,8 @@ function satisExportRows(){
         (x.hatTip||gb)?hatEtiket(x):adOf(p,'name'),   /* tam etiket: 1200DK + 20GB (NT) */
         /* Dakika/GB/tip sütunları yalnızca mobil hat satışlarında dolar */
         (x.hatTip||gb)?adOf(p,'name'):'',gb?adOf(gb,'name'):'',x.hatTip||'',
+        x.upcellYeni?((byId(db.products,x.upcellEski)||{}).name||'')+' → '+
+                     ((byId(db.products,x.upcellYeni)||{}).name||''):'',
         adOf(p,'category'),adOf(p,'brand'),
         miktar[i],tutar[i],puan[i]].concat(primGor()?[prim[i]]:[]).concat(
         [abone[i]||'',seri[i]||'',(i+1)+'/'+adet,
@@ -3319,7 +3393,7 @@ function exportExcel(which){
   const wb=XLSX.utils.book_new();
   let ad='saha';
   if(which!=='randevu'){
-    XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,28,16,14,10,16,14,8,12,10,12,22,26,8,20,14]),'Satışlar');
+    XLSX.utils.book_append_sheet(wb,sheetOf(satisExportRows(),[0],[12,20,18,18,30,28,16,14,10,24,16,14,8,12,10,12,22,26,8,20,14]),'Satışlar');
     ad='satislar';
   }
   if(which==='randevu'||which==='hepsi'){
@@ -4424,8 +4498,13 @@ function openProd(id,pre){
           ).map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
     '<div class="field"><label for="pr-gelirtip">Gelir hesabı</label><select id="pr-gelirtip">'+opt(GELIR_TIP,v.gelirTip||'sabit')+'</select></div>'+
     '<div class="field"><label for="pr-gelir">Gelir</label><input id="pr-gelir" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.gelir||0)+'" placeholder="0"></div>'+
-    '<div class="field"><label for="pr-mobil">Mobil hat bileşeni</label><select id="pr-mobil">'+
-      opt([['dakika','Dakika (tarife) paketi'],['gb','GB paketi']],v.mobilTip||'','Hayır, normal ürün')+'</select></div>'+
+    '<div class="field full"><label for="pr-mobil">Satırdaki özel rol</label><select id="pr-mobil">'+
+      opt([['dakika','Mobil hat — dakika (tarife) paketi'],['gb','Mobil hat — GB paketi'],
+           ['tarife','PSTN tarifesi — prim alanına operatör hakedişini yazın'],
+           ['upcell','PSTN Upcell — satışta eski ve yeni tarife seçilir']],
+          v.mobilTip||'','Hayır, normal ürün')+'</select>'+
+      '<p class="hint" style="margin-top:4px">Normal ürünler doğrudan satılır. Özel rolü olanlar satış satırının içinde seçilir: '+
+      'GB paketi ve PSTN tarifesi ürün listesinde görünmez, yalnızca ilgili satırda çıkar.</p></div>'+
     '<div class="field"><label for="pr-calc">Hesaplama şekli</label><select id="pr-calc"><option value="sabit"'+(v.calcType!=='yuzde'?' selected':'')+'>Sabit tutar (adet başına)</option><option value="yuzde"'+(v.calcType==='yuzde'?' selected':'')+'>Satış tutarının yüzdesi</option></select></div>'+
     '<div id="pr-calcwrap" style="display:contents">'+prodCalcFields(v)+'</div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="pr-stock" type="checkbox" style="width:auto"'+(v.stocked?' checked':'')+'> Stok takibi yapılır (her adet seri numarasıyla izlenir)</label></div></div>'+
