@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-d';
+const SURUM='02.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -903,7 +903,7 @@ function viewOzetBirim(){
   const ekip=hepsi?aktifPersonel():ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===bid));
   const k=birimOzetKpi(ekip,p);
   const ss=salesIn(p);
-  const perfRows=ekip.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(e=>{
+  const perfRows=ekip.slice().sort(personelSirasi).map(e=>{
     const bi=e.birimId?byId(db.birimler,e.birimId):null;
     const my=ss.filter(x=>x.employeeId===e.id);
     const rnd=db.appointments.filter(a=>inPeriod(a,p)&&!iptalMi(a)&&alanOf(a)===e.id);
@@ -972,7 +972,7 @@ function ozetRandevuPanel(){
   const wkStart=startOfWeek(TODAY),wkStartISO=isoOf(wkStart);
   const wkEnd=new Date(wkStart);wkEnd.setDate(wkEnd.getDate()+6);const wkEndISO=isoOf(wkEnd);
   const monthISO=TODAY.slice(0,7);
-  const rows=db.employees.map(e=>{
+  const rows=tumPersonel().map(e=>{
     const mine=db.appointments.filter(a=>a.employeeId===e.id);
     return {e,
       today:mine.filter(a=>a.date===TODAY).length,
@@ -1034,7 +1034,7 @@ function viewKasa(){
 
 function payRows(){
   const m=state.payMonth;
-  return db.employees.map(e=>{
+  return tumPersonel().map(e=>{
     const pr=db.payrolls.find(p=>p.employeeId===e.id&&p.month===m),open=openAdvance(e.id),due=e.salary-Math.min(open,e.salary);
     return {e,pr,open,due,d:dept(e.departmentId)};
   });
@@ -2864,7 +2864,7 @@ function viewPersonel(){
   const p=state.period,exp=expenses(p),ss=salesIn(p);
   if(!db.employees.length)return emptyView('Personel','Çalışanlar, bağlı oldukları şirket ve departman, zimmetleri ve dönem maliyetleri.','<button class="btn primary" data-act="open-emp">Personel ekle</button>','Henüz personel eklenmedi. Şirket ve departmanı tanımladıktan sonra buradan personel ekleyin.');
   const ayrilan=db.employees.filter(ayrildi).length;
-  const goster=state.perAyrilan?db.employees.slice():aktifPersonel();
+  const goster=state.perAyrilan?tumPersonel():aktifPersonel();
   return head('Personel','Çalışanlar, bağlı oldukları şirket ve departman, zimmetleri ve dönem maliyetleri. İşten ayrılanların kayıtları silinmez.',
     periodSel()+
     (ayrilan?'<button class="btn" data-act="per-ayrilan" aria-pressed="'+(!!state.perAyrilan)+'">Ayrılanları göster ('+ayrilan+')</button>':'')+
@@ -4282,7 +4282,7 @@ function openAsset(id){
     (pasifCihaz(a)?'<div class="ro-banner"><b>Bu cihaz envanterden çıkmış.</b><div class="sm">Çıkış tarihi: '+fmtDate(a.cikisTarihi)+(a.cikisNedeni?' · '+esc(a.cikisNedeni):'')+'</div>'+
       '<div class="sm">Kaydı, tamir masrafları ve zimmet geçmişi duruyor; listelerde görünmüyor.</div></div>':'')+
     '<p class="muted" style="margin-bottom:6px">'+esc(a.category)+(a.plaka?', '+esc(a.plaka):'')+(a.serial?', '+esc(a.serial):'')+', '+esc(coShort(a.companyId))+'</p>'+(a.note?'<p style="margin-bottom:6px">'+esc(a.note)+'</p>':'')+
-    (isFinans()?'<section class="dsec"><h3>Zimmet</h3><p style="margin-bottom:8px">'+(h?'Şu an <b>'+esc(h.name)+'</b> üzerinde ('+esc((dept(h.departmentId)||{}).name)+').':'Şu an kimseye zimmetli değil.')+'</p><div class="row"><select id="as-emp" aria-label="Personel">'+opt(db.employees.map(e=>[e.id,e.name]),a.holderId||'','Personel seçin')+'</select><button class="btn primary" data-act="assign" data-id="'+id+'">'+(h?'Devret':'Zimmetle')+'</button>'+(h?'<button class="btn" data-act="unassign" data-id="'+id+'">Zimmeti geri al</button>':'')+'</div></section>'+
+    (isFinans()?'<section class="dsec"><h3>Zimmet</h3><p style="margin-bottom:8px">'+(h?'Şu an <b>'+esc(h.name)+'</b> üzerinde ('+esc((dept(h.departmentId)||{}).name)+').':'Şu an kimseye zimmetli değil.')+'</p><div class="row"><select id="as-emp" aria-label="Personel">'+empSecim(a.holderId||'','Personel seçin')+'</select><button class="btn primary" data-act="assign" data-id="'+id+'">'+(h?'Devret':'Zimmetle')+'</button>'+(h?'<button class="btn" data-act="unassign" data-id="'+id+'">Zimmeti geri al</button>':'')+'</div></section>'+
     '<section class="dsec"><h3>Durum</h3><div class="row"><span>'+statusBadge(a.status)+'</span>'+(a.status==='Serviste'?'<button class="btn" data-act="from-service" data-id="'+id+'">Servisten teslim al</button>':'<button class="btn" data-act="to-service" data-id="'+id+'">Servise gönder</button>')+'</div></section>'+
     '<section class="dsec"><h3>Cihaz bilgileri</h3><div class="fields"><div class="field"><label for="i-cat">Kategori</label><input id="i-cat" list="dl-acat" type="text" value="'+esc(a.category)+'"></div><div class="field"><label for="i-model">Model</label><input id="i-model" type="text" value="'+esc(a.model)+'"></div>'+
     '<div class="field"><label for="i-serial">Seri no</label><input id="i-serial" type="text" value="'+esc(a.serial)+'"></div>'+
@@ -4625,7 +4625,11 @@ function saveEmp(){
 const ACCT_TYPES=[['kasa','Kasa'],['banka','Banka']];
 /* İşten ayrılan personel kaydı silinmez; yalnızca listelerden çıkar. */
 const ayrildi=e=>!!e&&!!e.cikisTarihi;
-const aktifPersonel=()=>db.employees.filter(e=>!ayrildi(e));
+/* Personel listeleri her yerde aynı düzende: önce departman, sonra ad.
+   filter yeni dizi döndürdüğü için sort db.employees'i bozmaz. */
+const aktifPersonel=()=>db.employees.filter(e=>!ayrildi(e)).sort(personelSirasi);
+/* Ayrılanlar dahil tam liste, aynı düzende */
+const tumPersonel=()=>db.employees.slice().sort(personelSirasi);
 /* Seçim listeleri: ayrılanlar gizlenir, ama seçili olan kayıt görünür
    kalır ki eski kayıtlar düzenlenirken kişi kaybolmasın. */
 
@@ -5061,7 +5065,7 @@ function ekipte(eid){
 }
 /* Hangi personeller adına kayıt girilebilir (satış, randevu, liste atama) */
 function adinaYazabilecekler(){
-  const hepsi=aktifPersonel().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  const hepsi=aktifPersonel();        /* zaten departman + ad sıralı */
   /* Satış destek birim ayrımı olmadan herkes adına kayıt girer */
   if(isUst()||isMuhasebe()||isDestek())return hepsi;
   /* Birim müdürü kendi birimini, takım lideri kendi telesatış ekibini kapsar */
