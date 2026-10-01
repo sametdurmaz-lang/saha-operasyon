@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-a';
+const SURUM='02.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -451,16 +451,17 @@ const VARSAYILAN_KATS=[
   {id:'donusum',name:'Randevu Dönüşüm',unit:'adet',kind:'donusum',sira:100,aktif:true}
 ];
 const KAT_TURLERI=[['puan','Puan — bu kategoriye etiketli ürünlerin satış puanı'],
+                   ['adet','Satış adedi — bu kategoriye etiketli ürünlerin satış adedi'],
                    ['tutar','Satış tutarı — bu kategoriye etiketli ürünlerin tutarı'],
                    ['randevu','Randevu adedi — alınan randevular sayılır'],
                    ['donusum','Randevu dönüşümü — satışa dönen randevular sayılır']];
-const KAT_BIRIM={puan:'puan',tutar:'₺',randevu:'adet',donusum:'adet'};
+const KAT_BIRIM={puan:'puan',adet:'adet',tutar:'₺',randevu:'adet',donusum:'adet'};
 let TUM_KATS=VARSAYILAN_KATS.slice();
 let HEDEF_KATS=VARSAYILAN_KATS.slice();
 function katlariKur(satirlar){
   const liste=(satirlar&&satirlar.length)
     ? satirlar.map(r=>({id:r.id,name:r.name,unit:r.unit||KAT_BIRIM[r.kind]||'',
-        kind:r.kind,sira:num(r.sira),aktif:r.aktif!==false}))
+        kind:r.kind,sira:num(r.sira),aktif:r.aktif!==false,kaynak:r.kaynak||''}))
     : VARSAYILAN_KATS.slice();
   liste.sort((a,b)=>(a.sira-b.sira)||a.name.localeCompare(b.name,'tr'));
   TUM_KATS=liste;
@@ -1902,8 +1903,16 @@ function realizedFor(empId,katId,period){
   const kat=hedefKat(katId);if(!kat)return 0;
   if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)).length;
   if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)&&isConverted(a.customerId,a.date)).length;
-  const rows=salesIn(period).filter(s=>s.employeeId===empId&&s.hedefKat===katId);
-  return kat.kind==='puan'?sum(rows.map(s=>({amount:s.puan}))):sum(rows.map(s=>({amount:s.amount||0})));
+  /* Kaynak doluysa o kategorinin satışları kullanılır. Bir ürün tek
+     kategoriye etiketlenebildiği için, aynı satıştan hem puan hem
+     adet hedefi çıkarmanın yolu bu. */
+  const kaynak=kat.kaynak||katId;
+  const rows=salesIn(period).filter(s=>s.employeeId===empId&&s.hedefKat===kaynak);
+  if(kat.kind==='puan')return sum(rows.map(s=>({amount:s.puan})));
+  /* Satış adedi: satırdaki adet toplanır. Mobilde hat sayısı,
+     DSL ve PSTN'de hizmet numarası sayısı bu alana yazılıyor. */
+  if(kat.kind==='adet')return sum(rows.map(s=>({amount:num(s.qty)})));
+  return sum(rows.map(s=>({amount:s.amount||0})));
 }
 function hedefCell(empId,kat,period){
   const t=getTarget(empId,kat.id);
@@ -2035,7 +2044,8 @@ function openHedefKats(){
   const satirlar=TUM_KATS.map(k=>{
     const u=katKullanim(k.id),bagli=u.hedef+u.urun+u.satis;
     return '<tr><td><div>'+esc(k.name)+'</div><div class="muted sm">'+esc(k.id)+'</div></td>'+
-      '<td>'+esc((KAT_TURLERI.find(t=>t[0]===k.kind)||['','?'])[1].split(' — ')[0])+'</td>'+
+      '<td>'+esc((KAT_TURLERI.find(t=>t[0]===k.kind)||['','?'])[1].split(' — ')[0])+
+        (k.kaynak?'<div class="muted sm">kaynak: '+esc((hedefKat(k.kaynak)||{}).name||k.kaynak)+'</div>':'')+'</td>'+
       '<td class="num">'+k.sira+'</td>'+
       '<td>'+(k.aktif?'<span class="badge ok">Aktif</span>':'<span class="badge">Pasif</span>')+'</td>'+
       '<td class="muted sm">'+(bagli?u.hedef+' hedef · '+u.urun+' ürün · '+u.satis+' satış':'kullanılmıyor')+'</td>'+
@@ -2067,6 +2077,11 @@ function openHedefKat(id){
       '<input id="hk-sira" type="number" step="1" value="'+(k?k.sira:sonSira)+'"></div>'+
     '<div class="field"><label for="hk-birim">Birim</label>'+
       '<input id="hk-birim" type="text" value="'+esc(k?k.unit:'puan')+'" placeholder="puan / ₺ / adet"></div>'+
+    '<div class="field full"><label for="hk-kaynak">Kaynak kategori</label><select id="hk-kaynak">'+
+      opt(TUM_KATS.filter(x=>x.id!==id&&!x.kaynak&&['puan','adet','tutar'].indexOf(x.kind)>=0)
+            .map(x=>[x.id,x.name]),(k&&k.kaynak)||'','Kendi etiketli ürünleri')+'</select>'+
+      '<p class="hint" style="margin-top:4px">Bir ürün tek kategoriye etiketlenebilir. Aynı satışlardan ikinci bir hedef çıkarmak için '+
+      'kaynak seçin: örneğin “Mobil Hat Adedi” kategorisi, türü <b>Satış adedi</b> ve kaynağı <b>Mobil Puan</b> olarak kurulur.</p></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400">'+
       '<input id="hk-aktif" type="checkbox" style="width:auto"'+(!k||k.aktif?' checked':'')+'> Aktif (hedef tablosunda görünsün)</label></div>'+
     '</div>'+
@@ -2086,7 +2101,10 @@ function saveHedefKat(){
   const aktif=!!$('#hk-aktif').checked;
   if(!ad)return err('Kategori adını girin.');
   if(TUM_KATS.some(k=>k.id!==id&&same(k.name,ad)))return err('Bu adla bir kategori zaten var.');
-  const row={name:ad,unit:birim,kind:tur,sira,aktif};
+  const kaynak=(($('#hk-kaynak')||{}).value)||null;
+  if(kaynak&&['randevu','donusum'].indexOf(tur)>=0)
+    return err('Randevu ve dönüşüm türleri satıştan hesaplanmaz; kaynak kategori seçilemez.');
+  const row={name:ad,unit:birim,kind:tur,sira,aktif,kaynak};
   run('hk-err',async()=>{
     if(id)await upd('hedef_kat',id,row);
     else{
@@ -4759,6 +4777,17 @@ function relink(changed){
 }
 function dialogChange(el){
   const id=el.id,k=dlgState.kind;
+  if(k==='hedefkat'&&id==='hk-tur'){
+    /* Birim türe göre kendiliğinden dolsun; kullanıcı yine de
+       değiştirebilir. Randevu ve dönüşüm satıştan hesaplanmadığı
+       için kaynak seçimi kapanır. */
+    const b=$('#hk-birim');if(b)b.value=KAT_BIRIM[el.value]||b.value;
+    const ks=$('#hk-kaynak');
+    if(ks){const satis=['puan','adet','tutar'].indexOf(el.value)>=0;
+      if(!satis)ks.value='';
+      ks.disabled=!satis;}
+    return;
+  }
   if(k==='lead'){
     if(id==='l-il'){const w=$('#l-ilce');if(w)w.innerHTML=ilceOptions(el.value,'');return;}
     return;
