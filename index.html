@@ -164,6 +164,10 @@ textarea{resize:vertical}
 .kpis{display:flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-bottom:16px}
 .kpi{flex:1 1 170px;padding:12px 16px;border-right:1px solid var(--line)}
 .kpi:last-child{border-right:0}
+button.kpi{font:inherit;text-align:left;background:none;cursor:pointer;border-top:0;border-bottom:0;border-left:0}
+button.kpi:hover{background:var(--surface-2,#f3f5f8)}
+button.kpi[aria-pressed="true"]{background:var(--surface-2,#eef2f7);box-shadow:inset 0 -3px 0 var(--brand,#c0431a)}
+button.kpi span{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
 .kpi span{display:block;color:var(--muted);font-size:12.5px}
 .kpi b{font-family:'Space Grotesk','IBM Plex Sans',sans-serif;font-size:26px;font-weight:600;letter-spacing:-.02em;line-height:1.15}
 
@@ -308,7 +312,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-z';
+const SURUM='03.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2696,9 +2700,11 @@ function apptCustomer(a){return byId(db.customers,a.customerId);}
 function apptTable(){
   const f=state.rand,q=f.q.trim().toLocaleLowerCase('tr');
   let list=db.appointments.slice();
-  if(f.status)list=list.filter(a=>a.status===f.status);
+  const od=RAND_ODAK[f.odak];
+  if(od)list=list.filter(od.f);
+  else if(f.status)list=list.filter(a=>a.status===f.status);
   if(f.emp)list=list.filter(a=>a.employeeId===f.emp||alanOf(a)===f.emp);
-  if(state.period!=='all')list=list.filter(a=>inPeriod(a,state.period));
+  if(state.period!=='all'&&!(od&&od.donemsiz))list=list.filter(a=>inPeriod(a,state.period));
   if(q)list=list.filter(a=>{const c=apptCustomer(a),al=emp(alanOf(a));
     return [c?c.unvan:'',c?c.yetkili:'',c?c.operator:'',a.desc,al?al.name:''].join(' ').toLocaleLowerCase('tr').includes(q);});
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
@@ -2837,12 +2843,32 @@ function viewRandevu(){
   return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+havuzBtn(10)+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   (function(){const by=beyanAcik(state.period);
     return by.length?'<div class="ro-banner"><b>'+by.length+' randevu “satış yapıldı” diye kapatıldı ama sisteme satış girilmedi.</b> Bunlar hedefe ve dönüşüm oranına sayılmaz. Listede <span class="badge warn">Satış beyanı</span> etiketiyle görünürler.</div>':'';})()+
-  '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bugün alınan randevu</span><b>'+bugunAlinan().length+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div><div class="kpi"><span>Satış beyanı, kaydı yok</span><b class="'+(beyanAcik(state.period).length?'out':'')+'">'+beyanAcik(state.period).length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div></div>'+
+  (function(){
+    /* Her kutu listeyi kendi ölçütüne odaklar; tekrar tıklayınca kalkar */
+    const kutu=(k,etiket,deger,sinif)=>
+      '<button type="button" class="kpi" data-act="rand-odak" data-v="'+k+'"'+
+      ' aria-pressed="'+(f.odak===k)+'" title="'+esc(etiket)+' kayıtlarını listele">'+
+      '<span>'+esc(etiket)+'</span><b'+(sinif?' class="'+sinif+'"':'')+'>'+deger+'</b></button>';
+    const beyan=beyanAcik(state.period).length;
+    return '<div class="kpis">'+
+      kutu('acik','Açık randevu',totalOpen)+
+      kutu('bugun','Bugün alınan randevu',bugunAlinan().length)+
+      kutu('donem','Bu dönem randevu',gecerliList.length)+
+      kutu('kapanan','Bu dönem kapanan',gecerliList.filter(a=>a.status==='Kapandı').length)+
+      kutu('satisa','Satışa dönen',convCount)+
+      kutu('beyan','Satış beyanı, kaydı yok',beyan,beyan?'out':'')+
+      kutu('iptal','İptal edilen',iptalSayi)+
+    '</div>';})()+
   '<div class="stack">'+ekipTabloBolumu()+atamaBolumu()+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
-  '<section class="panel"><div class="panel-h"><input id="rq" type="search" placeholder="Müşteri veya açıklama ara" value="'+esc(f.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
+  '<section class="panel"><div class="panel-h">'+
+    (RAND_ODAK[f.odak]
+      ?'<span class="badge warn">'+esc(RAND_ODAK[f.odak].ad)+'</span>'+
+       '<button class="btn sm" data-act="rand-odak" data-v="">Filtreyi kaldır</button>'
+      :'')+
+    '<input id="rq" type="search" placeholder="Müşteri veya açıklama ara" value="'+esc(f.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
     '<select data-set="rand.status" aria-label="Durum">'+opt([['Açık','Açık'],['Kapandı','Kapandı'],['İptal','İptal']],f.status,'Tüm durumlar')+'</select>'+
     '<select data-set="rand.emp" aria-label="Personel">'+empSecim(f.emp,'Tüm personel')+'</select></div></div><div id="randlist">'+apptTable()+'</div></section></div>';
 }
@@ -3016,6 +3042,19 @@ function sonucRozet(a){
 }
 /* Beyan edilmiş ama satış kaydı girilmemiş randevular */
 const beyanAcik=p=>db.appointments.filter(a=>satisBeyani(a)&&(p==='all'||inPeriod(a,p)));
+/* Randevular ekranındaki sayı kutuları tıklanabilir. Her kutu listeyi
+   kendi ölçütüne odaklar. donemsiz=true olanlar dönem seçiminden
+   bağımsız sayılır; kutudaki rakamla liste birebir aynı olsun diye
+   listede de dönem süzgeci uygulanmaz. */
+const RAND_ODAK={
+  acik   :{ad:'Açık randevu',           donemsiz:true, f:a=>a.status==='Açık'},
+  bugun  :{ad:'Bugün alınan randevu',   donemsiz:true, f:a=>!iptalMi(a)&&yerelGun(a.createdAt)===TODAY},
+  donem  :{ad:'Bu dönem randevu',       f:a=>!iptalMi(a)},
+  kapanan:{ad:'Bu dönem kapanan',       f:a=>!iptalMi(a)&&a.status==='Kapandı'},
+  satisa :{ad:'Satışa dönen',           f:a=>!iptalMi(a)&&isConverted(a.customerId,a.date)},
+  beyan  :{ad:'Satış beyanı, kaydı yok',f:a=>satisBeyani(a)},
+  iptal  :{ad:'İptal edilen',           f:a=>iptalMi(a)}
+};
 /* Seçilen sonuca göre pencerenin alt kısmı değişir */
 function kapatAlanlari(k){
   const s=sonucBilgi(k);
@@ -5719,6 +5758,11 @@ const actions={
   },
   satgroup(el){state.sat.group=el.dataset.v;render();},
   'gp-kirilim'(el){state.gpKirilim=el.dataset.v;render();},
+  'rand-odak'(el){const v=el.dataset.v||'';
+    state.rand.odak=(state.rand.odak===v)?'':v;      /* tekrar tıklayınca kalkar */
+    if(state.rand.odak)state.rand.status='';          /* durum süzgeciyle çakışmasın */
+    render();
+    const box=$('#randlist');if(box&&box.scrollIntoView)box.scrollIntoView({block:'start',behavior:'smooth'});},
   'open-hedefkats'(){openHedefKats();},
   'open-hedefkat'(el){openHedefKat(el.dataset.id||null);},
   'save-hedefkat'(){saveHedefKat();},
@@ -5783,7 +5827,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
