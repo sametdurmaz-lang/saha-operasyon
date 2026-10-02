@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-m';
+const SURUM='02.10.2026-n';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3252,7 +3252,7 @@ function gelirMaliyetRows(period){
   }).filter(r=>r.gelir||r.maliyet||r.satis).sort((a,b)=>b.gelir-a.gelir);
 }
 function gelirMaliyetBolumu(){
-  if(!gelirGor())return '';     /* gelir yalnızca master ve muhasebede */
+  if(!gelirRaporGor())return '';   /* kişi bazlı gelir dökümü yalnızca master'da */
   const p=state.period,rows=gelirMaliyetRows(p);
   if(!rows.length)return '';
   const fin=isFinans();
@@ -3313,7 +3313,7 @@ function viewRapor(){
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
   '<div class="panel-b"><div class="tools">'+
-    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+(gelirGor()?xlBtn('gelir','Personel geliri'):'')+xlBtn('hepsi','Hepsi')+
+    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+(gelirRaporGor()?xlBtn('gelir','Personel geliri'):'')+xlBtn('hepsi','Hepsi')+
   '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. '+
     (isUst()||isMuhasebe()
       ?'Tüm kayıtlar aktarılır.'
@@ -3432,7 +3432,7 @@ function exportExcel(which){
     XLSX.utils.book_append_sheet(wb,sheetOf(denetimExportRows(),[0],[18,26,16,12,18,28,14,60]),'Hareket kaydı');
     ad='hareket-kaydi';
   }
-  if((which==='gelir'||which==='hepsi')&&gelirGor()){
+  if((which==='gelir'||which==='hepsi')&&gelirRaporGor()){
     XLSX.utils.book_append_sheet(wb,sheetOf(gelirExportRows(),[],[26,18,10,16,14,14,14,14,14]),'Personel geliri');
     if(which==='gelir')ad='personel-geliri';
   }
@@ -5194,8 +5194,12 @@ function adinaYazabilecekler(){
    Birim müdüründen gizlemek istenirse: const primGor=()=>!isBirim(); */
 const primGor=()=>true;
 /* Gelir, şirketin operatörden aldığı hakediştir; satış ekibini
-   ilgilendirmez. Yalnızca master ve muhasebe görür. */
+   ilgilendirmez. Ürün ve satır bazında master ile muhasebe görür —
+   muhasebe ürünlerin gelir ayarlarını yönettiği için gerekli. */
 const gelirGor=()=>isFinans();
+/* Personel bazında gelir dökümü daha hassas: kimin ne kazandırdığını
+   kişi kişi gösterir. Yalnızca master görür. */
+const gelirRaporGor=()=>isMaster();
 const isSahip=()=>isMaster();
 const isAdmin=()=>isUst();
 /* Yalnızca yönetimin göreceği ekranlar */
