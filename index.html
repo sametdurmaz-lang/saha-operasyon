@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-n';
+const SURUM='02.10.2026-p';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2666,6 +2666,49 @@ function apptStatsRows(period){
       iptal:all.filter(iptalMi).length};
   }).filter(r=>r.total||r.iptal).sort((a,b)=>b.total-a.total);
 }
+/* ---------- Telesatış ekip tablosu ----------
+   Telesatışçı arkadaşlarının randevu ve hat adedini görsün diye.
+   Sunucudan YALNIZCA toplam geliyor: ad, randevu adedi, hat adedi.
+   Müşteri bilgisi hiç inmiyor, satır yetkisi gevşetilmiyor. */
+let _ekipTablo=null,_ekipDonem=null,_ekipIsi=false;
+function donemAraligi(p){
+  if(p==='all')return [null,null];
+  const [y,a]=p.split('-').map(Number);
+  const son=new Date(y,a,0).getDate();
+  return [p+'-01',p+'-'+String(son).padStart(2,'0')];
+}
+async function ekipTabloGetir(){
+  const p=state.period;
+  if(_ekipIsi||_ekipDonem===p)return;
+  _ekipIsi=true;
+  const [bas,bit]=donemAraligi(p);
+  try{
+    const r=await sb.rpc('telesatis_tablosu',{p_bas:bas,p_bit:bit});
+    _ekipTablo=r.error?[]:(r.data||[]);
+    _ekipDonem=p;
+  }catch(e){_ekipTablo=[];_ekipDonem=p;}
+  finally{_ekipIsi=false;}
+  if(state&&state.view==='randevu')render();
+}
+function ekipTabloBolumu(){
+  if(!isTelesatis())return '';          /* lider zaten hepsini görüyor */
+  if(_ekipDonem!==state.period){ekipTabloGetir();
+    return '<section class="panel"><div class="panel-h"><h2>Telesatış ekibi</h2></div>'+
+      '<div class="panel-b"><p class="muted">Yükleniyor…</p></div></section>';}
+  const liste=_ekipTablo||[];
+  if(!liste.length)return '';
+  const tHat=liste.reduce((t,r)=>t+num(r.hat),0),tRnd=liste.reduce((t,r)=>t+num(r.randevu),0);
+  return '<section class="panel"><div class="panel-h"><div><h2>Telesatış ekibi</h2>'+
+    '<p class="muted sm">Ekip arkadaşlarınızın randevu ve hat adedi. Ayrıntılar yalnızca randevuyu alan kişide ve takım liderinde görünür.</p></div>'+
+    '<span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Randevu</th><th class="num">Hat adedi</th></tr></thead><tbody>'+
+    '<tr class="total-top"><td>Ekip toplamı</td><td class="num">'+tRnd+'</td><td class="num">'+tHat+'</td></tr>'+
+    liste.map(r=>'<tr'+(r.kendisi?' class="in"':'')+'><td>'+esc(r.personel)+
+      (r.kendisi?' <span class="badge">Siz</span>':'')+'</td>'+
+      '<td class="num">'+num(r.randevu)+'</td>'+
+      '<td class="num"><b>'+num(r.hat)+'</b></td></tr>').join('')+
+    '</tbody></table></div></section>';
+}
 function viewRandevu(){
   const f=state.rand,rows=apptStatsRows(state.period),bm=bayiMuduru();
   const totalOpen=db.appointments.filter(a=>a.status==='Açık').length;
@@ -2677,7 +2720,7 @@ function viewRandevu(){
   (function(){const by=beyanAcik(state.period);
     return by.length?'<div class="ro-banner"><b>'+by.length+' randevu “satış yapıldı” diye kapatıldı ama sisteme satış girilmedi.</b> Bunlar hedefe ve dönüşüm oranına sayılmaz. Listede <span class="badge warn">Satış beyanı</span> etiketiyle görünürler.</div>':'';})()+
   '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div><div class="kpi"><span>Satış beyanı, kaydı yok</span><b class="'+(beyanAcik(state.period).length?'out':'')+'">'+beyanAcik(state.period).length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div></div>'+
-  '<div class="stack">'+atamaBolumu()+
+  '<div class="stack">'+ekipTabloBolumu()+atamaBolumu()+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
