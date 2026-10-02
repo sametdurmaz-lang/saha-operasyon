@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-r';
+const SURUM='02.10.2026-s';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -943,7 +943,7 @@ function viewOzetBirim(){
       esc([(bi?bi.name:''),((dept(e.departmentId)||{}).name||'')].filter(Boolean).join(' · '))+'</div></td>'+
       '<td class="num">'+acik+'</td><td class="num">'+rnd.length+'</td>'+
       '<td class="num">'+my.length+'</td><td class="num"><b>'+nf.format(my.reduce((a,x)=>a+x.puan,0))+'</b></td>'+
-      '<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td></tr>';
+      (primGor()?'<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td>':'')+'</tr>';
   }).join('');
   return head('Genel bakış',
     hepsi?'Tüm birimlerin hedefleri, randevuları ve performansı.'
@@ -954,7 +954,7 @@ function viewOzetBirim(){
     '<div class="kpi"><span>Bu dönem randevu</span><b>'+k.donem+'</b></div>'+
     '<div class="kpi"><span>Satışa dönen</span><b>'+k.satisaDonen+'</b></div>'+
     '<div class="kpi"><span>Dönem puanı</span><b>'+nf.format(k.puan)+'</b></div>'+
-    '<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>'+
+    (primGor()?'<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>':'')+
   '</div>'+
   '<div class="stack">'+
   (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)),p):'')+
@@ -965,7 +965,7 @@ function viewOzetBirim(){
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
        '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
-       '<th class="num">Prim</th></tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
+       (primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
     :'<div class="empty">Biriminize bağlı saha satış personeli bulunamadı. Yöneticinizden personelin birim ve departman atamasını kontrol etmesini isteyin.</div>')+
   (hepsi?'':digerBirimler(p,bid))+
   '</div>';
@@ -1742,7 +1742,9 @@ function lineHtml(L,i){
       :'')+
     (upcellMi(p)
       ?(function(){const tl=tarifeler().slice().sort((a,b)=>(a.prim||0)-(b.prim||0));
-          const ops=tl.map(x=>[x.id,x.name+' — '+money(x.prim||0)]);
+          /* Tarifenin yanındaki tutar operatör hakedişidir; prim
+             görmeyen kullanıcıya gösterilmez. */
+          const ops=tl.map(x=>[x.id,x.name+(primGor()?' — '+money(x.prim||0):'')]);
           return '<div class="field"><label for="sle-'+L.id+'">Eski tarife</label><select id="sle-'+L.id+'">'+
             opt(ops,L.eski||'','Eski tarifeyi seçin')+'</select></div>'+
             '<div class="field"><label for="sly-'+L.id+'">Yeni tarife</label><select id="sly-'+L.id+'">'+
@@ -1772,7 +1774,7 @@ function lineSummary(L){
     if(!c.g)return 'GB paketini seçin.';
     if(!c.qty)return 'Telefon numarasını girin.';
     return c.qty+' hat · baz '+money(c.bazPrim)+' × '+nf.format(c.carpan)+' ('+(c.p&&L.tip?L.tip:'BASE')+')'+
-      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+      ' → '+nf.format(c.puan)+' puan'+(primGor()?', '+money(c.prim)+' prim':'')+
       (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
   }
   if(c.upcell){
@@ -1780,10 +1782,11 @@ function lineSummary(L){
     if(c.fark<=0)return 'Yeni tarife eskisinden yüksek olmalı. Seçilen fark: '+money(c.fark)+'.';
     if(!c.qty)return 'Adet girin veya hizmet numarası yazın.';
     return c.eski.name+' → '+c.yeni.name+' · fark '+money(c.fark)+' × '+c.qty+' adet = '+money(c.amount)+
-      ' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+      ' → '+nf.format(c.puan)+' puan'+(primGor()?', '+money(c.prim)+' prim':'')+
       (gelirGor()?', '+money(c.gelir)+' gelir':'');
   }
-  return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan, '+money(c.prim)+' prim'+
+  return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan'+
+    (primGor()?', '+money(c.prim)+' prim':'')+
     (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
 }
 function updateLinePreview(lid){
@@ -1801,7 +1804,7 @@ function updateSaleTotals(){
   const box=$('#sl-total');if(!box)return;
   let qty=0,prim=0,puan=0,n=0,ab=0;
   (dlgState.lines||[]).forEach(L=>{const c=lineCalc(L);if(c.p){n++;qty+=c.qty;prim+=c.prim;puan+=c.puan;ab+=parseSerials(L.abone).length;}});
-  box.textContent=n?(n+' ürün, '+qty+' adet'+(ab?', '+ab+' abone no':'')+' · toplam '+nf.format(puan)+' puan, '+money(prim)+' prim')
+  box.textContent=n?(n+' ürün, '+qty+' adet'+(ab?', '+ab+' abone no':'')+' · toplam '+nf.format(puan)+' puan'+(primGor()?', '+money(prim)+' prim':''))
                    :'Ürünleri seçtikçe toplam burada görünür.';
 }
 function openSale(){
@@ -1958,14 +1961,18 @@ function saveSale(){
           text:'Satış: '+customer+' ('+e.name+')'})));
       }
     }
-  },hazir.length+' ürün kaydedildi: '+nf.format(tPuan)+' puan, '+money(tPrim)+' prim'+
+  },hazir.length+' ürün kaydedildi: '+nf.format(tPuan)+' puan'+(primGor()?', '+money(tPrim)+' prim':'')+
     (tUnit?', '+tUnit+' adet stoktan düştü':'')+(tAbone?', '+tAbone+' abone no':''));
 }
 function openSaleDetail(id){
   const s=byId(db.sales,id);if(!s)return;const p=byId(db.products,s.productId),e=emp(s.employeeId),kat=hedefKat(s.hedefKat);dlgState={kind:'saledetail',id};
   const serials=s.items.map(it=>{const u=byId(db.stock,it.unitId);return u?u.serial:'';}).filter(Boolean);
   const kardes=s.batchId?db.sales.filter(x=>x.batchId===s.batchId&&x.id!==s.id):[];
-  const rateLine=s.calcType==='yuzde'?('Satış tutarının %'+nf.format(s.unitPrim)+'’i prim, %'+nf.format(s.unitPuan)+'’i puan'):('Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim));
+  const rateLine=s.calcType==='yuzde'
+    ?(primGor()?'Satış tutarının %'+nf.format(s.unitPrim)+'’i prim, %'+nf.format(s.unitPuan)+'’i puan'
+               :'Satış tutarının %'+nf.format(s.unitPuan)+'’i puan')
+    :(primGor()?'Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim)
+               :'Adet başına '+nf.format(s.unitPuan)+' puan');
   const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
   openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd>'+
     (s.upcellYeni?'<dt>Tarife yükseltme</dt><dd>'+
@@ -1974,12 +1981,12 @@ function openSaleDetail(id){
       (s.qty>1?' · '+s.qty+' hizmet':'')+'</dd>':'')+
     '<dt>Satışı yapan</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
     (s.amount?'<dt>Satış tutarı</dt><dd>'+money(s.amount)+'</dd>':'')+
-    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd><dt>Toplam prim</dt><dd>'+(primGor()?money(s.prim):'—')+'</dd></dl>'+
+    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd>'+(primGor()?'<dt>Toplam prim</dt><dd>'+money(s.prim)+'</dd>':'')+'</dl>'+
     ((s.abone&&s.abone.length)?'<section class="dsec"><h3>Abone / hizmet numaraları</h3><div>'+
       s.abone.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+'</div></section>':'')+
     (kardes.length?'<section class="dsec"><h3>Aynı satıştaki diğer ürünler</h3><ul class="log">'+
       kardes.map(k=>'<li><span class="muted">'+esc(prodLabel(byId(db.products,k.productId)))+'</span><span>'+
-        k.qty+' adet, '+nf.format(k.puan)+' puan, '+money(k.prim)+' prim'+
+        k.qty+' adet, '+nf.format(k.puan)+' puan'+(primGor()?', '+money(k.prim)+' prim':'')+
         ((k.abone&&k.abone.length)?' · '+esc(k.abone.join(', ')):'')+'</span></li>').join('')+
       '</ul><p class="hint">Bu satırı iptal etmek diğer ürünleri etkilemez.</p></section>':'')+
     (serials.length?'<section class="dsec"><h3>Satılan seri numaraları</h3><ul class="log">'+serials.map(x=>'<li><span></span><span>'+esc(x)+'</span></li>').join('')+'</ul></section>':'')+
@@ -5242,9 +5249,9 @@ function adinaYazabilecekler(){
   /* Telesatış ve saha yalnızca kendi adına kayıt girer */
   return hepsi.filter(e=>e.id===me.employeeId);
 }
-/* Prim tutarlarının görünürlüğü. Şu an tüm rollere açık.
-   Birim müdüründen gizlemek istenirse: const primGor=()=>!isBirim(); */
-const primGor=()=>true;
+/* Prim tutarları yalnızca bayi müdürü, muhasebe ve master'da görünür.
+   isUst() master ile bayi müdürünü kapsar. */
+const primGor=()=>isUst()||isMuhasebe();
 /* Gelir, şirketin operatörden aldığı hakediştir; satış ekibini
    ilgilendirmez. Ürün ve satır bazında master ile muhasebe görür —
    muhasebe ürünlerin gelir ayarlarını yönettiği için gerekli. */
