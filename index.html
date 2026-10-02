@@ -312,7 +312,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='03.10.2026-c';
+const SURUM='03.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4797,6 +4797,22 @@ function saveAssetInfo(id){
     await ins('asset_logs',{asset_id:id,date:TODAY,text:'Cihaz bilgileri güncellendi'});
   },'Cihaz bilgileri kaydedildi',()=>openAsset(id));
 }
+/* Gelir alanının etiketi ve sınırları seçilen gelir hesabına göre
+   değişir. Önceden yalnızca "Gelir" yazıyordu; yüzde mi, kat mı
+   yazılacağı belli olmuyordu. */
+function prodGelirField(v){
+  const t=v.gelirTip||'sabit',deger=(v.gelir==null?'':v.gelir);
+  const etiket=t==='yuzde'?'Gelir (satış tutarının %\u2019si)'
+             : t==='kat' ?'Gelir (satış tutarının kaç katı)'
+                         :'Gelir (\u20ba / adet)';
+  const ornek=t==='yuzde'?'Örn. 20 yazarsanız 1.000 \u20ba tutarlı satış 200 \u20ba gelir yazar.'
+            : t==='kat' ?'Örn. 12 yazarsanız 1.000 \u20ba tutarlı satış 12.000 \u20ba gelir yazar.'
+                        :'Satış tutarından bağımsız, her adet için sabit tutar.';
+  return '<div class="field"><label for="pr-gelir">'+etiket+'</label>'+
+    '<input id="pr-gelir" type="number" min="0"'+(t==='yuzde'?' max="100"':'')+
+    ' step="0.01" inputmode="decimal" value="'+esc(deger)+'" placeholder="0">'+
+    '<p class="hint" style="margin-top:4px">'+ornek+'</p></div>';
+}
 function prodCalcFields(v){
   if(v.calcType==='yuzde')return '<div class="field"><label for="pr-primpct">Satış primi (satış tutarının %’si)</label><input id="pr-primpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.primPct==null?'':v.primPct)+'" placeholder="0"></div>'+
     '<div class="field"><label for="pr-puanpct">Satış puanı (satış tutarının %’si)</label><input id="pr-puanpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.puanPct==null?'':v.puanPct)+'" placeholder="0"></div>';
@@ -4815,7 +4831,7 @@ function openProd(id,pre){
               ? [{...hedefKat(v.hedefKat),name:hedefKat(v.hedefKat).name+' (pasif)'}] : []
           ).map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
     '<div class="field"><label for="pr-gelirtip">Gelir hesabı</label><select id="pr-gelirtip">'+opt(GELIR_TIP,v.gelirTip||'sabit')+'</select></div>'+
-    '<div class="field"><label for="pr-gelir">Gelir</label><input id="pr-gelir" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.gelir||0)+'" placeholder="0"></div>'+
+    '<div id="pr-gelirwrap" style="display:contents">'+prodGelirField(v)+'</div>'+
     '<div class="field full"><label for="pr-mobil">Satırdaki özel rol</label><select id="pr-mobil">'+
       opt([['dakika','Mobil hat — dakika (tarife) paketi'],['gb','Mobil hat — GB paketi'],
            ['tarife','PSTN tarifesi — prim alanına operatör hakedişini yazın'],
@@ -4848,6 +4864,7 @@ function saveProd(next){
   const gelirTip=$('#pr-gelirtip')?$('#pr-gelirtip').value:'sabit';
   const gelirV=parseFloat(String(($('#pr-gelir')||{}).value||'0').replace(',','.'))||0;
   if(gelirV<0)return err('Gelir negatif olamaz.');
+  if(gelirTip==='yuzde'&&gelirV>100)return err('Gelir yüzdesi 100\u2019den büyük olamaz. Satış tutarının üstünde gelir için \u201cSatış tutarının katı\u201d seçin.');
   const row={category:cat,brand,name,stocked,hedef_kat:hedefKatV,calc_type:calcType,
              prim,puan,prim_pct:primPct,puan_pct:puanPct,mobil_tip:nz(mobilTip),
              gelir:gelirV,gelir_tip:gelirTip};
@@ -5286,7 +5303,15 @@ function dialogChange(el){
     }
     return;
   }
-  if(k==='prod'){if(id==='pr-calc')$('#pr-calcwrap').innerHTML=prodCalcFields({calcType:el.value,prim:0,puan:0,primPct:0,puanPct:0});return;}
+  if(k==='prod'){
+    if(id==='pr-calc')$('#pr-calcwrap').innerHTML=prodCalcFields({calcType:el.value,prim:0,puan:0,primPct:0,puanPct:0});
+    else if(id==='pr-gelirtip'){
+      /* Yazılmış değeri koru; yalnızca etiket ve sınırlar değişsin */
+      const g=$('#pr-gelir'),mevcut=g?g.value:'';
+      $('#pr-gelirwrap').innerHTML=prodGelirField({gelirTip:el.value,gelir:mevcut});
+    }
+    return;
+  }
   if(k==='target'){if(id==='tg-exempt'){const v=$('#tg-val');if(v)v.disabled=el.checked;}return;}
   if(k==='cust'){
     if(id==='c-il'){const w=$('#c-ilce');if(w)w.innerHTML=ilceOptions(el.value,'');return;}
