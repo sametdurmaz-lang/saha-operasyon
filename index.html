@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-y';
+const SURUM='02.10.2026-z';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -992,17 +992,24 @@ function viewOzet(){
   const bars=groups.length?groups.map(g=>'<button class="bar-row" data-act="drill" data-dim="'+state.dim+'" data-key="'+esc(g.key||'__none')+'"><span>'+esc(g.label)+'</span><span class="bar-track"><span class="bar-fill'+(g.key?'':' none')+'" style="width:'+Math.max(2,g.total/max*100)+'%"></span></span><span class="bar-val">'+money(g.total)+'<small>%'+pct(g.total,tE)+'</small></span></button>').join(''):'<div class="empty">Bu dönemde gider kaydı yok.</div>';
   const accRows=db.accounts.map(a=>{const b=balance(a.id);return '<tr><td>'+esc(a.name)+'<div class="muted sm">'+esc(coShort(a.companyId))+'</div></td><td class="num '+(b<0?'out':'')+'"><b>'+money(b)+'</b></td></tr>';}).join('');
   const att=attention();
-  return head('Genel bakış','Kasa, banka ve giderlerin şirket, departman ve personel kırılımında özeti.',periodSel())+
-  '<div class="stack">'+setupPanel()+'<div class="grid2">'+
+  return head('Genel bakış',
+    isMaster()?'Personel ve birim bazında gelir ile prim, günlük ve aylık. Altında gider dağılımı ve randevu özeti.'
+              :'Kasa, banka ve giderlerin şirket, departman ve personel kırılımında özeti.',periodSel())+
+  '<div class="stack">'+setupPanel()+
+  /* Master'ın ana sayfasında en üstte gelir ve prim tablosu durur.
+     Kasa bakiyeleri ve dönem özeti master'da gösterilmez; ikisi de
+     Kasa ve banka ekranında zaten var. Muhasebede olduğu gibi kalır. */
+  gelirPrimPanel()+
+  (isMaster()?'':'<div class="grid2">'+
     '<section class="panel"><div class="panel-h"><h2>Kasa ve banka bakiyeleri</h2></div><table class="plain"><tbody>'+accRows+'<tr class="total"><td>Toplam</td><td class="num">'+money(totBal)+'</td></tr></tbody></table></section>'+
     '<section class="panel"><div class="panel-h"><h2>Dönem özeti</h2><span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div><table class="plain"><tbody>'+
       '<tr><td>Gelir</td><td class="num in"><b>'+money(tI)+'</b></td></tr><tr><td>Gider</td><td class="num out"><b>'+money(tE)+'</b></td></tr><tr class="total"><td>Net</td><td class="num '+(tI-tE<0?'out':'in')+'">'+money(tI-tE)+'</td></tr></tbody></table>'+
       '<div class="meter-row"><div><span>Departmana bağlı gider</span><b>%'+pct(linkedD,tE)+'</b></div><div class="meter"><span style="width:'+pct(linkedD,tE)+'%"></span></div></div>'+
       '<div class="meter-row"><div><span>Personele bağlı gider</span><b>%'+pct(linkedE,tE)+'</b></div><div class="meter"><span style="width:'+pct(linkedE,tE)+'%"></span></div></div>'+
-    '</section></div>'+
+    '</section></div>')+
     '<section class="panel"><div class="panel-h"><div><h2>Maliyet dağılımı</h2><p class="muted sm">Bir satıra tıklayın, o kırılımın gider detayı açılsın.</p></div><div class="seg" role="group" aria-label="Kırılım">'+dims.map(([k,l])=>'<button data-act="dim" data-v="'+k+'" aria-pressed="'+(state.dim===k)+'">'+l+'</button>').join('')+'</div></div><div class="panel-b">'+bars+'<p class="hint">Çizgili çubuk, henüz bu kırılıma bağlanmamış giderleri gösterir.</p></div></section>'+
     '<section class="panel"><div class="panel-h"><h2>Dikkat gerektirenler</h2></div>'+(att.length?att.map(a=>'<div class="att"><span class="dot '+(a.tone||'')+'"></span><div><b>'+esc(a.title)+'</b><div class="muted sm">'+esc(a.detail)+'</div></div><button class="btn sm" data-act="'+a.act+'" data-v="'+a.v+'">'+esc(a.btn)+'</button></div>').join(''):'<div class="empty">Şu an bekleyen bir konu yok.</div>')+'</section>'+
-    gelirPrimPanel()+ozetRandevuPanel()+'</div>';
+    ozetRandevuPanel()+'</div>';
 }
 /* ---------- Gelir ve prim: günlük ve aylık yan yana ----------
    Yalnızca master. Kişi bazlı gelir dökümü hassas olduğu için
