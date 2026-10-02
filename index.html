@@ -312,7 +312,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='03.10.2026-a';
+const SURUM='03.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -375,7 +375,8 @@ function yeniSurumUyar(){
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
-const CAT_OUT=['Maaş','Personel avansı','Yakıt','Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider'];
+const CAT_ENV='Envanter bakım';
+const CAT_OUT=['Maaş','Personel avansı','Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider'];
 const CAT_OUT_MANUAL=CAT_OUT.filter(c=>c!=='Maaş'&&c!=='Personel avansı');
 const IL_ILCE={
 "İstanbul":["Adalar","Arnavutköy","Ataşehir","Avcılar","Bağcılar","Bahçelievler","Bakırköy","Başakşehir","Bayrampaşa","Beşiktaş","Beykoz","Beylikdüzü","Beyoğlu","Büyükçekmece","Çatalca","Çekmeköy","Esenler","Esenyurt","Eyüpsultan","Fatih","Gaziosmanpaşa","Güngören","Kadıköy","Kağıthane","Kartal","Küçükçekmece","Maltepe","Pendik","Sancaktepe","Sarıyer","Silivri","Sultanbeyli","Sultangazi","Şile","Şişli","Tuzla","Ümraniye","Üsküdar","Zeytinburnu"],
@@ -805,6 +806,19 @@ function yerelGun(iso){
 const bugunAlinan=()=>db.appointments.filter(a=>!iptalMi(a)&&yerelGun(a.createdAt)===TODAY);
 const expenses=p=>db.transactions.filter(t=>t.dir==='out'&&t.source!=='virman'&&inPeriod(t,p));
 const incomes=p=>db.transactions.filter(t=>t.dir==='in'&&t.source!=='virman'&&inPeriod(t,p));
+/* ---------- Merkezi giderlerin saha personeline dağıtılması -------
+   Bir personele bağlanmamış her gider merkezi sayılır: kira, faturalar,
+   ofis giderleri, vergi ve zimmetli olmayan envanterin bakımı. Toplamı
+   saha personeline eşit bölünür ve karlılık tablosunda "Dağıtılan gider"
+   olarak görünür. Dağıtım hesaplanır, kasaya ayrı bir hareket yazılmaz;
+   böylece aynı tutar iki kez gider sayılmaz. */
+const merkeziGider=p=>expenses(p).filter(t=>!t.employeeId);
+/* Payı paylaşan personel: yalnızca aktif saha personeli */
+const dagitimKapsami=()=>aktifPersonel().filter(sahaPersoneliMi);
+function dagitimOzeti(p){
+  const toplam=sum(merkeziGider(p)),kisi=dagitimKapsami().length;
+  return {toplam,kisi,pay:kisi?toplam/kisi:0,adet:merkeziGider(p).length};
+}
 function monthsList(){
   const s=new Set(db.transactions.map(t=>t.date.slice(0,7)));
   db.sales.forEach(x=>x.date&&s.add(x.date.slice(0,7)));
@@ -1185,6 +1199,21 @@ function statusBadge(s){return '<span class="badge '+(s==='Kullanımda'?'ok':s==
 /* Envanterden çıkmış (satılan, hurda, kayıp) cihaz: kaydı durur, listelerde görünmez */
 const pasifCihaz=a=>!!a&&!!a.cikisTarihi;
 const aktifCihazlar=()=>db.assets.filter(a=>!pasifCihaz(a));
+/* Gider girişinde envanter seçimi. Zimmetliler önce, her biri
+   kiminle birlikte olduğunu yazar; zimmetsizler "Zimmetli değil"
+   etiketiyle en sonda, çünkü onların masrafı dağıtılan gidere gider. */
+function envanterSecenekleri(sel){
+  const satir=a=>{
+    const h=emp(a.holderId);
+    return [a.id,a.category+' – '+a.model+(a.serial?' ('+a.serial+')':'')+
+      ' – '+(h?h.name:'Zimmetli değil')];
+  };
+  const sirala=(x,y)=>(x.category+' '+x.model).localeCompare(y.category+' '+y.model,'tr',SAYISAL);
+  const hepsi=aktifCihazlar();
+  const z=hepsi.filter(a=>a.holderId).sort(sirala).map(satir);
+  const nz2=hepsi.filter(a=>!a.holderId).sort(sirala).map(satir);
+  return opt(z.concat(nz2),sel||'','Envanter kaydı seçin');
+}
 const pasifRozet=a=>pasifCihaz(a)?' <span class="badge bad">Pasif '+fmtDate(a.cikisTarihi)+'</span>':'';
 const CIKIS_NEDEN=['Satıldı','Hurdaya ayrıldı','Kayboldu','Çalındı','Kiralama bitti','Diğer'];
 const assetCats=()=>uniq(DEFAULT_ASSET_CATS.concat(db.assets.map(a=>a.category)));
@@ -3439,52 +3468,84 @@ function stokDegerBolumu(){
     '</section>';
 }
 function gelirMaliyetRows(period){
-  const ay=period!=='all';
+  const ay=period!=='all',fin=isFinans();
+  /* Dönemin gider hareketleri bir kez okunup personele göre gruplanır;
+     her personel için listeyi yeniden süzmek 50 kişide yavaştı.
+     source='tamir' olanlar zimmetli envanterin bakım masrafıdır,
+     ayrı sütunda gösterilir. */
+  const dog={},zim={};
+  if(fin)expenses(period).forEach(t=>{
+    if(!t.employeeId)return;
+    const h=(t.source==='tamir'||t.category===CAT_ENV)?zim:dog;
+    h[t.employeeId]=(h[t.employeeId]||0)+t.amount;
+  });
+  const dag=fin?dagitimOzeti(period):{pay:0};
+  const ss=salesIn(period);
   return aktifPersonel().map(e=>{
     const gelir=personelGelir(e.id,period);
-    const ss=salesIn(period).filter(x=>x.employeeId===e.id);
-    const rnd=salesIn(period).filter(x=>x.gelirAlanId===e.id);
-    const maas=isFinans()?(ay?(e.salary||0):0):0;
-    const gider=isFinans()?sum(expenses(period).filter(t=>t.employeeId===e.id)):0;
-    const maliyet=maas+gider;
-    return {e,gelir,maliyet,maas,gider,net:gelir-maliyet,
-            satis:ss.length,randevuKatkisi:rnd.length};
-  }).filter(r=>r.gelir||r.maliyet||r.satis).sort((a,b)=>b.gelir-a.gelir);
+    const maas=(fin&&ay)?(e.salary||0):0;
+    const gider=fin?(dog[e.id]||0):0;
+    const zimmet=fin?(zim[e.id]||0):0;
+    const dagitilan=(fin&&sahaPersoneliMi(e))?dag.pay:0;
+    const maliyet=maas+gider+zimmet+dagitilan;
+    return {e,gelir,maliyet,maas,gider,zimmet,dagitilan,net:gelir-maliyet,
+            satis:ss.filter(x=>x.employeeId===e.id).length,
+            randevuKatkisi:ss.filter(x=>x.gelirAlanId===e.id).length};
+  }).filter(r=>r.gelir||r.maliyet||r.satis).sort((a,b)=>b.net-a.net);
 }
 function gelirMaliyetBolumu(){
   if(!gelirRaporGor())return '';   /* kişi bazlı gelir dökümü yalnızca master'da */
   const p=state.period,rows=gelirMaliyetRows(p);
   if(!rows.length)return '';
   const fin=isFinans();
-  const t=rows.reduce((o,r)=>({gelir:o.gelir+r.gelir,maliyet:o.maliyet+r.maliyet,net:o.net+r.net}),
-    {gelir:0,maliyet:0,net:0});
+  const t=rows.reduce((o,r)=>({gelir:o.gelir+r.gelir,maliyet:o.maliyet+r.maliyet,net:o.net+r.net,
+      maas:o.maas+r.maas,gider:o.gider+r.gider,zimmet:o.zimmet+r.zimmet,dagitilan:o.dagitilan+r.dagitilan}),
+    {gelir:0,maliyet:0,net:0,maas:0,gider:0,zimmet:0,dagitilan:0});
   return '<section class="panel"><div class="panel-h"><h2>Personel geliri'+(fin?' ve maliyeti':'')+'</h2>'+
     '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
+    (fin?dagitimBandi(p):'')+
     '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Satış</th>'+
     '<th class="num">Randevu katkısı</th><th class="num">Gelir</th>'+
-    (fin?'<th class="num">Maaş</th><th class="num">Gider</th><th class="num">Maliyet</th><th class="num">Net</th>':'')+
+    (fin?'<th class="num">Maaş</th><th class="num">Gider</th><th class="num">Zimmet bakım</th><th class="num">Dağıtılan gider</th><th class="num">Maliyet</th><th class="num">Net</th>':'')+
     '</tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name||'')+'</div></td>'+
       '<td class="num">'+r.satis+'</td><td class="num'+(r.randevuKatkisi?'':' muted')+'">'+(r.randevuKatkisi||'-')+'</td>'+
       '<td class="num"><b>'+money(r.gelir)+'</b></td>'+
       (fin?'<td class="num">'+money(r.maas)+'</td><td class="num">'+money(r.gider)+'</td>'+
+           '<td class="num'+(r.zimmet?'':' muted')+'">'+(r.zimmet?money(r.zimmet):'-')+'</td>'+
+           '<td class="num'+(r.dagitilan?'':' muted')+'">'+(r.dagitilan?money(r.dagitilan):'-')+'</td>'+
            '<td class="num out">'+money(r.maliyet)+'</td>'+
            '<td class="num '+(r.net>=0?'in':'out')+'"><b>'+money(r.net)+'</b></td>':'')+
       '</tr>').join('')+
     '<tr class="total"><td>Toplam</td><td class="num"></td><td class="num"></td>'+
     '<td class="num">'+money(t.gelir)+'</td>'+
-    (fin?'<td class="num"></td><td class="num"></td><td class="num out">'+money(t.maliyet)+'</td>'+
+    (fin?'<td class="num">'+money(t.maas)+'</td><td class="num">'+money(t.gider)+'</td>'+
+         '<td class="num">'+money(t.zimmet)+'</td><td class="num">'+money(t.dagitilan)+'</td>'+
+         '<td class="num out">'+money(t.maliyet)+'</td>'+
          '<td class="num '+(t.net>=0?'in':'out')+'">'+money(t.net)+'</td>':'')+
     '</tr></tbody></table></div>'+
     '<div class="panel-b"><p class="hint">Gelir, satılan ürünlerin gelir tanımından hesaplanır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. <b>Randevu katkısı</b> sütunu, o personelin aldığı randevulardan doğan satış sayısıdır.'+
-    (fin?' Maaş yalnızca tek bir ay seçildiğinde hesaba katılır.':'')+'</p></div></section>';
+    (fin?' <b>Zimmet bakım</b>, o personele zimmetli envanterin dönemdeki bakım ve tamir masrafıdır. <b>Dağıtılan gider</b>, kimseye bağlanmamış merkezi giderlerin kişi başı payıdır. Maliyet = Maaş + Gider + Zimmet bakım + Dağıtılan gider. Maaş yalnızca tek bir ay seçildiğinde hesaba katılır.':'')+'</p></div></section>';
+}
+/* Merkezi giderin dağıtımını özetleyen bant. Tutarın üstüne tıklanınca
+   dağıtıma giren hareketler gider raporunda açılır. */
+function dagitimBandi(p){
+  const d=dagitimOzeti(p);
+  if(!d.toplam&&!d.kisi)return '';
+  return '<div class="panel-b"><div class="kpis">'+
+    '<div class="kpi"><span>Dağıtılacak merkezi gider</span><b>'+money(d.toplam)+'</b></div>'+
+    '<div class="kpi" title="'+esc(dagitimKapsami().map(e=>e.name).join(', '))+'"><span>Paylaşan saha personeli</span><b>'+d.kisi+'</b></div>'+
+    '<div class="kpi"><span>Kişi başı pay</span><b>'+money(d.pay)+'</b></div>'+
+    '</div><p class="hint">Kira, faturalar, ofis ve merkez giderleri ile <b>zimmetli olmayan</b> envanterin bakımı — yani bir personele bağlanmamış '+d.adet+' gider hareketi — saha personeline eşit bölünür. '+
+    (d.kisi?'':'<b>Saha personeli bulunamadı, dağıtım yapılamıyor.</b> ')+
+    '<button class="btn sm" data-act="drill" data-dim="personel" data-key="__none" type="button">Dağıtıma giren hareketler</button></p></div>';
 }
 function gelirExportRows(){
   const rows=gelirMaliyetRows(state.period),fin=isFinans();
   const head=['Personel','Departman','Satış','Randevu katkısı','Gelir']
-    .concat(fin?['Maaş','Gider','Maliyet','Net']:[]);
+    .concat(fin?['Maaş','Gider','Zimmet bakım','Dağıtılan gider','Maliyet','Net']:[]);
   return [head].concat(rows.map(r=>[r.e.name,(dept(r.e.departmentId)||{}).name||'',
-    r.satis,r.randevuKatkisi,r.gelir].concat(fin?[r.maas,r.gider,r.maliyet,r.net]:[])));
+    r.satis,r.randevuKatkisi,r.gelir].concat(fin?[r.maas,r.gider,r.zimmet,r.dagitilan,r.maliyet,r.net]:[])));
 }
 function girisExportRows(){
   const rows=girisRaporRows(state.period);
@@ -3633,7 +3694,7 @@ function exportExcel(which){
     ad='hareket-kaydi';
   }
   if((which==='gelir'||which==='hepsi')&&gelirRaporGor()){
-    XLSX.utils.book_append_sheet(wb,sheetOf(gelirExportRows(),[],[26,18,10,16,14,14,14,14,14]),'Personel geliri');
+    XLSX.utils.book_append_sheet(wb,sheetOf(gelirExportRows(),[],[26,18,10,16,14,14,14,14,16,14,14]),'Personel geliri');
     if(which==='gelir')ad='personel-geliri';
   }
   if(which==='giris'||which==='hepsi'){
@@ -4499,19 +4560,41 @@ function openTx(dir){
     '<div class="field"><label for="f-company">Şirket</label><select id="f-company">'+companyOptions(cid,'Şirket seçin')+'</select></div>'+
     '<div class="field"><label for="f-dept">Departman</label><select id="f-dept">'+deptOptions(cid,'','Departman seçilmedi')+'</select></div>'+
     '<div class="field"><label for="f-emp">Personel</label><select id="f-emp">'+empOptions(cid,'','','Personel seçilmedi')+'</select></div>'+
+    '<div class="field full" id="f-envwrap" hidden><label for="f-asset">Envanter kaydı</label><select id="f-asset">'+envanterSecenekleri('')+'</select>'+
+      '<div class="hint" id="f-envnot">Masraf seçtiğiniz envanter kaydına işlenir. Cihaz zimmetliyse personeli ve departmanı kendiliğinden bağlanır.</div></div>'+
     '<div class="field full"><label for="f-desc">Açıklama</label><input id="f-desc" type="text" placeholder="Örn. Müşteri ziyareti yakıt gideri"></div></div>'+
-    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş ve avans için Maaş ve avans sayfasını kullanın.</p><p class="err" id="f-err"></p>',
+    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş ve avans için Maaş ve avans sayfasını kullanın. Bir cihazın veya aracın masrafını <b>Envanter bakım</b> kategorisiyle girerseniz, masraf o envanter kaydının geçmişine ve zimmetli olduğu personelin maliyetine yazılır.</p><p class="err" id="f-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-tx">Hareketi kaydet</button>'));
 }
 function saveTx(){
   const g=id=>$('#'+id).value,amount=parseFloat(String(g('f-amt')).replace(',','.'));
   const o={date:g('f-date'),dir:g('f-dir'),accountId:g('f-acc'),category:g('f-cat'),amount,companyId:g('f-company'),departmentId:g('f-dept'),employeeId:g('f-emp'),desc:g('f-desc').trim()};
   const err=m=>{$('#f-err').textContent=m;};
-  if(!o.date)return err('Tarih seçin.');if(!o.category)return err('Kategori seçin.');if(!(amount>0))return err('Tutarı 0’dan büyük girin.');if(!o.companyId)return err('Şirket seçin.');
-  run('f-err',()=>ins('transactions',{date:o.date,dir:o.dir,account_id:o.accountId,
-    category:o.category,amount:o.amount,company_id:nz(o.companyId),
-    department_id:nz(o.departmentId),employee_id:nz(o.employeeId),
-    descr:o.desc,source:'manuel'}),'Hareket kaydedildi');
+  if(!o.date)return err('Tarih seçin.');if(!o.category)return err('Kategori seçin.');if(!(amount>0))return err('Tutarı 0’dan büyük girin.');
+  /* Envanter bakımında bağlar envanter kaydından okunur; ekrandaki
+     şirket/departman/personel kutuları bilgi amaçlı ve kapalıdır. */
+  let env=null;
+  if(o.dir==='out'&&o.category===CAT_ENV){
+    env=asset(g('f-asset'));
+    if(!env)return err('Masrafın işleneceği envanter kaydını seçin.');
+    if(!o.desc)return err('Yapılan işlemi açıklama alanına yazın.');
+    const h=env.holderId?emp(env.holderId):null;
+    o.companyId=(h?h.companyId:env.companyId)||'';
+    o.departmentId=(h&&h.departmentId)||'';
+    o.employeeId=h?h.id:'';
+  }
+  if(!o.companyId)return err('Şirket seçin.');
+  run('f-err',async()=>{
+    const t=await ins('transactions',{date:o.date,dir:o.dir,account_id:o.accountId,
+      category:o.category,amount:o.amount,company_id:nz(o.companyId),
+      department_id:nz(o.departmentId),employee_id:nz(o.employeeId),
+      descr:env?(env.model+' – '+o.desc):o.desc,source:env?'tamir':'manuel'});
+    /* Envanterin kendi bakım geçmişi ve toplam masrafı repairs'ten
+       okunuyor; aynı kaydı oraya da yazıyoruz. Tutar iki kez gider
+       sayılmaz, çünkü finansal bacak yalnızca transactions'tır. */
+    if(env)await ins('repairs',{asset_id:env.id,date:o.date,descr:o.desc,cost:o.amount,
+      account_id:o.accountId,tx_id:t.id,employee_id:nz(o.employeeId)});
+  },'Hareket kaydedildi');
 }
 function openTransfer(){
   if(db.accounts.length<2)return needDlg('Virman','Virman için en az iki hesap gerekir. “Hesap ekle” ile ikinci hesabı tanımlayın.');
@@ -5206,10 +5289,41 @@ function dialogChange(el){
     return;
   }
   if(k==='tx'){
-    if(id==='f-dir'){$('#f-cat').innerHTML=opt((el.value==='in'?CAT_IN:CAT_OUT_MANUAL).map(c=>[c,c]),'','Kategori seçin');}
+    if(id==='f-dir'){
+      $('#f-cat').innerHTML=opt((el.value==='in'?CAT_IN:CAT_OUT_MANUAL).map(c=>[c,c]),'','Kategori seçin');
+      envAlani();
+    }
+    else if(id==='f-cat')envAlani();
+    else if(id==='f-asset')envBagla();
     else if(id==='f-acc'){$('#f-company').value=acct(el.value).companyId;relink('f-acc');}
     else relink(id);
   }
+}
+/* ---------- Gider girişinde envanter bakım alanı ----------
+   Kategori "Envanter bakım" seçilince envanter listesi açılır; şirket,
+   departman ve personel artık envanter kaydından geldiği için elle
+   değiştirilemez, böylece masraf yanlış kişiye yazılamaz. */
+const envSecili=()=>{const c=$('#f-cat');return !!c&&c.value===CAT_ENV;};
+function envAlani(){
+  const w=$('#f-envwrap');if(!w)return;
+  const acik=envSecili();
+  w.hidden=!acik;
+  ['f-company','f-dept','f-emp'].forEach(x=>{const el=$('#'+x);if(el)el.disabled=acik;});
+  if(acik)envBagla();
+}
+function envBagla(){
+  const sel=$('#f-asset'),a=sel?asset(sel.value):null;
+  const c=$('#f-company'),d=$('#f-dept'),e=$('#f-emp'),n=$('#f-envnot');
+  if(!a){if(n)n.textContent='Masrafın işleneceği envanter kaydını seçin.';return;}
+  const h=a.holderId?emp(a.holderId):null;
+  const cid=(h?h.companyId:a.companyId)||'';
+  const did=(h&&h.departmentId)||'';
+  if(c)c.value=cid;
+  if(d)d.innerHTML=deptOptions(cid,did,'Departman seçilmedi');
+  if(e)e.innerHTML=empOptions(cid,did,h?h.id:'','Personel seçilmedi');
+  if(n)n.innerHTML=h
+    ?'Masraf <b>'+esc(h.name)+'</b> üzerine, '+esc((dept(h.departmentId)||{}).name||'departmanı tanımsız')+' departmanına yazılır.'
+    :'Bu envanter kimseye zimmetli değil. Masraf merkezi gider sayılır ve saha personeline eşit dağıtılır.';
 }
 function setPath(path,val){const parts=path.split('.');let o=state;for(let i=0;i<parts.length-1;i++)o=o[parts[i]];o[parts[parts.length-1]]=val;}
 function afterSet(path){
