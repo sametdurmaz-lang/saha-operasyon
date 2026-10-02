@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-k';
+const SURUM='02.10.2026-m';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -323,6 +323,12 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
         });
       });
       setInterval(()=>kayit.update(),30*60*1000);   /* yarım saatte bir bak */
+      /* Service worker dosyası sürümler arasında değişmediği için
+         updatefound çoğu zaman hiç tetiklenmiyordu; kullanıcı elle
+         yenilemedikçe eski sürümde kalıyordu. Bu yüzden sürümü
+         doğrudan sayfanın kendisinden kontrol ediyoruz. */
+      setInterval(surumKontrol,15*60*1000);
+      setTimeout(surumKontrol,15000);
     }).catch(()=>{});
     let yenilendi=false;
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
@@ -330,6 +336,26 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
     });
   });
 }
+/* Yayındaki sayfanın sürüm damgasını okuyup çalışan sürümle
+   karşılaştırır. Service worker'a bağımlı değildir. */
+let _surumBakiliyor=false;
+async function surumKontrol(){
+  if(_surumBakiliyor||document.hidden)return;
+  _surumBakiliyor=true;
+  try{
+    const adres=location.href.split('#')[0].split('?')[0];
+    const r=await fetch(adres+'?surum='+Date.now(),{cache:'no-store'});
+    if(!r.ok)return;
+    const m=(await r.text()).match(/const SURUM='([^']+)'/);
+    if(m&&m[1]&&m[1]!==SURUM)yeniSurumUyar();
+  }catch(e){/* ağ yoksa sessizce geç */}
+  finally{_surumBakiliyor=false;}
+}
+/* Sekmeye geri dönüldüğünde de bak: açık bırakılmış sayfa en çok
+   burada eskiyor. */
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden)setTimeout(surumKontrol,1000);
+});
 function yeniSurumUyar(){
   if(document.getElementById('yeni-surum'))return;
   const el=document.createElement('div');

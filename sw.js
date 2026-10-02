@@ -12,7 +12,7 @@
    Supabase istekleri (veri) hiçbir zaman önbelleğe alınmaz.
    ===================================================================== */
 
-const SURUM   = 'saha-v1';
+const SURUM   = 'saha-v2';
 const KABUK   = 'kabuk-' + SURUM;   /* uygulama dosyası */
 const VARLIK  = 'varlik-' + SURUM;  /* dışarıdan gelen kitaplıklar */
 
