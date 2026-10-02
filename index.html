@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-s';
+const SURUM='02.10.2026-t';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -614,6 +614,7 @@ const mapMusteri=r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_a
   metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||''});
 const mapRandevu=(r,log)=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,
   alanId:r.alan_id||null,date:r.date,desc:r.descr,status:r.status,
+  createdAt:r.created_at||'',
   sonuc:r.sonuc||'',ziyaret:r.ziyaret||1,
   closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:log||[]});
 const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
@@ -787,6 +788,17 @@ function setupPanel(){
 
 /* ---------- Sorgular ---------- */
 const inPeriod=(t,p)=>p==='all'||t.date.startsWith(p);
+/* Kayıt zamanı sunucuda UTC tutuluyor. Gece yarısından sonra girilen
+   randevu bir önceki güne düşmesin diye yerel tarihe çeviriyoruz. */
+function yerelGun(iso){
+  if(!iso)return '';
+  const d=new Date(iso);
+  if(isNaN(d))return '';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+/* Bugün sisteme girilen (alınan) randevular. Randevunun hangi güne
+   verildiğinden bağımsızdır; iptal edilenler sayılmaz. */
+const bugunAlinan=()=>db.appointments.filter(a=>!iptalMi(a)&&yerelGun(a.createdAt)===TODAY);
 const expenses=p=>db.transactions.filter(t=>t.dir==='out'&&t.source!=='virman'&&inPeriod(t,p));
 const incomes=p=>db.transactions.filter(t=>t.dir==='in'&&t.source!=='virman'&&inPeriod(t,p));
 function monthsList(){
@@ -2735,7 +2747,7 @@ function viewRandevu(){
   return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+havuzBtn(10)+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   (function(){const by=beyanAcik(state.period);
     return by.length?'<div class="ro-banner"><b>'+by.length+' randevu “satış yapıldı” diye kapatıldı ama sisteme satış girilmedi.</b> Bunlar hedefe ve dönüşüm oranına sayılmaz. Listede <span class="badge warn">Satış beyanı</span> etiketiyle görünürler.</div>':'';})()+
-  '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div><div class="kpi"><span>Satış beyanı, kaydı yok</span><b class="'+(beyanAcik(state.period).length?'out':'')+'">'+beyanAcik(state.period).length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div></div>'+
+  '<div class="kpis"><div class="kpi"><span>Açık randevu</span><b>'+totalOpen+'</b></div><div class="kpi"><span>Bugün alınan randevu</span><b>'+bugunAlinan().length+'</b></div><div class="kpi"><span>Bu dönem randevu</span><b>'+gecerliList.length+'</b></div><div class="kpi"><span>Bu dönem kapanan</span><b>'+gecerliList.filter(a=>a.status==='Kapandı').length+'</b></div><div class="kpi"><span>Satışa dönen</span><b>'+convCount+'</b></div><div class="kpi"><span>Satış beyanı, kaydı yok</span><b class="'+(beyanAcik(state.period).length?'out':'')+'">'+beyanAcik(state.period).length+'</b></div><div class="kpi"><span>İptal edilen</span><b>'+iptalSayi+'</b></div></div>'+
   '<div class="stack">'+ekipTabloBolumu()+atamaBolumu()+
   (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
