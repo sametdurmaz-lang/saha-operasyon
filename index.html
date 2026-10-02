@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-t';
+const SURUM='02.10.2026-u';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2648,8 +2648,11 @@ function atamaDagilimi(period){
   const m={};
   db.appointments.filter(a=>inPeriod(a,period)).forEach(a=>{
     const k=a.employeeId||'__yok__';
-    const g=m[k]||(m[k]={eid:a.employeeId,acik:0,kapali:0,iptal:0,satis:0,toplam:0});
+    const g=m[k]||(m[k]={eid:a.employeeId,acik:0,kapali:0,iptal:0,satis:0,toplam:0,hat:0});
     g.toplam++;
+    /* Hat adedi, randevu alınırken müşteri kartına yazılan mobil hat
+       sayısıdır. İptal edilen randevular sayılmaz. */
+    if(!iptalMi(a)){const c=byId(db.customers,a.customerId);g.hat+=num(c&&c.mobilAdet);}
     if(iptalMi(a))g.iptal++;
     else if(a.status==='Açık')g.acik++;
     else {g.kapali++;if(isConverted(a.customerId,a.date))g.satis++;}
@@ -2667,19 +2670,23 @@ function atamaBolumu(){
   const rows=atamaDagilimi(state.period);
   if(!rows.length)return '';
   const t=rows.reduce((o,r)=>({acik:o.acik+r.acik,kapali:o.kapali+r.kapali,iptal:o.iptal+r.iptal,
-    satis:o.satis+r.satis,toplam:o.toplam+r.toplam}),{acik:0,kapali:0,iptal:0,satis:0,toplam:0});
+    satis:o.satis+r.satis,toplam:o.toplam+r.toplam,hat:o.hat+r.hat}),
+    {acik:0,kapali:0,iptal:0,satis:0,toplam:0,hat:0});
   return '<section class="panel"><div class="panel-h"><h2>Kime kaç randevu gitti</h2>'+
     '<span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+' · atanan personele göre</span></div>'+
     '<div class="scroll"><table><thead><tr><th>Atanan personel</th><th class="num">Açık</th>'+
     '<th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th>'+
-    '<th class="num">Toplam</th></tr></thead><tbody>'+
+    '<th class="num">Hat adedi</th><th class="num">Toplam</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.ad)+(r.bayi?' <span class="badge">Bayi Müdürü</span>':'')+'</div>'+
       (r.alt?'<div class="muted sm">'+esc(r.alt)+'</div>':'')+'</td>'+
       '<td class="num"><b>'+r.acik+'</b></td><td class="num">'+r.kapali+'</td>'+
       '<td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td>'+
-      '<td class="num">'+r.satis+'</td><td class="num">'+r.toplam+'</td></tr>').join('')+
+      '<td class="num">'+r.satis+'</td>'+
+      '<td class="num'+(r.hat?'':' muted')+'"><b>'+(r.hat||'-')+'</b></td>'+
+      '<td class="num">'+r.toplam+'</td></tr>').join('')+
     '<tr class="total"><td>Toplam</td><td class="num">'+t.acik+'</td><td class="num">'+t.kapali+'</td>'+
-    '<td class="num">'+t.iptal+'</td><td class="num">'+t.satis+'</td><td class="num">'+t.toplam+'</td></tr>'+
+    '<td class="num">'+t.iptal+'</td><td class="num">'+t.satis+'</td>'+
+    '<td class="num"><b>'+t.hat+'</b></td><td class="num">'+t.toplam+'</td></tr>'+
     '</tbody></table></div>'+
     '<div class="panel-b"><p class="hint">Bayi Müdürü satırındaki açık randevular henüz dağıtılmamış olanlardır. Listeden <b>Devret</b> diyerek ilgili saha personeline aktarın.</p></div></section>';
 }
