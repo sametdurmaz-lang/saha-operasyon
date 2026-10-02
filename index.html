@@ -312,7 +312,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='03.10.2026-b';
+const SURUM='03.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -377,7 +377,14 @@ const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
 const CAT_ENV='Envanter bakım';
 const CAT_OUT=['Maaş','Personel avansı','Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider'];
-const CAT_OUT_MANUAL=CAT_OUT.filter(c=>c!=='Maaş'&&c!=='Personel avansı');
+/* Elle hareket girişinde kapalı kategoriler.
+   Maaş ve avans: Maaş ve avans ekranından yazılır.
+   Araç bakım ve tamir, Cihaz tamir: envantere bağlanmadan girilmesin
+   diye kapalı; envanter masrafı yalnızca "Envanter bakım" ile girilir.
+   İkisi de CAT_OUT'ta duruyor, çünkü eski kayıtlar ve cihaz detayından
+   girilen tamirler bu kategorilerde ve raporlarda süzülebilmeli. */
+const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir'];
+const CAT_OUT_MANUAL=CAT_OUT.filter(c=>CAT_ELLE_KAPALI.indexOf(c)<0);
 const IL_ILCE={
 "İstanbul":["Adalar","Arnavutköy","Ataşehir","Avcılar","Bağcılar","Bahçelievler","Bakırköy","Başakşehir","Bayrampaşa","Beşiktaş","Beykoz","Beylikdüzü","Beyoğlu","Büyükçekmece","Çatalca","Çekmeköy","Esenler","Esenyurt","Eyüpsultan","Fatih","Gaziosmanpaşa","Güngören","Kadıköy","Kağıthane","Kartal","Küçükçekmece","Maltepe","Pendik","Sancaktepe","Sarıyer","Silivri","Sultanbeyli","Sultangazi","Şile","Şişli","Tuzla","Ümraniye","Üsküdar","Zeytinburnu"],
 "Tekirdağ":["Süleymanpaşa","Çerkezköy","Çorlu","Ergene","Hayrabolu","Kapaklı","Malkara","Marmaraereğlisi","Muratlı","Saray","Şarköy"],
@@ -4563,7 +4570,7 @@ function openTx(dir){
     '<div class="field full" id="f-envwrap" hidden><label for="f-asset">Envanter kaydı</label><select id="f-asset">'+envanterSecenekleri('')+'</select>'+
       '<div class="hint" id="f-envnot">Masraf seçtiğiniz envanter kaydına işlenir. Cihaz zimmetliyse personeli ve departmanı kendiliğinden bağlanır.</div></div>'+
     '<div class="field full"><label for="f-desc">Açıklama</label><input id="f-desc" type="text" placeholder="Örn. Müşteri ziyareti yakıt gideri"></div></div>'+
-    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş ve avans için Maaş ve avans sayfasını kullanın. Bir cihazın veya aracın masrafını <b>Envanter bakım</b> kategorisiyle girerseniz, masraf o envanter kaydının geçmişine ve zimmetli olduğu personelin maliyetine yazılır.</p><p class="err" id="f-err"></p>',
+    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş ve avans için Maaş ve avans sayfasını kullanın. Cihaz ve araç masrafları yalnızca <b>Envanter bakım</b> kategorisiyle girilir; masraf o envanter kaydının geçmişine ve zimmetli olduğu personelin maliyetine yazılır.</p><p class="err" id="f-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-tx">Hareketi kaydet</button>'));
 }
 function saveTx(){
