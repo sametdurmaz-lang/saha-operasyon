@@ -308,7 +308,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='02.10.2026-p';
+const SURUM='02.10.2026-r';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2342,10 +2342,19 @@ function haftaBasi(){
   return d;
 }
 function ayniBirim(x){return !!x&&x.birimId!=null&&x.birimId===birimKapsamim();}
+/* Bu müşteri benim işim mi? Randevusunu ben aldıysam ya da satışını
+   ben yaptıysam evet. Telesatışçı yalnızca bunlara erişir; birimdeki
+   diğer müşteriler ona kapalıdır. */
+function kendiMusterim(c){
+  if(!c||!me||!me.employeeId)return false;
+  return db.appointments.some(a=>a.customerId===c.id&&alanOf(a)===me.employeeId)
+      || db.sales.some(x=>x.customerId===c.id&&x.employeeId===me.employeeId);
+}
 function duzenlenebilirMusteri(c){
   if(isUst()||isMuhasebe()||isDestek()||capraz())return true;
   if(caprazMusteri(c))return true;
-  if((isBirim()||isTelesatis()||isTLider())&&ayniBirim(c))return true;
+  if((isBirim()||isTLider())&&ayniBirim(c))return true;
+  if(isTelesatis()&&kendiMusterim(c))return true;
   if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
   return new Date(c.createdAt)>=haftaBasi();
 }
