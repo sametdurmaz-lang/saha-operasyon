@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-k';
+const SURUM='05.10.2026-l';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4213,11 +4213,17 @@ function mutSistemIndeks(){
   });
   return m;
 }
-function mutKarsilastir(kalem){
+/* ay='' ise dosyanın tamamı; 'YYYY-MM' ise yalnızca o ay karşılaştırılır.
+   Ay seçilince dosyanın o aya ait olmayan satırları da elenir, yani
+   üç aylık bir dosya yüklenip ay ay kontrol edilebilir. */
+function mutKarsilastir(hepsi,ay){
+  const kalem=ay?hepsi.filter(k=>k.tarih&&k.tarih.slice(0,7)===ay):hepsi;
   const idx=mutSistemIndeks();
   const tarihler=kalem.map(k=>k.tarih).filter(Boolean).sort();
-  const bas=tarihler.length?gunEkle(tarihler[0],-MUT_PAY_GUN):'';
-  const bit=tarihler.length?gunEkle(tarihler[tarihler.length-1],MUT_PAY_GUN):'';
+  /* Ay seçiliyse pencere takvim ayıdır; yoksa dosyanın kendi aralığı */
+  const ayBas=ay?ay+'-01':'',ayBit=ay?gunEkle(gunEkle(ay+'-01',32).slice(0,7)+'-01',-1):'';
+  const bas=ay?gunEkle(ayBas,-MUT_PAY_GUN):(tarihler.length?gunEkle(tarihler[0],-MUT_PAY_GUN):'');
+  const bit=ay?gunEkle(ayBit, MUT_PAY_GUN):(tarihler.length?gunEkle(tarihler[tarihler.length-1],MUT_PAY_GUN):'');
   /* Rapordaki numaraları grupla */
   const grup={};
   kalem.forEach(k=>{(grup[k.no]=grup[k.no]||[]).push(k);});
@@ -4241,13 +4247,21 @@ function mutKarsilastir(kalem){
   };
   return {eslesen:eslesen.sort(sirala),operatorde:operatorde.sort(sirala),
           sistemde:sistemde.sort(sirala),bas,bit,
-          ilkGun:tarihler[0]||'',sonGun:tarihler[tarihler.length-1]||'',
+          ilkGun:tarihler[0]||'',sonGun:tarihler[tarihler.length-1]||'',ay:ay||'',
+          dosyaKalem:hepsi.length,
           toplamKalem:kalem.length,toplamNo:Object.keys(grup).length};
 }
 /* Dosya seçilince oku, karşılaştır, ekrana bas */
-let _mutSonuc=null,_mutHata='',_mutDosya='';
+let _mutSonuc=null,_mutHata='',_mutDosya='',_mutKalem=null,_mutAy='',_mutAylar=[];
+/* Dosya bir kez okunur; ay değiştikçe yeniden yüklemeye gerek yok */
+function mutHesapla(){
+  if(!_mutKalem)return;
+  _mutSonuc=mutKarsilastir(_mutKalem,_mutAy);
+  _mutSonuc.bozuk=_mutKalem.bozuk||[];
+}
 function mutDosyaOku(file){
-  _mutSonuc=null;_mutHata='';_mutDosya=file?file.name:'';
+  _mutSonuc=null;_mutHata='';_mutKalem=null;_mutAy='';_mutAylar=[];
+  _mutDosya=file?file.name:'';
   if(!XL_HAZIR()){_mutHata='Excel bileşeni yüklenemedi. Sayfayı yenileyin.';return render();}
   const fr=new FileReader();
   fr.onerror=()=>{_mutHata='Dosya okunamadı.';render();};
@@ -4258,8 +4272,11 @@ function mutDosyaOku(file){
       const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:''});
       const o=mutOku(aoa);
       if(o.hata){_mutHata=o.hata;return render();}
-      _mutSonuc=mutKarsilastir(o.kalem);
-      _mutSonuc.bozuk=o.bozuk||[];
+      _mutKalem=o.kalem;_mutKalem.bozuk=o.bozuk||[];
+      _mutAylar=[...new Set(o.kalem.map(k=>k.tarih&&k.tarih.slice(0,7)).filter(Boolean))].sort();
+      /* Dosya tek aya aitse o ayı kendiliğinden seç */
+      _mutAy=_mutAylar.length===1?_mutAylar[0]:'';
+      mutHesapla();
     }catch(e){_mutHata='Dosya okunamadı: '+((e&&e.message)||e);}
     render();
   };
@@ -4293,7 +4310,11 @@ function mutSatirlar(list,tip){
 function mutBolumu(){
   if(!primGor())return '';
   const r=_mutSonuc;
-  const yukle='<label class="btn primary" style="cursor:pointer">Operatör raporu yükle'+
+  const aySec=_mutAylar.length?'<select id="mut-ay" aria-label="Dönem">'+
+      '<option value=""'+(_mutAy?'':' selected')+'>Dosyanın tamamı</option>'+
+      _mutAylar.map(a=>'<option value="'+a+'"'+(a===_mutAy?' selected':'')+'>'+esc(monthLabel(a))+'</option>').join('')+
+    '</select>':'';
+  const yukle=aySec+' <label class="btn primary" style="cursor:pointer">Operatör raporu yükle'+
     '<input type="file" id="mut-file" accept=".xlsx,.xls" style="display:none"></label>';
   let govde;
   if(_mutHata)govde='<div class="panel-b"><p class="err">'+esc(_mutHata)+'</p></div>';
@@ -4302,6 +4323,7 @@ function mutBolumu(){
     'dosya hiçbir yere gönderilmez, tarayıcınızda karşılaştırılır.</p></div>';
   else{
     const hic=!r.eslesen.length&&r.operatorde.length;
+    const bosAy=r.ay&&!r.toplamKalem;
     govde=
     '<div class="panel-b"><div class="kpis" style="margin:0">'+
       '<div class="kpi"><span>Raporda numara</span><b>'+nf.format(r.toplamNo)+'</b><span class="muted sm">'+nf.format(r.toplamKalem)+' kalem</span></div>'+
@@ -4309,11 +4331,16 @@ function mutBolumu(){
       '<div class="kpi"><span>Operatörde var, sistemde yok</span><b class="out">'+nf.format(r.operatorde.length)+'</b></div>'+
       '<div class="kpi"><span>Sistemde var, operatörde yok</span><b class="out">'+nf.format(r.sistemde.length)+'</b></div>'+
     '</div>'+
-    '<p class="hint" style="margin-top:10px">'+esc(_mutDosya)+' · aktivasyon aralığı '+
-      esc(fmtDate(r.ilkGun))+' – '+esc(fmtDate(r.sonGun))+
-      '. “Sistemde var” listesi bu aralığa '+MUT_PAY_GUN+' gün pay eklenerek sınırlandı; aktivasyon tarihiyle kayıt tarihi birkaç gün ayrışabiliyor.'+
+    '<p class="hint" style="margin-top:10px">'+esc(_mutDosya)+
+      (r.ay?' · <b>'+esc(monthLabel(r.ay))+'</b> karşılaştırılıyor ('+nf.format(r.toplamKalem)+
+            ' / '+nf.format(r.dosyaKalem)+' kalem bu aya ait)':'')+
+      ' · aktivasyon aralığı '+esc(fmtDate(r.ilkGun))+' – '+esc(fmtDate(r.sonGun))+
+      '. “Sistemde var” listesi '+(r.ay?'seçili aya':'bu aralığa')+' '+MUT_PAY_GUN+
+      ' gün pay eklenerek sınırlandı; aktivasyon tarihiyle kayıt tarihi birkaç gün ayrışabiliyor.'+
+      (_mutAylar.length>1&&!r.ay?' <b>Dosya birden çok ay içeriyor; yukarıdan bir ay seçerek ay ay kontrol edebilirsiniz.</b>':'')+
       (r.bozuk&&r.bozuk.length?' '+r.bozuk.length+' satırın işlem numarası okunamadı.':'')+'</p>'+
-    (hic?'<div class="ro-banner"><b>Hiç eşleşme bulunamadı.</b><div class="sm">Büyük ihtimalle bu dönemin satışları henüz girilmemiş ya da abone/hizmet numarası alanı boş bırakılmış. Bir satış kaydını açıp numarayı raporla karşılaştırın.</div></div>':'')+
+    (bosAy?'<div class="ro-banner"><b>Dosyada '+esc(monthLabel(r.ay))+' ayına ait satır yok.</b><div class="sm">Başka bir dönem seçin ya da o ayın raporunu yükleyin.</div></div>':'')+
+    (hic&&!bosAy?'<div class="ro-banner"><b>Hiç eşleşme bulunamadı.</b><div class="sm">Büyük ihtimalle bu dönemin satışları henüz girilmemiş ya da abone/hizmet numarası alanı boş bırakılmış. Bir satış kaydını açıp numarayı raporla karşılaştırın.</div></div>':'')+
     '</div>'+
     '<section class="panel"><div class="panel-h"><div><h2>Operatörde var, sistemde yok</h2>'+
       '<p class="muted sm">Aktivasyon olmuş ama kaydedilmemiş. Gelir ve prim hesabının dışında kalmış satışlar.</p></div>'+
@@ -4349,7 +4376,8 @@ function mutExport(hangi){
                   pr?prodLabel(pr):'',sa?sa.date:'',e?e.name:'',sa?sa.customer:'']);
     }
   });
-  const ad={operatorde:'operatorde-var',sistemde:'sistemde-var',eslesen:'eslesen'}[hangi]||hangi;
+  const ad=({operatorde:'operatorde-var',sistemde:'sistemde-var',eslesen:'eslesen'}[hangi]||hangi)+
+           (r.ay?'-'+r.ay:'');
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,sheetOf([bas].concat(satir),[],[14,16,14,30,14,10,18,18,28,12,18,28]),'Mutabakat');
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
@@ -6848,6 +6876,7 @@ function init(){
   document.addEventListener('change',e=>{
     const el=e.target;
     if(el.id==='mut-file'){const f=el.files&&el.files[0];if(f)mutDosyaOku(f);return;}
+    if(el.id==='mut-ay'){_mutAy=el.value;mutHesapla();render();return;}
     if(el.dataset&&el.dataset.set){setPath(el.dataset.set,el.value);afterSet(el.dataset.set);render();return;}
     if(el.id&&dlgState.kind){
       if(el.id==='a-emp'){$('#a-open').textContent=money(openAdvance(el.value));return;}
