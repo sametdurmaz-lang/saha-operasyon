@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-c';
+const SURUM='05.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -707,6 +707,15 @@ async function loadAll(zorla){
     aracKonum:(aracKonum||[]).map(mapAracKonum),
     aracGunluk:(aracGunluk||[]).map(mapAracGunluk),
     carpan:(function(){const m={NT:1.4,BASE:1};(carpanlar||[]).forEach(r=>{m[r.tip]=num(r.deger);});return m;})(),
+    /* Gelir ve prim kendi çarpanlarını kullanır; db.carpan artık yalnızca
+       puan çarpanıdır. 59 numaralı dosya çalıştırılmadıysa sütunlar
+       gelmez ve buradaki varsayılanlar kullanılır. */
+    gelirCarpan:(function(){const m={NT:1.2,BASE:1};
+      (carpanlar||[]).forEach(r=>{if(r.gelir_deger!=null&&r.gelir_deger!=='')m[r.tip]=num(r.gelir_deger);});
+      return m;})(),
+    primCarpan:(function(){const m={NT:1,BASE:0.85};
+      (carpanlar||[]).forEach(r=>{if(r.prim_deger!=null&&r.prim_deger!=='')m[r.tip]=num(r.prim_deger);});
+      return m;})(),
     ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
     bugunkuPotansiyel:bugunku,
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
@@ -802,7 +811,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
@@ -1791,14 +1800,20 @@ function viewSatis(){
    MOBİL HAT
    Bir telefon numarası = bir satır. Dakika paketi ile GB paketi o
    satırın iki bileşenidir; numara bir kez girilir.
-     baz = dakika.prim + gb.prim      (puan da aynı)
-     prim = baz x NT/BASE çarpanı x numara adedi
+     baz   = dakika.X + gb.X    (prim, puan ve gelir için ayrı ayrı)
+     puan  = baz x puan çarpanı  x numara adedi   (NT 1,40 · BASE 1,00)
+     gelir = baz x gelir çarpanı x numara adedi   (NT 1,20 · BASE 1,00)
+     prim  = baz x prim çarpanı  x numara adedi   (NT 1,00 · BASE 0,85)
 ----------------------------------------------------------------*/
 const HAT_TIP=[['NT','NT (yeni / taşıma)'],['BASE','BASE (mevcut hat)']];
 const mobilDk=()=>db.products.filter(p=>p.mobilTip==='dakika');
 const mobilGb=()=>db.products.filter(p=>p.mobilTip==='gb');
 const mobilVar=()=>mobilDk().length>0;
-const carpanOf=t=>{const c=(db.carpan||{})[t||'BASE'];return c===undefined?1:c;};
+/* Üç ayrı çarpan:  puan NT 1,40 · gelir NT 1,20 · prim NT 1,00
+                      BASE'de sırasıyla 1,00 · 1,00 · 0,85 */
+const carpanOf     =t=>{const c=(db.carpan||{})[t||'BASE'];return c===undefined?1:c;};
+const gelirCarpanOf=t=>{const c=(db.gelirCarpan||{})[t||'BASE'];return c===undefined?1:c;};
+const primCarpanOf =t=>{const c=(db.primCarpan||{})[t||'BASE'];return c===undefined?1:c;};
 const mobilMi=p=>!!p&&p.mobilTip==='dakika';
 /* PSTN tarife yükseltme. Tarife ürünlerinin prim alanı operatörün o
    tarife için ödediği hakedişi tutar; satırda iki tarife seçilir ve
@@ -1883,13 +1898,13 @@ function lineCalc(L){
   if(!p)return {p:null,qty:0,amount:0,prim:0,puan:0};
   if(mobilMi(p)){
     const g=L.gb?byId(db.products,L.gb):null;
-    const k=carpanOf(L.tip);
+    const k=carpanOf(L.tip),kg=gelirCarpanOf(L.tip),kp=primCarpanOf(L.tip);
     const adet=parseSerials(L.abone).length;
     const bazPrim=(p.prim||0)+(g?(g.prim||0):0);
     const bazPuan=(p.puan||0)+(g?(g.puan||0):0);
     const bazGelir=(p.gelir||0)+(g?(g.gelir||0):0);
-    return {p,g,mobil:true,qty:adet,amount:0,carpan:k,bazPrim,bazPuan,
-            prim:bazPrim*k*adet,puan:bazPuan*k*adet,gelir:bazGelir*k*adet};
+    return {p,g,mobil:true,qty:adet,amount:0,carpan:k,gelirCarpan:kg,primCarpan:kp,bazPrim,bazPuan,
+            prim:bazPrim*kp*adet,puan:bazPuan*k*adet,gelir:bazGelir*kg*adet};
   }
   if(upcellMi(p)){
     const u=upcellFark(L);
@@ -1956,9 +1971,11 @@ function lineSummary(L){
   if(c.mobil){
     if(!c.g)return 'GB paketini seçin.';
     if(!c.qty)return 'Telefon numarasını girin.';
-    return c.qty+' hat · baz '+money(c.bazPrim)+' × '+nf.format(c.carpan)+' ('+(c.p&&L.tip?L.tip:'BASE')+')'+
-      ' → '+nf.format(c.puan)+' puan'+(primGor()?', '+money(c.prim)+' prim':'')+
-      (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
+    const tipAd=(c.p&&L.tip?L.tip:'BASE');
+    return c.qty+' hat · '+tipAd+
+      ' → '+nf.format(c.puan)+' puan (×'+nf.format(c.carpan)+')'+
+      (primGor()?', '+money(c.prim)+' prim (baz '+money(c.bazPrim)+' ×'+nf.format(c.primCarpan)+')':'')+
+      (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir (×'+nf.format(c.gelirCarpan)+')':'');
   }
   if(c.upcell){
     if(c.eksik)return 'Eski ve yeni tarifeyi seçin.';
@@ -2056,11 +2073,11 @@ function saveSale(){
       const gorulen=new Set(),tekrar=[];
       nolar.forEach(x=>{const k=x.replace(/\D/g,'');if(gorulen.has(k))tekrar.push(x);gorulen.add(k);});
       if(tekrar.length)return err(no+'aynı numara birden fazla girilmiş: '+missingText(tekrar));
-      const k=carpanOf(tip);
+      const k=carpanOf(tip),kg=gelirCarpanOf(tip),kp=primCarpanOf(tip);
       const bazPrim=(p.prim||0)+(g.prim||0),bazPuan=(p.puan||0)+(g.puan||0);
       const bazGelir=(p.gelir||0)+(g.gelir||0);
       hazir.push({p,gb:g,hatTip:tip,qty:nolar.length,units:[],amount:0,calc:'sabit',abone:nolar,
-        prim:bazPrim*k*nolar.length,puan:bazPuan*k*nolar.length,gelir:bazGelir*k*nolar.length});
+        prim:bazPrim*kp*nolar.length,puan:bazPuan*k*nolar.length,gelir:bazGelir*kg*nolar.length});
       continue;
     }
     let qty=0,units=[];
@@ -5089,7 +5106,7 @@ function openProd(id,pre){
     '<div id="pr-calcwrap" style="display:contents">'+prodCalcFields(v)+'</div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="pr-stock" type="checkbox" style="width:auto"'+(v.stocked?' checked':'')+'> Stok takibi yapılır (her adet seri numarasıyla izlenir)</label></div></div>'+
     dl('dl-pcat',prodCats())+dl('dl-pbrand',prodBrands())+'<p class="hint">Gelir, bu ürünün şirkete kazandırdığı tutardır; puan ve primden bağımsızdır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. Mobil hatlarda sabit tutar kullanın.</p>'+
-    '<p class="hint">Mobil hat bileşeni işaretlerseniz bu ürün satış ekranında tek başına satılmaz; dakika paketi ile GB paketi birlikte seçilip tek telefon numarası satırı oluşturur. Prim ve puan ikisinin toplamı üzerinden, NT/BASE çarpanıyla hesaplanır.</p>'+
+    '<p class="hint">Mobil hat bileşeni işaretlerseniz bu ürün satış ekranında tek başına satılmaz; dakika paketi ile GB paketi birlikte seçilip tek telefon numarası satırı oluşturur. Prim ve puan ikisinin toplamı üzerinden hesaplanır. Puan, gelir ve prim ayrı NT/BASE çarpanları kullanır: puan NT 1,40, gelir NT 1,20, prim NT 1,00; BASE’de sırasıyla 1,00 · 1,00 · 0,85.</p>'+
     '<p class="hint">Kategori ve markayı listeden seçebilir ya da yeni bir değer yazabilirsiniz. Hedef kategorisi bu ürünün satışlarının hangi personel hedefine sayılacağını belirler. Yüzde seçilirse satış girilirken satış tutarı istenir; prim ve puan bu tutardan hesaplanır. Değişiklik yalnızca sonraki satışları etkiler.</p><p class="err" id="pr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(p?'':'<button class="btn" data-act="save-prod-next">Kaydet ve yeni ekle</button>')+'<button class="btn primary" data-act="save-prod">'+(p?'Kaydet':'Ürünü kaydet')+'</button>'));
 }
