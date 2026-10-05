@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-a';
+const SURUM='05.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -660,7 +660,7 @@ async function loadAll(zorla){
      sürekli büyüyor ve ekranı hiç açmayan personele de iniyordu;
      artık o ekran açılınca yükleniyor (aracGunlukGetir). */
   const bos=p=>p.catch(()=>[]);
-  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar]=await Promise.all([
+  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -670,8 +670,12 @@ async function loadAll(zorla){
     q('profiles'),
     sb.rpc('bugunku_potansiyel').then(r=>r.error?0:(r.data||0)).catch(()=>0),
     sb.rpc('havuz_sayisi').then(r=>r.error?0:(r.data||0)).catch(()=>0),
-    bos(q('hedef_kat'))]);          /* tablo yoksa varsayılan kategoriler */
+    bos(q('hedef_kat')),            /* tablo yoksa varsayılan kategoriler */
+    /* Kendi randevularımdan satışa dönenler. 57 numaralı dosya
+       çalıştırılmadıysa boş gelir, davranış eskisi gibi kalır. */
+    sb.rpc('randevu_donusumlerim').then(r=>r.error?[]:(r.data||[])).catch(()=>[])]);
   katlariKur(katlar);
+  donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
 
   const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
@@ -783,6 +787,7 @@ function emptyDb(){
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
     assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+  donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
 function setupSteps(){
@@ -948,7 +953,7 @@ function birimOzetKpi(list,p){
   return {
     acik:rnd.filter(a=>a.status==='Açık').length,
     donem:donem.length,
-    satisaDonen:donem.filter(a=>isConverted(a.customerId,a.date)).length,
+    satisaDonen:donem.filter(donustu).length,
     puan,prim,satisAdet:ss.length
   };
 }
@@ -2159,10 +2164,26 @@ function getTarget(empId,katId){
 function isConverted(customerId,fromDate){
   return !!customerId&&db.sales.some(s=>s.customerId===customerId&&s.date>=fromDate);
 }
+/* Randevudan satış çıktı mı?
+   Normalde satış kayıtlarından anlaşılır. Ama satışı BAŞKASI yaptıysa
+   satır yetkisi o kaydı randevuyu alana hiç indirmez; kendi
+   dönüşümünü göremez, üstelik "Satış beyanı" uyarısı alırdı.
+   Bu yüzden sunucudan ayrıca "kendi randevularımdan hangileri satışa
+   döndü" bilgisini de alıyoruz (randevu_donusumlerim). İnen tek şey
+   randevu kimliği ve satış tarihi; tutar, ürün ve satışı yapan kişi
+   inmiyor. İşlev kurulu değilse liste boş gelir, davranış eskisi
+   gibi kalır. */
+let _donusum={};
+function donusumKur(satirlar){
+  _donusum={};
+  (satirlar||[]).forEach(x=>{if(x&&x.appt_id)_donusum[x.appt_id]=x.satis_tarihi||'';});
+}
+const donustu=a=>!!a&&(_donusum[a.id]!==undefined||isConverted(a.customerId,a.date));
+const donusumTarihi=a=>(a&&_donusum[a.id])||'';
 function realizedFor(empId,katId,period){
   const kat=hedefKat(katId);if(!kat)return 0;
   if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)).length;
-  if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)&&isConverted(a.customerId,a.date)).length;
+  if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)&&donustu(a)).length;
   /* Kaynak doluysa o kategorinin satışları kullanılır. Bir ürün tek
      kategoriye etiketlenebildiği için, aynı satıştan hem puan hem
      adet hedefi çıkarmanın yolu bu. */
@@ -2784,7 +2805,7 @@ function apptTable(){
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   if(!list.length)return '<div class="empty">Bu filtrede randevu yok.</div>';
   return '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Operatör / hat</th><th>Kaydı giren saha</th><th>Randevuyu alan</th><th>Atanan personel</th><th>Açıklama</th><th>Durum</th><th></th></tr></thead><tbody>'+
-  list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&isConverted(a.customerId,a.date);
+  list.map(a=>{const c=apptCustomer(a),e=emp(a.employeeId),conv=a.status==='Kapandı'&&donustu(a);
     void 0;
     const custBtn=c?'<button class="btn sm" data-act="cust-info" data-id="'+c.id+'">Müşteri</button> ':'';
     const acts=custBtn+(a.status==='Açık'
@@ -2801,7 +2822,7 @@ function apptTable(){
       '<td>'+(sh?esc(sh.name):'<span class="muted">—</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'
         ?'<span class="badge warn">Açık</span>'+((a.ziyaret||1)>1?' <span class="badge">'+a.ziyaret+'. ziyaret</span>':'')
         :a.status==='İptal'?'<span class="badge bad">İptal</span>'
-        :'<span class="badge ok">Kapandı</span>'+sonucRozet(a))+(conv?' <span class="badge ok">Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
+        :'<span class="badge ok">Kapandı</span>'+sonucRozet(a))+(conv?' <span class="badge ok"'+(donusumTarihi(a)?' title="Satış tarihi: '+fmtDate(donusumTarihi(a))+'"':'')+'>Satışa döndü</span>':'')+'</td><td class="num nowrap">'+acts+'</td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 const alanOf=a=>a.alanId||a.employeeId;
@@ -2819,7 +2840,7 @@ function atamaDagilimi(period){
     if(!iptalMi(a)){const c=byId(db.customers,a.customerId);g.hat+=num(c&&c.mobilAdet);}
     if(iptalMi(a))g.iptal++;
     else if(a.status==='Açık')g.acik++;
-    else {g.kapali++;if(isConverted(a.customerId,a.date))g.satis++;}
+    else {g.kapali++;if(donustu(a))g.satis++;}
   });
   return Object.keys(m).map(k=>m[k]).map(g=>{
     const e=g.eid?emp(g.eid):null;
@@ -2861,7 +2882,7 @@ function apptStatsRows(period){
     const gecerli=all.filter(a=>!iptalMi(a));
     return {e,total:gecerli.length,
       closed:gecerli.filter(a=>a.status==='Kapandı').length,
-      conv:gecerli.filter(a=>isConverted(a.customerId,a.date)).length,
+      conv:gecerli.filter(donustu).length,
       iptal:all.filter(iptalMi).length};
   }).filter(r=>r.total||r.iptal).sort((a,b)=>b.total-a.total);
 }
@@ -2914,7 +2935,7 @@ function viewRandevu(){
   const inPeriodList=db.appointments.filter(a=>inPeriod(a,state.period));
   const iptalSayi=inPeriodList.filter(iptalMi).length;
   const gecerliList=inPeriodList.filter(a=>!iptalMi(a));
-  const convCount=gecerliList.filter(a=>isConverted(a.customerId,a.date)).length;
+  const convCount=gecerliList.filter(donustu).length;
   return head('Randevular','Randevuyu alan personel kayıtta kalır ve hedefine yazılır. Randevu otomatik olarak Bayi Müdürü'+(bm?' ('+esc(bm.name)+')':'')+'ne atanır; oradan istenen personele devredilebilir.',periodSel()+havuzBtn(10)+xlBtn('randevu','Excel’e aktar')+'<button class="btn primary" data-act="open-appt">Randevu ekle</button>')+
   (function(){const by=beyanAcik(state.period);
     return by.length?'<div class="ro-banner"><b>'+by.length+' randevu “satış yapıldı” diye kapatıldı ama sisteme satış girilmedi.</b> Bunlar hedefe ve dönüşüm oranına sayılmaz. Listede <span class="badge warn">Satış beyanı</span> etiketiyle görünürler.</div>':'';})()+
@@ -3121,7 +3142,7 @@ const sonucBilgi=k=>RND_SONUC.find(x=>x.k===k)||null;
 const sonucAdi=k=>{const s=sonucBilgi(k);return s?s.ad:'';};
 /* "Satış yapıldı" bir BEYANDIR. Sistemde eşleşen satış kaydı yoksa
    öyle etiketlenir; hedeflere ve dönüşüm oranına zaten girmiyor. */
-const satisBeyani=a=>!!a&&a.sonuc==='satis'&&!isConverted(a.customerId,a.date);
+const satisBeyani=a=>!!a&&a.sonuc==='satis'&&!donustu(a);
 function sonucRozet(a){
   if(!a||!a.sonuc)return '';
   const s=sonucBilgi(a.sonuc);if(!s)return '';
@@ -3140,7 +3161,7 @@ const RAND_ODAK={
   bugun  :{ad:'Bugün alınan randevu',   donemsiz:true, f:a=>!iptalMi(a)&&yerelGun(a.createdAt)===TODAY},
   donem  :{ad:'Bu dönem randevu',       f:a=>!iptalMi(a)},
   kapanan:{ad:'Bu dönem kapanan',       f:a=>!iptalMi(a)&&a.status==='Kapandı'},
-  satisa :{ad:'Satışa dönen',           f:a=>!iptalMi(a)&&isConverted(a.customerId,a.date)},
+  satisa :{ad:'Satışa dönen',           f:a=>!iptalMi(a)&&donustu(a)},
   beyan  :{ad:'Satış beyanı, kaydı yok',f:a=>satisBeyani(a)},
   iptal  :{ad:'İptal edilen',           f:a=>iptalMi(a)}
 };
@@ -3289,7 +3310,7 @@ function saveCancelAppt(id){
   },'Randevu iptal edildi');
 }
 function openApptDetail(id){
-  const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=isConverted(a.customerId,a.date);dlgState={kind:'apptdetail',id};
+  const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=donustu(a);dlgState={kind:'apptdetail',id};
   const log=(a.log||[]).slice().reverse();
   const al=emp(alanOf(a));
   openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevu türü</dt><dd>'+(metroRnd(a)?'<b>Metro randevusu</b>':'Normal randevu')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Ziyaret</dt><dd>'+(a.ziyaret||1)+'. ziyaret</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+
@@ -3299,7 +3320,7 @@ function openApptDetail(id){
         ?'<dt>Verilen teklif</dt><dd><b>'+money(a.teklifTutar||0)+'</b></dd>'+
          '<dt>Son ödediği fatura</dt><dd>'+money(a.sonFatura||0)+'</dd>':'')+
       '<dt>Açıklama</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+
-    (a.status==='İptal'?'<dt>İptal tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>İptal nedeni</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
+    (a.status==='İptal'?'<dt>İptal tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>İptal nedeni</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?('Evet'+(donusumTarihi(a)?' — '+fmtDate(donusumTarihi(a)):'')):'Hayır')+'</dd></dl>'+
     (log.length?'<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+log.map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('')+'</ul></section>':''),
     (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
     '<button class="btn primary" data-act="close">Kapat</button>'));
@@ -3766,7 +3787,7 @@ function randevuExportRows(){
       adOf(emp(alanOf(a)),'name'),adOf(emp(a.employeeId),'name'),a.status||'',
       sonucAdi(a.sonuc)||'',(a.sonuc==='satis'?(satisBeyani(a)?'Hayır — yalnızca beyan':'Evet'):''),a.ziyaret||1,a.desc||'',
       a.closeDate?dIso(a.closeDate):'',a.closeDesc||'',
-      (!iptalMi(a)&&isConverted(a.customerId,a.date))?'Evet':'Hayır'];
+      (!iptalMi(a)&&donustu(a))?'Evet':'Hayır'];
   });
   return [head].concat(rows);
 }
