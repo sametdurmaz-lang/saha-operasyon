@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-b';
+const SURUM='05.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -377,14 +377,26 @@ const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+S
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
 const CAT_ENV='Envanter bakım';
-const CAT_OUT=['Maaş','Personel avansı','Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider'];
+/* Personele yapılan ek ödemeler. Maaş ve avans gibi, elle hareket
+   girişinden değil Maaş ve ödemeler ekranından yazılır. */
+const ODEME_TURU=[
+  {k:'ticket', ad:'Ticket',      kat:'Ticket',                  alan:'ticket'},
+  {k:'yol',    ad:'Yol parası',  kat:'Yol parası',              alan:'yol'},
+  {k:'ek',     ad:'Ek ödeme',    kat:'Ek ödeme',                alan:'ekOdeme'},
+  {k:'prim',   ad:'Prim',        kat:'Prim ödemesi',            alan:'ekPrim'},
+  {k:'diger',  ad:'Diğer',       kat:'Diğer personel ödemesi',  alan:''}
+];
+const CAT_ODEME=ODEME_TURU.map(t=>t.kat);
+const CAT_OUT=['Maaş','Personel avansı'].concat(CAT_ODEME,
+  ['Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider']);
 /* Elle hareket girişinde kapalı kategoriler.
-   Maaş ve avans: Maaş ve avans ekranından yazılır.
+   Maaş, avans, ticket, yol parası, ek ödeme ve prim:
+   Maaş ve ödemeler ekranından yazılır.
    Araç bakım ve tamir, Cihaz tamir: envantere bağlanmadan girilmesin
    diye kapalı; envanter masrafı yalnızca "Envanter bakım" ile girilir.
    İkisi de CAT_OUT'ta duruyor, çünkü eski kayıtlar ve cihaz detayından
    girilen tamirler bu kategorilerde ve raporlarda süzülebilmeli. */
-const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir'];
+const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir'].concat(CAT_ODEME);
 const CAT_OUT_MANUAL=CAT_OUT.filter(c=>CAT_ELLE_KAPALI.indexOf(c)<0);
 const IL_ILCE={
 "İstanbul":["Adalar","Arnavutköy","Ataşehir","Avcılar","Bağcılar","Bahçelievler","Bakırköy","Başakşehir","Bayrampaşa","Beşiktaş","Beykoz","Beylikdüzü","Beyoğlu","Büyükçekmece","Çatalca","Çekmeköy","Esenler","Esenyurt","Eyüpsultan","Fatih","Gaziosmanpaşa","Güngören","Kadıköy","Kağıthane","Kartal","Küçükçekmece","Maltepe","Pendik","Sancaktepe","Sarıyer","Silivri","Sultanbeyli","Sultangazi","Şile","Şişli","Tuzla","Ümraniye","Üsküdar","Zeytinburnu"],
@@ -678,7 +690,10 @@ async function loadAll(zorla){
   donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
 
-  const salMap={};salaries.forEach(r=>{salMap[r.employee_id]=num(r.salary);});
+  const salMap={};salaries.forEach(r=>{salMap[r.employee_id]={
+    salary:num(r.salary),ticket:num(r.ticket),yol:num(r.yol),
+    ekOdeme:num(r.ek_odeme),ekPrim:num(r.prim)};});
+  const SIFIR_HAK={salary:0,ticket:0,yol:0,ekOdeme:0,ekPrim:0};
   const groupLogs=(rows,key)=>{const m={};rows.forEach(r=>{(m[r[key]]=m[r[key]]||[]).push({date:r.date,text:r.text});});
     Object.keys(m).forEach(k=>m[k].sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0));return m;};
   const aLog=groupLogs(assetLogs,'asset_id'),sLog=groupLogs(stockLogs,'unit_id'),pLog=groupLogs(apptLogs,'appt_id');
@@ -695,7 +710,8 @@ async function loadAll(zorla){
     ayar:(function(){const m={saha_gunluk_potansiyel:15};(ayarlar||[]).forEach(r=>{m[r.anahtar]=num(r.deger);});return m;})(),
     bugunkuPotansiyel:bugunku,
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
-      name:r.name,title:r.title||'',salary:salMap[r.id]||0,bayiMuduru:!!r.bayi_muduru,
+      name:r.name,title:r.title||'',bayiMuduru:!!r.bayi_muduru,
+      ...(salMap[r.id]||SIFIR_HAK),
       birimId:r.birim_id||null,cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     accounts:accounts.map(r=>({id:r.id,name:r.name,type:r.type,companyId:r.company_id,opening:num(r.opening)})),
     transactions:transactions.map(r=>({id:r.id,date:r.date,dir:r.dir,accountId:r.account_id,category:r.category,
@@ -1147,7 +1163,7 @@ function ozetRandevuPanel(){
 function attention(){
   const items=[],cm=TODAY.slice(0,7);
   const adv=db.employees.map(e=>({e,o:openAdvance(e.id)})).filter(x=>x.o>0);
-  if(adv.length)items.push({title:adv.length+' personelde açık avans var',detail:'Toplam '+money(adv.reduce((s,x)=>s+x.o,0))+': '+adv.map(x=>x.e.name).join(', '),act:'go',v:'maas',btn:'Maaş ve avans'});
+  if(adv.length)items.push({title:adv.length+' personelde açık avans var',detail:'Toplam '+money(adv.reduce((s,x)=>s+x.o,0))+': '+adv.map(x=>x.e.name).join(', '),act:'go',v:'maas',btn:'Maaş ve ödemeler'});
   const unpaid=db.employees.filter(e=>!db.payrolls.some(p=>p.employeeId===e.id&&p.month===cm));
   if(unpaid.length)items.push({title:monthLabel(cm)+' maaşı bekleyen '+unpaid.length+' personel var',detail:'Ödenecek net maaş toplamı '+money(sum(unpaid.map(e=>({amount:e.salary})))),act:'go',v:'maas',btn:'Maaşları aç'});
   const sv=db.assets.filter(a=>a.status==='Serviste');
@@ -1198,18 +1214,32 @@ function payRows(){
   });
 }
 function viewMaas(){
-  if(!db.employees.length)return emptyView('Maaş ve avans','Avans verildiği anda gider yazılır. Maaş ödemesinde mahsup edilen kısım tekrar gider sayılmaz.','','Personel eklendiğinde maaş ve avans takibi burada görünür. Personel sayfasından başlayın.');
+  if(!db.employees.length)return emptyView('Maaş ve ödemeler','Maaş, avans ve ek ödemeler. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır.','','Personel eklendiğinde maaş ve ödeme takibi burada görünür. Personel sayfasından başlayın.');
   const rows=payRows(),m=state.payMonth;
   const paidSum=sum(rows.filter(r=>r.pr).map(r=>({amount:r.pr.paid}))),dueSum=sum(rows.filter(r=>!r.pr).map(r=>({amount:r.due})));
   const openSum=db.employees.reduce((s,e)=>s+openAdvance(e.id),0);
-  const monthSel='<select data-set="payMonth" aria-label="Maaş dönemi">'+monthsList().map(x=>'<option value="'+x+'"'+(x===m?' selected':'')+'>'+monthLabel(x)+'</option>').join('')+'</select>';
-  return head('Maaş ve avans','Avans verildiği anda gider yazılır. Maaş ödemesinde mahsup edilen kısım tekrar gider sayılmaz.',monthSel+'<button class="btn primary" data-act="open-adv">Avans ver</button>')+
-  '<div class="kpis"><div class="kpi"><span>Ödenmemiş maaşlar (net, mahsup sonrası)</span><b>'+money(dueSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen</span><b>'+money(paidSum)+'</b></div><div class="kpi"><span>Açık avans toplamı</span><b>'+money(openSum)+'</b></div></div>'+
-  '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th><th>Departman</th><th class="num">Net maaş</th><th class="num">Açık avans</th><th class="num">Ödenecek</th><th>Durum</th><th></th></tr></thead><tbody>'+
-  rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc(r.e.title)+'</div></td><td>'+esc(r.d?r.d.name:'')+'<div class="muted sm">'+esc(coShort(r.e.companyId))+'</div></td><td class="num">'+money(r.e.salary)+'</td><td class="num '+(r.open>0?'out':'muted')+'">'+(r.open>0?money(r.open):'-')+'</td>'+
-    (r.pr?'<td class="num"><b>'+money(r.pr.paid)+'</b>'+(r.pr.advanceDeducted?'<div class="muted sm">'+money(r.pr.advanceDeducted)+' avans mahsup</div>':'')+'</td><td><span class="badge ok">Ödendi</span><div class="muted sm">'+fmtDate(r.pr.date)+'</div></td><td></td>':
-    '<td class="num"><b>'+money(r.due)+'</b></td><td><span class="badge warn">Bekliyor</span></td><td class="num"><button class="btn sm primary" data-act="open-pay" data-id="'+r.e.id+'">Maaş öde</button></td>')+'</tr>').join('')+
-  '</tbody></table></div></section>';
+  /* Dönemde fiilen ödenen ek kalemler */
+  const ekOdenen=sum(db.transactions.filter(t=>t.source==='odeme'&&String(t.date).slice(0,7)===m));
+  const monthSel='<select data-set="payMonth" aria-label="Ödeme dönemi">'+monthsList().map(x=>'<option value="'+x+'"'+(x===m?' selected':'')+'>'+monthLabel(x)+'</option>').join('')+'</select>';
+  const kirilim=e=>{const h=hakedisler(e).filter(x=>x.tutar>0);
+    return h.length?'<div class="muted sm">'+h.map(x=>esc(x.t.ad)+' '+money(x.tutar)).join(' · ')+'</div>':'';};
+  return head('Maaş ve ödemeler','Maaş, avans, ticket, yol parası, ek ödeme ve prim. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır; böylece departman ve şirket giderlerine de girer.',monthSel+'<button class="btn primary" data-act="open-adv">Avans ver</button>')+
+  '<div class="kpis"><div class="kpi"><span>Ödenmemiş maaşlar (net, mahsup sonrası)</span><b>'+money(dueSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen maaş</span><b>'+money(paidSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen ek kalemler</span><b>'+money(ekOdenen)+'</b></div><div class="kpi"><span>Açık avans toplamı</span><b>'+money(openSum)+'</b></div></div>'+
+  '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th><th>Departman</th><th class="num">Net maaş</th><th class="num">Düzenli ek ödeme</th><th class="num">Açık avans</th><th class="num">Maaş ödenecek</th><th>Durum</th><th></th></tr></thead><tbody>'+
+  rows.map(r=>{
+    const ek=hakedisToplam(r.e),odenen=odenenEk(r.e.id,m),odenenTop=sum(odenen);
+    return '<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc(r.e.title)+'</div></td><td>'+esc(r.d?r.d.name:'')+'<div class="muted sm">'+esc(coShort(r.e.companyId))+'</div></td>'+
+    '<td class="num">'+money(r.e.salary)+'</td>'+
+    '<td class="num'+(ek?'':' muted')+'">'+(ek?'<b>'+money(ek)+'</b>'+kirilim(r.e):'-')+'</td>'+
+    '<td class="num '+(r.open>0?'out':'muted')+'">'+(r.open>0?money(r.open):'-')+'</td>'+
+    (r.pr?'<td class="num"><b>'+money(r.pr.paid)+'</b>'+(r.pr.advanceDeducted?'<div class="muted sm">'+money(r.pr.advanceDeducted)+' avans mahsup</div>':'')+'</td>'+
+      '<td><span class="badge ok">Maaş ödendi</span><div class="muted sm">'+fmtDate(r.pr.date)+'</div>'+
+        (odenenTop?'<div class="muted sm">Ek ödeme '+money(odenenTop)+'</div>':'')+'</td>'
+     :'<td class="num"><b>'+money(r.due)+'</b></td>'+
+      '<td><span class="badge warn">Maaş bekliyor</span>'+
+        (odenenTop?'<div class="muted sm">Ek ödeme '+money(odenenTop)+'</div>':'')+'</td>')+
+    '<td class="num"><button class="btn sm primary" data-act="open-pay" data-id="'+r.e.id+'">Ödeme yap</button></td></tr>';}).join('')+
+  '</tbody></table></div><div class="panel-b"><p class="hint"><b>Düzenli ek ödeme</b> sütunu personel kartında tanımlı tutarlardır; ödeme yapıldığı anlamına gelmez. Ödeme penceresinde hazır gelir, orada değiştirebilirsiniz. Dönemde fiilen ödenenler <b>Durum</b> sütununda yazar.</p></div></section>';
 }
 
 function assetCost(id){return sum(db.repairs.filter(r=>r.assetId===id).map(r=>({amount:r.cost})));}
@@ -4547,7 +4577,7 @@ const NAV=[
   {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
   {g:'Saha',items:[['arac','Araç takip'],['harita','Harita']]},
   {g:'Envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
-  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve avans']]},
+  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve ödemeler']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve birimler'],['kullanici','Kullanıcılar']]},
   {g:'Analiz',items:[['rapor','Raporlar'],['denetim','Hareket kaydı']]}
 ];
@@ -4695,7 +4725,7 @@ function openTx(dir){
     '<div class="field full" id="f-envwrap" hidden><label for="f-asset">Envanter kaydı</label><select id="f-asset">'+envanterSecenekleri('')+'</select>'+
       '<div class="hint" id="f-envnot">Masraf seçtiğiniz envanter kaydına işlenir. Cihaz zimmetliyse personeli ve departmanı kendiliğinden bağlanır.</div></div>'+
     '<div class="field full"><label for="f-desc">Açıklama</label><input id="f-desc" type="text" placeholder="Örn. Müşteri ziyareti yakıt gideri"></div></div>'+
-    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş ve avans için Maaş ve avans sayfasını kullanın. Cihaz ve araç masrafları yalnızca <b>Envanter bakım</b> kategorisiyle girilir; masraf o envanter kaydının geçmişine ve zimmetli olduğu personelin maliyetine yazılır.</p><p class="err" id="f-err"></p>',
+    '<p class="hint">Personel seçerseniz departman ve şirket otomatik dolar. Maaş, avans ve personele yapılan ek ödemeler için Maaş ve ödemeler sayfasını kullanın. Cihaz ve araç masrafları yalnızca <b>Envanter bakım</b> kategorisiyle girilir; masraf o envanter kaydının geçmişine ve zimmetli olduğu personelin maliyetine yazılır.</p><p class="err" id="f-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-tx">Hareketi kaydet</button>'));
 }
 function saveTx(){
@@ -4750,31 +4780,122 @@ function saveTransfer(){
     const r=await sb.from('transactions').insert(rows);if(r.error)throw r.error;
   },'Virman kaydedildi');
 }
+/* Personelin karttaki düzenli ek ödemeleri */
+const hakedisler=e=>ODEME_TURU.filter(t=>t.alan).map(t=>({t,tutar:(e&&e[t.alan])||0}));
+const hakedisToplam=e=>hakedisler(e).reduce((a,x)=>a+x.tutar,0);
+/* Bir dönemde personele fiilen yapılmış ek ödemeler */
+const odenenEk=(empId,ay)=>db.transactions.filter(t=>t.source==='odeme'&&t.employeeId===empId&&String(t.date).slice(0,7)===ay);
+
+function odemeSatiri(k,ad,tutar,secili,kilit,not){
+  return '<div class="field full" style="padding:4px 0">'+
+    '<label style="display:flex;gap:10px;align-items:center;font-weight:400">'+
+      '<input type="checkbox" id="od-s-'+k+'" data-odeme="'+k+'" style="width:auto"'+(secili?' checked':'')+(kilit?' disabled':'')+'>'+
+      '<span style="min-width:130px">'+esc(ad)+'</span>'+
+      '<input type="number" id="od-t-'+k+'" min="0" step="0.01" inputmode="decimal" value="'+(tutar?esc(tutar):'')+'" placeholder="0" style="max-width:160px"'+(kilit?' disabled':'')+'>'+
+    '</label>'+
+    (not?'<div class="muted sm" style="margin-left:28px">'+not+'</div>':'')+
+  '</div>';
+}
+function odemeToplamiYenile(){
+  let t=0;
+  ODEME_TURU.forEach(x=>{
+    const c=$('#od-s-'+x.k),v=$('#od-t-'+x.k);
+    if(c&&v&&c.checked&&!c.disabled)t+=parseFloat(String(v.value).replace(',','.'))||0;
+  });
+  const cm=$('#od-s-maas'),vm=$('#od-t-maas');
+  if(cm&&vm&&cm.checked&&!cm.disabled){
+    const ded=parseFloat(String(($('#od-mahsup')||{}).value||'0').replace(',','.'))||0;
+    t+=Math.max(0,(parseFloat(String(vm.value).replace(',','.'))||0)-ded);
+  }
+  const k=$('#od-toplam');if(k)k.textContent=money(t);
+}
 function openPay(empId){
-  if(!db.accounts.length)return needDlg('Maaş öde','Önce bir kasa veya banka hesabı ekleyin. Ödeme bu hesaptan düşülecek.');
-  const e=emp(empId),open=openAdvance(empId),maxDed=Math.min(open,e.salary),acc=db.accounts.find(a=>a.companyId===e.companyId&&a.type==='banka')||db.accounts[0];
-  dlgState={kind:'pay',empId,salary:e.salary,maxDed};
-  openDlg(dlgHtml('Maaş öde','<dl class="kv"><dt>Personel</dt><dd>'+esc(e.name)+'</dd><dt>Dönem</dt><dd>'+monthLabel(state.payMonth)+'</dd><dt>Net maaş</dt><dd>'+money(e.salary)+'</dd><dt>Açık avans</dt><dd>'+money(open)+'</dd></dl>'+
-    '<div class="fields"><div class="field"><label for="f-ded">Mahsup edilecek avans (₺)</label><input id="f-ded" type="number" min="0" max="'+maxDed+'" step="0.01" value="'+maxDed+'"></div><div class="field"><label>Ödenecek net tutar</label><div style="padding:7px 0;font-size:18px;font-weight:600" id="f-net">'+money(e.salary-maxDed)+'</div></div>'+
-    '<div class="field"><label for="f-date">Ödeme tarihi</label><input id="f-date" type="date" value="'+TODAY+'"></div><div class="field"><label for="f-acc">Ödeme hesabı</label><select id="f-acc">'+acctOptions(acc.id)+'</select></div></div><p class="err" id="f-err"></p>',
-    '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-pay">Maaşı öde</button>'));
+  if(!db.accounts.length)return needDlg('Ödeme yap','Önce bir kasa veya banka hesabı ekleyin. Ödeme bu hesaptan düşülecek.');
+  const e=emp(empId);if(!e)return;
+  const ay=state.payMonth;
+  const open=openAdvance(empId),maxDed=Math.min(open,e.salary);
+  const pr=db.payrolls.find(x=>x.employeeId===empId&&x.month===ay);
+  const acc=db.accounts.find(a=>a.companyId===e.companyId&&a.type==='banka')||db.accounts[0];
+  dlgState={kind:'odeme',empId,maxDed};
+  const odenmis=odenenEk(empId,ay);
+  const satirlar=
+    odemeSatiri('maas','Maaş',e.salary,!pr,!!pr,
+      pr?'<b>'+monthLabel(ay)+' maaşı ödendi</b> — '+fmtDate(pr.date)+', '+money(pr.paid):'')+
+    (pr?'':'<div class="fields" style="margin-left:28px"><div class="field"><label for="od-mahsup">Mahsup edilecek avans (₺)</label>'+
+      '<input id="od-mahsup" type="number" min="0" max="'+maxDed+'" step="0.01" value="'+maxDed+'">'+
+      '<div class="muted sm" style="margin-top:4px">Açık avans '+money(open)+'. Mahsup edilen kısım tekrar gider sayılmaz.</div></div></div>')+
+    hakedisler(e).map(({t,tutar})=>{
+      const v=odenmis.filter(x=>x.category===t.kat);
+      return odemeSatiri(t.k,t.ad,tutar,tutar>0&&!v.length,false,
+        v.length?('Bu dönemde '+money(sum(v))+' ödendi'):'' );
+    }).join('')+
+    odemeSatiri('diger','Diğer',0,false,false,'')+
+    '<div class="fields" style="margin-left:28px"><div class="field full"><label for="od-baslik">Diğer ödemenin başlığı</label>'+
+      '<input id="od-baslik" type="text" placeholder="Örn. Bayram ikramiyesi"></div></div>';
+  openDlg(dlgHtml('Ödeme yap',
+    '<dl class="kv"><dt>Personel</dt><dd>'+esc(e.name)+'</dd>'+
+    '<dt>Departman</dt><dd>'+esc((dept(e.departmentId)||{}).name||'')+'</dd>'+
+    '<dt>Dönem</dt><dd>'+monthLabel(ay)+'</dd></dl>'+
+    '<section class="dsec"><h3>Ödenecek kalemler</h3><div class="fields">'+satirlar+'</div>'+
+      '<p class="hint">Tutarlar personel kartından geliyor; burada değiştirmeniz kartı değiştirmez. Seçtiğiniz her kalem ayrı bir gider hareketi olarak yazılır ve personele, departmanına ve şirketine bağlanır.</p></section>'+
+    '<div class="fields">'+
+      '<div class="field"><label for="od-date">Ödeme tarihi</label><input id="od-date" type="date" value="'+TODAY+'"></div>'+
+      '<div class="field"><label for="od-acc">Ödeme aracı</label><select id="od-acc">'+acctOptions(acc.id)+'</select></div>'+
+      '<div class="field full"><label>Toplam ödenecek</label><div style="padding:7px 0;font-size:20px;font-weight:700" id="od-toplam">'+money(0)+'</div></div>'+
+    '</div><p class="err" id="od-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-odeme">Ödemeyi kaydet</button>'));
+  odemeToplamiYenile();
 }
 function savePay(){
-  const d=dlgState,ded=clamp(parseFloat($('#f-ded').value)||0,0,d.maxDed),date=$('#f-date').value;
-  if(!date){$('#f-err').textContent='Ödeme tarihi seçin.';return;}
-  const accId=$('#f-acc').value,month=state.payMonth,e=emp(d.empId);
-  const paid=e.salary-ded;
-  run('f-err',async()=>{
-    let txId=null;
-    if(paid>0){
-      const t=await ins('transactions',{date,dir:'out',account_id:accId,category:'Maaş',amount:paid,
-        company_id:e.companyId,department_id:e.departmentId,employee_id:e.id,
-        descr:monthLabel(month)+' maaşı'+(ded?' (avans mahsubu '+money(ded)+')':''),source:'maas'});
-      txId=t.id;
+  const d=dlgState,e=emp(d.empId),ay=state.payMonth;
+  const err=m=>{$('#od-err').textContent=m;};
+  const date=$('#od-date').value,accId=$('#od-acc').value;
+  if(!date)return err('Ödeme tarihi seçin.');
+  const oku=k=>{
+    const c=$('#od-s-'+k),v=$('#od-t-'+k);
+    if(!c||!v||!c.checked||c.disabled)return null;
+    const t=parseFloat(String(v.value).replace(',','.'));
+    return isNaN(t)?0:t;
+  };
+  /* Maaş ayrı: avans mahsubu var ve payrolls kaydı yazılıyor */
+  const maasTutar=oku('maas');
+  let ded=0,maasNet=0;
+  if(maasTutar!==null){
+    if(!(maasTutar>0))return err('Maaş tutarını 0’dan büyük girin ya da maaş kalemini seçimden çıkarın.');
+    ded=clamp(parseFloat(String(($('#od-mahsup')||{}).value||'0').replace(',','.'))||0,0,Math.min(d.maxDed,maasTutar));
+    maasNet=maasTutar-ded;
+  }
+  const kalemler=[];
+  for(const t of ODEME_TURU){
+    const tutar=oku(t.k);
+    if(tutar===null)continue;
+    if(!(tutar>0))return err(t.ad+' tutarını 0’dan büyük girin ya da seçimden çıkarın.');
+    let baslik=t.ad;
+    if(t.k==='diger'){
+      baslik=norm(($('#od-baslik')||{}).value||'');
+      if(!baslik)return err('Diğer ödeme için bir başlık yazın.');
     }
-    await ins('payrolls',{employee_id:e.id,month,salary:e.salary,advance_deducted:ded,
-      paid,date,tx_id:txId,account_id:accId});
-  },'Maaş ödemesi kaydedildi');
+    kalemler.push({kat:t.kat,tutar,baslik});
+  }
+  if(maasTutar===null&&!kalemler.length)return err('En az bir kalem seçin.');
+  run('od-err',async()=>{
+    const ref=crypto.randomUUID();
+    if(maasTutar!==null){
+      let txId=null;
+      if(maasNet>0){
+        const t=await ins('transactions',{date,dir:'out',account_id:accId,category:'Maaş',amount:maasNet,
+          company_id:nz(e.companyId),department_id:nz(e.departmentId),employee_id:e.id,
+          descr:monthLabel(ay)+' maaşı'+(ded?' (avans mahsubu '+money(ded)+')':''),source:'maas',ref_id:ref});
+        txId=t.id;
+      }
+      await ins('payrolls',{employee_id:e.id,month:ay,salary:maasTutar,advance_deducted:ded,
+        paid:maasNet,date,tx_id:txId,account_id:accId});
+    }
+    if(kalemler.length)
+      await insCok('transactions',kalemler.map(k=>({date,dir:'out',account_id:accId,
+        category:k.kat,amount:k.tutar,company_id:nz(e.companyId),department_id:nz(e.departmentId),
+        employee_id:e.id,descr:monthLabel(ay)+' '+k.baslik,source:'odeme',ref_id:ref})));
+  },'Ödeme kaydedildi');
 }
 function openAdv(){
   if(!db.employees.length)return needDlg('Avans ver','Önce personel ekleyin.');
@@ -5135,6 +5256,14 @@ function openEmp(id){
       opt((db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)).map(b=>[b.id,b.name+((emp(b.mudurId)||{}).name?' — '+(emp(b.mudurId)||{}).name:'')]),e?(e.birimId||''):'','Birime bağlı değil')+
       '</select></div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
+    /* Düzenli ek ödemeler. Ödeme penceresinde hazır gelir; orada
+       değiştirilebilir, kart değişmez. */
+    '<div class="field full"><div class="ro-banner" style="margin:0"><b>Düzenli ek ödemeler</b>'+
+      '<div class="sm">Ödeme yaparken hazır gelir, orada değiştirebilirsiniz. Tutar yazmanız ödeme yapıldığı anlamına gelmez.</div></div></div>'+
+    '<div class="field"><label for="p-ticket">Ticket (₺)</label><input id="p-ticket" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ticket?e.ticket:'')+'" placeholder="0"></div>'+
+    '<div class="field"><label for="p-yol">Yol parası (₺)</label><input id="p-yol" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.yol?e.yol:'')+'" placeholder="0"></div>'+
+    '<div class="field"><label for="p-ekodeme">Ek ödeme (₺)</label><input id="p-ekodeme" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekOdeme?e.ekOdeme:'')+'" placeholder="0"></div>'+
+    '<div class="field"><label for="p-ekprim">Prim (₺)</label><input id="p-ekprim" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekPrim?e.ekPrim:'')+'" placeholder="0"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
     '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar.</p>'+
     (e&&ayrildi(e)?'<div class="ro-banner"><b>Bu personel işten ayrıldı.</b><div class="sm">Çıkış tarihi: '+fmtDate(e.cikisTarihi)+(e.cikisNedeni?' · '+esc(e.cikisNedeni):'')+'</div>'+
@@ -5149,10 +5278,14 @@ function openEmp(id){
 function saveEmp(){
   const name=$('#p-name').value.trim(),deptId=$('#p-dept').value;
   const salary=parseFloat(String($('#p-salary').value).replace(',','.'));
+  const tut=i=>{const v=($('#'+i)||{}).value;return v===''?0:parseFloat(String(v).replace(',','.'));};
+  const ticket=tut('p-ticket'),yol=tut('p-yol'),ekOdeme=tut('p-ekodeme'),ekPrim=tut('p-ekprim');
   const bayi=!!$('#p-bayi').checked,id=dlgState.id,err=m=>{$('#p-err').textContent=m;};
   if(!name)return err('Ad soyad girin.');
   if(!deptId)return err('Departman seçin.');
   if(!(salary>=0))return err('Net maaşı girin.');
+  for(const [ad,v] of [['Ticket',ticket],['Yol parası',yol],['Ek ödeme',ekOdeme],['Prim',ekPrim]])
+    if(!(v>=0))return err(ad+' tutarı negatif olamaz.');
   const row={name,company_id:$('#p-company').value,department_id:deptId,
              birim_id:nz($('#p-birim').value),
              title:$('#p-title').value.trim(),bayi_muduru:bayi};
@@ -5166,7 +5299,8 @@ function saveEmp(){
     if(id)await upd('employees',id,row);
     else empId=(await ins('employees',row)).id;
     const sr=await sb.from('employee_salaries')
-      .upsert({employee_id:empId,salary,updated_by:me.userId,updated_at:new Date().toISOString()},
+      .upsert({employee_id:empId,salary,ticket,yol,ek_odeme:ekOdeme,prim:ekPrim,
+               updated_by:me.userId,updated_at:new Date().toISOString()},
               {onConflict:'employee_id'});
     if(sr.error)throw sr.error;
   },'Personel kaydedildi');
@@ -5355,6 +5489,8 @@ function relink(changed){
 }
 function dialogChange(el){
   const id=el.id,k=dlgState.kind;
+  /* Ödeme penceresinde her kutu veya tutar değişiminde toplam yenilenir */
+  if(k==='odeme'){if(/^od-/.test(id||''))odemeToplamiYenile();return;}
   if(k==='hedefkat'&&id==='hk-tur'){
     /* Birim türe göre kendiliğinden dolsun; kullanıcı yine de
        değiştirebilir. Randevu ve dönüşüm satıştan hesaplanmadığı
@@ -5858,7 +5994,7 @@ const actions={
     },'Hareket silindi');
   },
   'open-pay'(el){openPay(el.dataset.id);},
-  'save-pay'(){savePay();},
+  'save-odeme'(){savePay();},
   'open-adv'(){openAdv();},
   'save-adv'(){saveAdv();},
   asset(el){openAsset(el.dataset.id);},
@@ -6169,7 +6305,7 @@ function init(){
       dlgState.dupConfirmed=false;const b=$('#c-benzer');if(b)b.innerHTML='';}
     else if((el.id==='sl-cu'||el.id==='sl-ct')&&dlgState.kind==='sale'){dlgState.slDup=false;}
     else if((el.id==='ap-cu'||el.id==='ap-ct')&&dlgState.kind==='appt'){dlgState.apDup=false;}
-    else if(el.id==='f-ded'&&dlgState.kind==='pay'){const v=clamp(parseFloat(el.value)||0,0,dlgState.maxDed);$('#f-net').textContent=money(dlgState.salary-v);}
+    else if(dlgState.kind==='odeme'&&/^od-/.test(el.id||''))odemeToplamiYenile();
   });
   const d=$('#dlg');
   d.addEventListener('click',e=>{if(e.target===d)closeDlg();});
