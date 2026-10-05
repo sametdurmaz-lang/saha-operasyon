@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-g';
+const SURUM='05.10.2026-h';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -750,7 +750,8 @@ async function loadAll(zorla){
       gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
       upcellEski:r.upcell_eski||null,upcellYeni:r.upcell_yeni||null,
       batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]})),
-    targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),exempt:!!r.exempt})),
+    targets:targets.map(r=>({id:r.id,employeeId:r.employee_id,kat:r.kat,value:num(r.value),
+      exempt:!!r.exempt,month:r.month||''})),
     customers:customers.map(mapMusteri),
     appointments:appointments.map(r=>mapRandevu(r,pLog[r.id]||[])),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
@@ -2247,12 +2248,30 @@ function cancelSale(id){
   db.sales=db.sales.filter(x=>x.id!==id);
 }
 
-/* ----- Satış hedefleri ----- */
-function getTarget(empId,katId){
-  const t=db.targets.find(x=>x.employeeId===empId&&x.kat===katId);
-  if(!t)return {value:0,exempt:false,defined:false};
-  return {value:t.value,exempt:t.exempt,defined:true};
+/* ----- Satış hedefleri -----
+   Hedefler aya bağlıdır. Bir ay için kayıt yoksa o aydan ÖNCEKİ en son
+   kayıt devreder: Haziran'da girilen hedef, Eylül'de yenisi girilene
+   kadar geçerli kalır. Hiç aylık kayıt yoksa month='' olan başlangıç
+   satırı kullanılır — eski kayıtların hepsi budur, yani aylık hedef
+   girilmeden davranış eskisiyle aynıdır.
+
+   Böylece geçmiş ayların tutturma oranı sabit kalır: bugün hedefi
+   değiştirmek Eylül'ün sonucunu artık bozmuyor. */
+function getTarget(empId,katId,period){
+  const hepsi=db.targets.filter(x=>x.employeeId===empId&&x.kat===katId);
+  if(!hepsi.length)return {value:0,exempt:false,defined:false,month:'',devir:false};
+  const ay=(period&&period!=='all')?period:'';
+  const aylik=hepsi.filter(x=>x.month&&(!ay||x.month<=ay))
+                   .sort((a,b)=>a.month<b.month?1:-1);
+  const t=aylik[0]||hepsi.find(x=>!x.month);
+  if(!t)return {value:0,exempt:false,defined:false,month:'',devir:false};
+  return {value:t.value,exempt:t.exempt,defined:true,month:t.month,
+          /* devir: bu ayın kendi kaydı değil, önceki bir aydan geliyor */
+          devir:!!ay&&t.month!==ay};
 }
+/* Seçilen ayın KENDİ kaydı var mı (düzenleme penceresi için) */
+const ayinKendiHedefi=(empId,katId,ay)=>
+  (ay&&ay!=='all')?db.targets.find(x=>x.employeeId===empId&&x.kat===katId&&x.month===ay):null;
 function isConverted(customerId,fromDate){
   return !!customerId&&db.sales.some(s=>s.customerId===customerId&&s.date>=fromDate);
 }
@@ -2288,11 +2307,18 @@ function realizedFor(empId,katId,period){
   return sum(rows.map(s=>({amount:s.amount||0})));
 }
 function hedefCell(empId,kat,period){
-  const t=getTarget(empId,kat.id);
-  const yz=hedefYazabilir(empId);
+  const t=getTarget(empId,kat.id,period);
+  /* Tüm dönemler seçiliyken hedef düzenlenmez: değerin hangi aya
+     yazılacağı belirsiz olur. */
+  const yz=hedefYazabilir(empId)&&period!=='all';
+  /* Değer bu ayın kendi kaydı değil de önceki bir aydan devrediyorsa
+     küçük bir im konur; aynı rakamı her ay yeniden girdiğinizi
+     sanmayın diye. */
+  const im=(t.defined&&t.devir)
+    ?' <span class="muted sm" title="'+(t.month?esc(monthLabel(t.month))+' hedefinden devrediyor':'Başlangıç hedefi')+'">↳</span>':'';
   const sar=(ic)=>yz
-    ?'<button class="hcell" data-act="open-target" data-emp="'+empId+'" data-kat="'+kat.id+'">'+ic+'</button>'
-    :'<div class="hcell salt">'+ic+'</div>';
+    ?'<button class="hcell" data-act="open-target" data-emp="'+empId+'" data-kat="'+kat.id+'">'+ic+im+'</button>'
+    :'<div class="hcell salt">'+ic+im+'</div>';
   const r=realizedFor(empId,kat.id,period);
   if(t.exempt)return sar('<span class="badge">Muaf</span>'+
     (r?'<span class="muted sm">'+(kat.kind==='tutar'?money(r):nf.format(r))+'</span>':''));
@@ -2318,7 +2344,7 @@ function hedefYazabilir(empId){
 function hedefToplam(list,kat,period){
   let hedef=0,gercek=0,sayi=0,muaf=0;
   list.forEach(e=>{
-    const t=getTarget(e.id,kat.id);
+    const t=getTarget(e.id,kat.id,period);
     if(t.exempt){muaf++;return;}
     if(t.defined){hedef+=t.value;sayi++;}
     gercek+=realizedFor(e.id,kat.id,period);
@@ -2397,7 +2423,7 @@ function viewHedef(){
     ||e.id===me.employeeId);
   /* Yalnızca kendi hedefini gören personele birim toplamı gösterilmez */
   if(!(isUst()||isMuhasebe()||isBirim()||isTLider()))
-    return head('Satış hedefleri','Kendi aylık hedefleriniz ve seçtiğiniz dönemdeki gerçekleşmeniz.',periodSel())+
+    return head('Satış hedefleri','Seçtiğiniz ayın hedefi ve o ayki gerçekleşmeniz. Hedef aya bağlıdır; bir ay için ayrı hedef girilmemişse en son girilen hedef devreder.',periodSel())+
       '<div class="stack">'+
       (hedefGrubu('Hedeflerim','',gorunur,p,false)
         ||'<div class="empty">Sizin için henüz hedef tanımlanmamış.</div>')+
@@ -2411,7 +2437,7 @@ function viewHedef(){
   const birimsiz=gorunur.filter(e=>{const k=personelBirimi(e);
     return !k||!byId(db.birimler,k);});
   const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
-  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Bir hücreye tıklayarak hedefi düzenleyin.',periodSel()+katBtn)+
+  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Hedefler aya bağlıdır: bir hücreye tıklayıp seçili ayın hedefini girin, sonraki aylar yenisi girilene kadar o hedefi devralır. ↳ imi, değerin önceki bir aydan devrettiğini gösterir.'+(state.period==='all'?' Düzenlemek için bir ay seçin.':''),periodSel()+katBtn)+
   '<div class="stack">'+
   (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
   (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
@@ -2522,20 +2548,58 @@ function delHedefKat(id){
 }
 function openTarget(empId,katId){
   const kat=hedefKat(katId),e=emp(empId);if(!kat||!e)return;
-  if(!hedefYazabilir(empId))return;   /* yetkisizde pencere hiç açılmaz */const t=getTarget(empId,katId);dlgState={kind:'target',emp:empId,kat:katId};
-  openDlg(dlgHtml('Hedef: '+e.name,'<p class="muted" style="margin-bottom:10px">'+esc(kat.name)+'</p><div class="fields"><div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="tg-exempt" type="checkbox" style="width:auto"'+(t.exempt?' checked':'')+'> Bu personel bu hedeften muaf</label></div><div class="field full"><label for="tg-val">Aylık hedef ('+esc(kat.unit)+')</label><input id="tg-val" type="number" min="0" step="'+(kat.kind==='tutar'?'0.01':'1')+'" value="'+(t.value||'')+'"'+(t.exempt?' disabled':'')+'></div></div><p class="hint">Hedef her ay aynı değerle tekrar eder, belirli bir aya özel değildir.</p><p class="err" id="tg-err"></p>',
-    '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-target">Kaydet</button>'));
+  if(!hedefYazabilir(empId))return;   /* yetkisizde pencere hiç açılmaz */
+  const ay=state.period;
+  if(ay==='all')return needDlg('Hedef',
+    'Hedefler aya bağlıdır. Düzenlemek için üstteki dönem kutusundan bir ay seçin.');
+  const t=getTarget(empId,katId,ay);
+  const kendi=ayinKendiHedefi(empId,katId,ay);
+  dlgState={kind:'target',emp:empId,kat:katId,ay};
+  /* Değer nereden geliyor: bu ayın kendi kaydı mı, devir mi, başlangıç mı */
+  const kaynak=kendi
+    ?'<b>'+esc(monthLabel(ay))+'</b> için ayrı hedef tanımlı.'
+    :t.defined
+      ?(t.month
+          ?'Şu an <b>'+esc(monthLabel(t.month))+'</b> hedefi devrediyor.'
+          :'Şu an <b>başlangıç hedefi</b> geçerli (aya bağlı değil).')
+      :'Bu kategori için henüz hedef girilmemiş.';
+  openDlg(dlgHtml('Hedef: '+e.name,
+    '<p class="muted" style="margin-bottom:10px">'+esc(kat.name)+' · <b>'+esc(monthLabel(ay))+'</b></p>'+
+    '<div class="ro-banner" style="margin-bottom:12px">'+kaynak+
+      '<div class="sm">Kaydettiğiniz değer '+esc(monthLabel(ay))+' ayından itibaren geçerli olur; sonraki bir ay için ayrıca hedef girerseniz o aydan itibaren yenisi devreye girer. Geçmiş aylar etkilenmez.</div></div>'+
+    '<div class="fields">'+
+      '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400">'+
+        '<input id="tg-exempt" type="checkbox" style="width:auto"'+(t.exempt?' checked':'')+'> Bu personel bu hedeften muaf</label></div>'+
+      '<div class="field full"><label for="tg-val">'+esc(monthLabel(ay))+' hedefi ('+esc(kat.unit)+')</label>'+
+        '<input id="tg-val" type="number" min="0" step="'+(kat.kind==='tutar'?'0.01':'1')+'" value="'+(t.value||'')+'"'+(t.exempt?' disabled':'')+'></div>'+
+    '</div><p class="err" id="tg-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    (kendi?'<button class="btn danger" data-act="del-target">Bu ayın hedefini kaldır</button>':'')+
+    '<button class="btn primary" data-act="save-target">Kaydet</button>'));
 }
 function saveTarget(){
   const exempt=!!$('#tg-exempt').checked,val=parseFloat(String($('#tg-val').value).replace(',','.'))||0,err=m=>{$('#tg-err').textContent=m;};
   if(!exempt&&val<0)return err('Hedef negatif olamaz.');
-  const {emp:empId,kat:katId}=dlgState;
+  const {emp:empId,kat:katId,ay}=dlgState;
+  if(!ay||ay==='all')return err('Hedefin ait olduğu ay belirlenemedi. Pencereyi kapatıp bir ay seçin.');
   run('tg-err',async()=>{
-    const r=await sb.from('targets').upsert({employee_id:empId,kat:katId,
+    const r=await sb.from('targets').upsert({employee_id:empId,kat:katId,month:ay,
       value:exempt?0:val,exempt,updated_by:me.userId,updated_at:new Date().toISOString()},
-      {onConflict:'employee_id,kat'});
+      {onConflict:'employee_id,kat,month'});
     if(r.error)throw r.error;
-  },'Hedef kaydedildi');
+  },monthLabel(ay)+' hedefi kaydedildi');
+}
+/* Bu ayın kendi kaydını siler; değer yeniden önceki aydan devreder */
+function delTarget(){
+  const {emp:empId,kat:katId,ay}=dlgState;
+  const kendi=ayinKendiHedefi(empId,katId,ay);
+  if(!kendi)return;
+  run('tg-err',async()=>{
+    const r=await sb.from('targets').delete().eq('id',kendi.id).select('id');
+    if(r.error)throw new Error(dbErr(r.error));
+    if(!r.data||!r.data.length)
+      throw new Error('Hedef kaldırılamadı: bu kayıt üzerinde yetkiniz yok.');
+  },monthLabel(ay)+' hedefi kaldırıldı');
 }
 
 /* ----- Müşteriler ----- */
@@ -6356,6 +6420,7 @@ const actions={
   'confirm-del-hedefkat'(el){delHedefKat(el.dataset.id);},
   'open-target'(el){openTarget(el.dataset.emp,el.dataset.kat);},
   'save-target'(){saveTarget();},
+  'del-target'(){delTarget();},
   cust(el){openCustomer(el.dataset.id);},
   'cust-info'(el){openCustomerInfo(el.dataset.id);},
   'open-cust'(el){openCustomer(el.dataset.id||null);},
