@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-h';
+const SURUM='05.10.2026-i';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3981,6 +3981,7 @@ function viewRapor(){
     (isUst()||isMuhasebe()
       ?'Tüm kayıtlar aktarılır.'
       :'Yalnızca görebildiğiniz kayıtlar, yani kendi ekibinizin verisi aktarılır.')+'</p></div></section>'+
+  yedekBolumu()+
   stokDegerBolumu()+
   gelirMaliyetBolumu()+
   girisRaporBolum()+
@@ -4106,6 +4107,83 @@ function exportExcel(which){
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
   XLSX.writeFile(wb,'saha-'+ad+'-'+t.getFullYear()+iki(t.getMonth()+1)+iki(t.getDate())+'.xlsx');
   toast('Excel dosyası indirildi');
+}
+/* ---------------------------------------------------------------
+   TAM YEDEK
+   Veritabanının tamamını tek bir JSON dosyası olarak indirir.
+   Supabase'in kendi yedeği Supabase'in İÇİNDE durur; hesap kapanır
+   veya proje yanlışlıkla silinirse yedek de gider. Bu dosya sizin
+   diskinizde durur, yani "Supabase'in kendisi sorun olursa" sorusunun
+   cevabıdır.
+
+   Yalnızca master indirebilir. İçerik satır yetkisiyle sınırlıdır;
+   master her şeyi gördüğü için dosya eksiksizdir. Giriş hesapları
+   (auth.users) dosyada YOKTUR — parolalar hiçbir zaman dışarı çıkmaz,
+   hesaplar Supabase tarafında durur.
+
+   Bellek: tablolar tek tek metne çevrilip Blob parçası olarak
+   biriktirilir; dev bir metin tek seferde bellekte tutulmaz. */
+const YEDEK_TABLO=[
+  'companies','departments','birimler','employees','employee_salaries',
+  'accounts','transactions','payrolls',
+  'products','warehouses','stock_units','stock_logs',
+  'assets','asset_logs','repairs',
+  'customers','leads','appointments','appointment_logs',
+  'sales','sale_items','sale_subscriptions',
+  'targets','hedef_kat','profiles','mobil_carpan','ayarlar',
+  'arac_konum','arac_gunluk','denetim'
+];
+async function yedekIndir(){
+  if(!isMaster())return void toast('Tam yedeği yalnızca master indirebilir');
+  if(busy)return;busy=true;
+  const kutu=$('#yedek-durum'),btn=$('#yedek-btn');
+  const yaz=m=>{if(kutu)kutu.innerHTML=m;};
+  if(btn)btn.disabled=true;
+  const parca=[],sayim={},atlanan=[];
+  const damga=new Date();
+  try{
+    parca.push('{\n"surum":'+JSON.stringify(SURUM)+
+      ',\n"alindi":'+JSON.stringify(damga.toISOString())+
+      ',\n"alan":'+JSON.stringify(me.email||'')+
+      ',\n"tablolar":{\n');
+    let ilk=true;
+    for(let i=0;i<YEDEK_TABLO.length;i++){
+      const t=YEDEK_TABLO[i];
+      yaz('<b>'+(i+1)+' / '+YEDEK_TABLO.length+'</b> — '+esc(t)+' okunuyor…');
+      let satir=null;
+      try{satir=await q(t);}
+      catch(e){atlanan.push(t);continue;}   /* tablo yoksa ya da yetki yoksa atla */
+      sayim[t]=satir.length;
+      parca.push((ilk?'':',\n')+JSON.stringify(t)+':'+JSON.stringify(satir));
+      ilk=false;
+      satir=null;                           /* belleği bırak */
+    }
+    parca.push('\n}\n}\n');
+    const iki=n=>String(n).padStart(2,'0');
+    const ad='saha-yedek-'+damga.getFullYear()+iki(damga.getMonth()+1)+iki(damga.getDate())+
+             '-'+iki(damga.getHours())+iki(damga.getMinutes())+'.json';
+    const blob=new Blob(parca,{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=ad;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1000);
+    const mb=(blob.size/1048576);
+    const dolu=Object.keys(sayim).filter(k=>sayim[k]).sort((a,b)=>sayim[b]-sayim[a]);
+    yaz('<b>'+esc(ad)+'</b> indirildi · '+(mb<1?Math.round(blob.size/1024)+' KB':mb.toFixed(1)+' MB')+
+      '<div class="muted sm" style="margin-top:6px">'+
+        dolu.map(k=>esc(k)+' '+nf.format(sayim[k])).join(' · ')+'</div>'+
+      (atlanan.length?'<div class="muted sm">Atlanan (tablo yok ya da yetki yok): '+esc(atlanan.join(', '))+'</div>':''));
+  }catch(e){
+    yaz('<span class="err">Yedek alınamadı: '+esc((e&&e.message)||String(e))+'</span>');
+  }finally{busy=false;if(btn)btn.disabled=false;}
+}
+function yedekBolumu(){
+  if(!isMaster())return '';
+  return '<section class="panel"><div class="panel-h"><div><h2>Tam yedek</h2>'+
+    '<p class="muted sm">Veritabanının tamamı tek bir JSON dosyası olarak bilgisayarınıza iner.</p></div>'+
+    '<button class="btn primary" id="yedek-btn" data-act="yedek-indir">Tam yedek indir</button></div>'+
+    '<div class="panel-b"><div id="yedek-durum" class="muted sm">Hazır.</div>'+
+    '<p class="hint" style="margin-top:10px">Supabase’in kendi yedeği Supabase’in içinde durur; hesap kapanır ya da proje silinirse o yedek de gider. Bu dosya sizin diskinizde durduğu için bağımsız kopyadır. Giriş hesapları ve parolalar dosyaya <b>girmez</b>; onlar Supabase tarafında kalır. Büyük tablolarda indirme birkaç dakika sürebilir, sekmeyi kapatmayın.</p></div></section>';
 }
 function xlBtn(which,label){
   return excelYetkisi()?'<button class="btn" data-act="export-xl" data-v="'+which+'">'+label+'</button>':'';
@@ -6463,6 +6541,7 @@ const actions={
         throw new Error('Erişim kaldırılamadı: bu hesap üzerinde yetkiniz yok.');
     },'Erişim kaldırıldı');
   },
+  'yedek-indir'(){yedekIndir();},
   'bos-hesap-yenile'(){bosHesapGetir(true).then(()=>render());},
   'del-hesap'(el){
     if(!isMaster())return void toast('Hesap silme yalnızca Master yetkisindedir');
