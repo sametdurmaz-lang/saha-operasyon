@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-l';
+const SURUM='05.10.2026-m';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1031,6 +1031,7 @@ function viewOzetBirim(){
     (primGor()?'<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>':'')+
   '</div>'+
   '<div class="stack">'+
+  kapamaPaneli(hepsi?aktifPersonel():ekip)+
   (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)),p):'')+
   (ekip.length
     ?(hepsi?'':hedefGrubu(birim?birim.name:'Biriminiz',
@@ -1058,6 +1059,7 @@ function viewOzet(){
     isMaster()?'Personel ve birim bazında gelir ile prim, günlük ve aylık. Altında gider dağılımı ve randevu özeti.'
               :'Kasa, banka ve giderlerin şirket, departman ve personel kırılımında özeti.',periodSel())+
   '<div class="stack">'+setupPanel()+
+  kapamaPaneli(aktifPersonel())+
   /* Master'ın ana sayfasında en üstte gelir ve prim tablosu durur.
      Kasa bakiyeleri ve dönem özeti master'da gösterilmez; ikisi de
      Kasa ve banka ekranında zaten var. Muhasebede olduğu gibi kalır. */
@@ -1152,6 +1154,67 @@ function startOfWeek(dateStr){
   return d;
 }
 function isoOf(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+/* ---------- Randevu kapama raporu ----------
+   Genel bakışın ilk raporu. "Randevu özeti" paneli randevunun hangi
+   gün için ALINDIĞINI sayar; bu panel ise hangi gün KAPATILDIĞINI.
+   İkisi farklı sorulardır: biri doluluk, bu ise ekibin o gün işini
+   bitirip bitirmediğini gösterir.
+
+   Kapanma günü close_date alanıdır; randevu tarihi değil. Bir
+   randevu ertelenip üç hafta sonra kapanmış olabilir. */
+const kapanmaGunu=a=>a&&(a.closeDate||a.date)||'';
+const kapandiMi=a=>!!a&&a.status==='Kapandı';
+function kapamaRaporu(list,p){
+  const ids=new Set(list.map(e=>e.id));
+  const benim=db.appointments.filter(a=>ids.has(a.employeeId));
+  const donemde=a=>p==='all'||String(kapanmaGunu(a)).slice(0,7)===p;
+  const sonuclar=RND_SONUC.filter(x=>x.kapat);
+  const rows=list.map(e=>{
+    const mine=benim.filter(a=>a.employeeId===e.id);
+    const kapanan=mine.filter(a=>kapandiMi(a)&&donemde(a));
+    const say={};sonuclar.forEach(sc=>{say[sc.k]=kapanan.filter(a=>a.sonuc===sc.k).length;});
+    return {e,
+      bugun:mine.filter(a=>kapandiMi(a)&&kapanmaGunu(a)===TODAY).length,
+      donem:kapanan.length,
+      iptal:mine.filter(a=>iptalMi(a)&&donemde(a)).length,
+      belirsiz:kapanan.filter(a=>!a.sonuc).length,
+      say};
+  }).filter(r=>r.bugun||r.donem||r.iptal);
+  rows.sort((a,b)=>b.bugun-a.bugun||b.donem-a.donem||personelSirasi(a.e,b.e));
+  return {rows,sonuclar};
+}
+function kapamaPaneli(list){
+  const p=state.period,{rows,sonuclar}=kapamaRaporu(list,p);
+  const top=k=>rows.reduce((s,r)=>s+(k==='bugun'?r.bugun:k==='donem'?r.donem:k==='iptal'?r.iptal:(r.say[k]||0)),0);
+  const donemAdi=p==='all'?'Tüm dönemler':monthLabel(p);
+  return '<section class="panel"><div class="panel-h"><div><h2>Randevu kapama raporu</h2>'+
+    '<p class="muted sm">Randevunun kapatıldığı güne göre · '+esc(donemAdi)+
+    '. Alındığı güne göre sayım aşağıdaki “Randevu özeti” panelindedir.</p></div>'+
+    '<button class="btn sm" data-act="rand-odak-git" data-v="kapanisDonem">Randevulara git</button></div>'+
+  '<div class="kpis" style="margin:0;border-left:0;border-right:0;border-radius:0">'+
+    '<button class="kpi" data-act="rand-odak-git" data-v="kapanisBugun"><span>Bugün kapanan</span><b>'+nf.format(top('bugun'))+'</b></button>'+
+    '<button class="kpi" data-act="rand-odak-git" data-v="kapanisDonem"><span>'+esc(donemAdi)+' kapanan</span><b>'+nf.format(top('donem'))+'</b></button>'+
+    sonuclar.map(sc=>'<div class="kpi"><span>'+esc(sc.ad)+'</span><b'+(sc.ton?' class="'+(sc.ton==='ok'?'in':sc.ton==='bad'?'out':'')+'"':'')+'>'+nf.format(top(sc.k))+'</b></div>').join('')+
+  '</div>'+
+  (rows.length
+    ?'<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Bugün</th>'+
+      '<th class="num">Bu dönem</th>'+sonuclar.map(sc=>'<th class="num">'+esc(sc.ad)+'</th>').join('')+
+      '<th class="num">İptal</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+
+        esc((dept(r.e.departmentId)||{}).name||'')+'</div></td>'+
+        '<td class="num'+(r.bugun?'':' muted')+'">'+(r.bugun?'<b>'+r.bugun+'</b>':'-')+'</td>'+
+        '<td class="num'+(r.donem?'':' muted')+'">'+(r.donem||'-')+'</td>'+
+        sonuclar.map(sc=>'<td class="num'+(r.say[sc.k]?'':' muted')+'">'+(r.say[sc.k]||'-')+'</td>').join('')+
+        '<td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td></tr>').join('')+
+      '<tr class="total"><td>Toplam</td><td class="num">'+nf.format(top('bugun'))+'</td>'+
+        '<td class="num">'+nf.format(top('donem'))+'</td>'+
+        sonuclar.map(sc=>'<td class="num">'+nf.format(top(sc.k))+'</td>').join('')+
+        '<td class="num">'+nf.format(top('iptal'))+'</td></tr>'+
+      '</tbody></table></div>'+
+      (rows.some(r=>r.belirsiz)?'<div class="panel-b"><p class="hint">Sonucu girilmemiş kapanış var; bunlar sonuç sütunlarının hiçbirine düşmez. Randevular ekranından açıp sonucunu seçebilirsiniz.</p></div>':'')
+    :'<div class="empty">Bu dönemde kapanan randevu yok.</div>')+
+  '</section>';
+}
 function ozetRandevuPanel(){
   const wkStart=startOfWeek(TODAY),wkStartISO=isoOf(wkStart);
   const wkEnd=new Date(wkStart);wkEnd.setDate(wkEnd.getDate()+6);const wkEndISO=isoOf(wkEnd);
@@ -3383,7 +3446,14 @@ const RAND_ODAK={
   kapanan:{ad:'Bu dönem kapanan',       f:a=>!iptalMi(a)&&a.status==='Kapandı'},
   satisa :{ad:'Satışa dönen',           f:a=>!iptalMi(a)&&donustu(a)},
   beyan  :{ad:'Satış beyanı, kaydı yok',f:a=>satisBeyani(a)},
-  iptal  :{ad:'İptal edilen',           f:a=>iptalMi(a)}
+  iptal  :{ad:'İptal edilen',           f:a=>iptalMi(a)},
+  /* Kapama raporundan gelenler: randevunun alındığı güne değil,
+     KAPATILDIĞI güne göre süzer. Randevular ekranında kendi kutuları
+     yoktur; yalnızca Genel bakıştaki rapordan tıklanınca açılır. */
+  kapanisBugun:{ad:'Bugün kapatılan randevu',donemsiz:true,
+    f:a=>a.status==='Kapandı'&&kapanmaGunu(a)===TODAY},
+  kapanisDonem:{ad:'Bu dönemde kapatılan randevu',donemsiz:true,
+    f:a=>a.status==='Kapandı'&&(state.period==='all'||String(kapanmaGunu(a)).slice(0,7)===state.period)}
 };
 /* "Teklif verildi" ile kapatırken zorunlu alanlar. Müşteri kartındaki
    değerler hazır gelir; personel doğrular veya düzeltir. Kaydedilince
@@ -6760,6 +6830,10 @@ const actions={
   },
   satgroup(el){state.sat.group=el.dataset.v;render();},
   'gp-kirilim'(el){state.gpKirilim=el.dataset.v;render();},
+  'rand-odak-git'(el){
+    state.rand={status:'',emp:'',q:'',odak:el.dataset.v||''};
+    state.view='randevu';render();window.scrollTo(0,0);
+  },
   'rand-odak'(el){const v=el.dataset.v||'';
     state.rand.odak=(state.rand.odak===v)?'':v;      /* tekrar tıklayınca kalkar */
     if(state.rand.odak)state.rand.status='';          /* durum süzgeciyle çakışmasın */
