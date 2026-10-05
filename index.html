@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-f';
+const SURUM='05.10.2026-g';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1491,6 +1491,7 @@ function haritaCanli(koru){
   if(f.katRnd)par.push(r.adet+' randevu');
   let yazi=par.length?par.join(' · ')+' haritada':'Gösterilecek katman seçilmedi';
   if(f.katRnd&&r.yaklasik)yazi+=' · '+r.yaklasik+' randevu yaklaşık konumda';
+  if(f.katRnd&&r.ustuste)yazi+=' · '+r.ustuste+' pin üst üste binmesin diye ayrıldı';
   if(f.katRnd&&r.konumsuz)yazi+=' · '+r.konumsuz+' randevunun konumu hazırlanıyor';
   if(f.katRnd&&r.musterisiz)yazi+=' · '+r.musterisiz+' randevunun müşteri kaydını göremiyorsunuz';
   /* Sebebi zaten yazdıysak genel "veri yok" mesajıyla üstünü örtmeyelim */
@@ -1550,14 +1551,57 @@ function haritaRandevuListesi(){
     .map(a=>({a,c:byId(db.customers,a.customerId)}))
     .sort((x,y)=>(x.a.date||'').localeCompare(y.a.date||''));
 }
+/* ---------- Üst üste binen pinler ----------
+   Adresi çözülemeyen kayıtlar ilçe merkezine düşüyor; aynı ilçeden on
+   müşteri varsa on pin tam olarak aynı noktaya biniyor ve yalnızca en
+   üstteki görünüyordu. Çakışanları küçük bir halka üzerine dağıtıyoruz.
+   Hepsi zaten yaklaşık konum olduğu için bu bir doğruluk kaybı değil;
+   tersine, gizlenen kayıtları görünür yapıyor. */
+const PIN_ARALIK_M=55;
+/* j=0 merkez; sonrakiler 6, 12, 18... kişilik halkalara yerleşir */
+function pinHalka(j){
+  if(j<=0)return {h:0,aci:0};
+  let halka=1,once=0,kap=6;
+  while(j>once+kap){once+=kap;halka++;kap=6*halka;}
+  return {h:halka,aci:2*Math.PI*(j-once-1)/kap};
+}
+/* Aynı koordinatı paylaşanlara ofset üretir */
+function pinDagit(koord){
+  const grup={},ofset=new Array(koord.length).fill(null);
+  koord.forEach((k,i)=>{
+    const a=k[0].toFixed(5)+','+k[1].toFixed(5);
+    (grup[a]=grup[a]||[]).push(i);
+  });
+  Object.keys(grup).forEach(a=>{
+    const ix=grup[a];if(ix.length<2)return;
+    ix.forEach((idx,j)=>{
+      const {h,aci}=pinHalka(j);
+      if(!h){ofset[idx]=[0,0];return;}
+      const d=h*PIN_ARALIK_M;
+      const enlem=koord[idx][0];
+      ofset[idx]=[(d*Math.sin(aci))/111320,
+                  (d*Math.cos(aci))/(111320*Math.max(0.2,Math.cos(enlem*Math.PI/180)))];
+    });
+  });
+  return ofset;
+}
 function haritaRandevuCiz(m,noktalar){
   const liste=haritaRandevuListesi();
   let adet=0,yaklasik=0,konumsuz=0,musterisiz=0;const bekleyen=[];
+  /* Önce çizilebilecekleri ayır, sonra çakışanları dağıt */
+  const cizilecek=[];
   liste.forEach(({a,c})=>{
-    /* Müşteri kaydını okuma yetkimiz yoksa randevuyu sessizce yutmayalım */
     if(!c){musterisiz++;return;}
     if(c.enlem==null||c.boylam==null){konumsuz++;
       if(bekleyen.indexOf(c.unvan)<0)bekleyen.push(c.unvan);return;}
+    cizilecek.push({a,c});
+  });
+  const ofsetler=pinDagit(cizilecek.map(x=>[x.c.enlem,x.c.boylam]));
+  let _ustuste=0;
+  cizilecek.forEach(({a,c},_i)=>{
+    const of=ofsetler[_i];
+    const enlem=c.enlem+(of?of[0]:0),boylam=c.boylam+(of?of[1]:0);
+    if(of&&(of[0]||of[1]))_ustuste++;
     if(c.geoKaynak==='ilce')yaklasik++;
     const metro=metroRnd(a);
     /* Metro randevusu kendi renginde çıkar. Tarihi geçmişse beyaz
@@ -1572,7 +1616,7 @@ function haritaRandevuCiz(m,noktalar){
     const pin=L.divIcon({className:'',iconSize:null,
       html:'<div class="rnd-pin"><span class="nk" style="background:'+renk+';border-color:'+cerceve+'">'+esc(icerik)+'</span>'+
         (yan?'<span class="yn">'+esc(yan)+'</span>':'')+'</div>'});
-    const mk=L.marker([c.enlem,c.boylam],{icon:pin,riseOnHover:true,
+    const mk=L.marker([enlem,boylam],{icon:pin,riseOnHover:true,
       title:c.unvan+(metro?' · Metro randevusu':'')+(hatliMi?' · '+c.operator+' '+num(c.mobilAdet)+' hat':'')}).addTo(m);
     mk.bindPopup('<b>'+esc(c.unvan)+'</b>'+
       (c.yetkili?'<br>'+esc(c.yetkili):'')+
@@ -1585,10 +1629,11 @@ function haritaRandevuCiz(m,noktalar){
       (a.desc?'<br><span style="color:#5C6B7D">'+esc(a.desc)+'</span>':'')+
       (c.adres?'<br><span style="color:#5C6B7D">'+esc([c.adres,c.ilce,c.il].filter(Boolean).join(', '))+'</span>':'')+
       (c.geoKaynak==='ilce'?'<br><span style="color:'+RND_RENK.bugun+'">Yaklaşık konum (ilçe merkezi)</span>':'')+
+      ((of&&(of[0]||of[1]))?'<br><span style="color:#5C6B7D">Aynı noktada başka randevular da var; pinler görünsün diye ayrıldı.</span>':'')+
       '<br><a href="https://www.google.com/maps/dir/?api=1&destination='+c.enlem+','+c.boylam+'" target="_blank" rel="noopener">Yol tarifi</a>');
-    _hrtKat.push(mk);noktalar.push([c.enlem,c.boylam]);adet++;
+    _hrtKat.push(mk);noktalar.push([enlem,boylam]);adet++;
   });
-  return {adet,yaklasik,konumsuz,musterisiz,bekleyen,toplam:liste.length};
+  return {adet,yaklasik,konumsuz,musterisiz,bekleyen,ustuste:_ustuste,toplam:liste.length};
 }
 function haritaCiz(){
   /* DOM yerleşene kadar bekle */
@@ -2797,33 +2842,97 @@ function saveCustomer(){
    zaten aynı kaydı sırası gelince tekrar dener. */
 const GEO_ZAMAN_ASIMI=6000;
 function geoImza(c){return (c.adres||'')+'|'+(c.ilce||'')+'|'+(c.il||'');}
-async function geoSor(adres){
-  const url='https://photon.komoot.io/api?limit=1&lang=default&q='+encodeURIComponent(adres);
+/* ---------- Adres → koordinat ----------
+   Photon bulanık metin araması yapar ve sorgunun sonundaki il/ilçeyi
+   yok sayabilir. "cumhuriyet mahallesi atatürk caddesi no:5,
+   Arnavutköy, İstanbul" sorgusu Tire/İzmir'de bir kafe döndürüyordu
+   ve bu sonuç doğrulanmadan kaydediliyordu: pin 420 km uzağa düşüyor,
+   üstelik "adres" etiketlendiği için arayüz uyarı da vermiyordu.
+
+   Artık üç adım var:
+     1. önce ilçe merkezi bulunur; dönen il tutmuyorsa kabul edilmez,
+     2. tam adres, kapı numarası çıkarılarak ve ilçe merkezine
+        yaslanarak (lat/lon) sorulur,
+     3. dönen sonucun ili tutmuyorsa ya da ilçe merkezinden
+        GEO_MAX_KM'den uzaksa REDDEDİLİR; o zaman ilçe merkezi
+        "yaklaşık konum" olarak yazılır.
+
+   Kural: yanlış pin, yaklaşık pinden daha kötüdür. Yaklaşık olan
+   haritada uyarı rozetiyle çıkar; yanlış olan doğruymuş gibi durur ve
+   personeli başka şehre gönderir. */
+const GEO_MAX_KM=30;
+const geoNorm=s=>String(s||'').replace(/[İIı]/g,'i').toLowerCase()
+  .replace(/ş/g,'s').replace(/ğ/g,'g').replace(/ü/g,'u')
+  .replace(/ö/g,'o').replace(/ç/g,'c').replace(/[âàá]/g,'a')
+  .replace(/[^a-z0-9]/g,'');
+/* Kapı, daire ve blok numarası sorgudan çıkarılır: Photon bunları
+   anlamlandıramayıp alakasız bir sonuca kayıyor. */
+const KAPI_NO=/\b(kapı\s*no|kapi\s*no|blok\s*no|daire|no|nu|d)\s*[:.\-]?\s*\d+[a-zçğıöşü]?(\s*[\/-]\s*\d+[a-zçğıöşü]?)*/gi;
+const kapiSil=a=>String(a||'').replace(KAPI_NO,' ')
+  .replace(/\s{2,}/g,' ').replace(/^[\s,]+|[\s,]+$/g,'');
+const mesafeKm=(a,b,c,d)=>{const R=6371,p=Math.PI/180;
+  const x=Math.pow(Math.sin((c-a)*p/2),2)+
+          Math.cos(a*p)*Math.cos(c*p)*Math.pow(Math.sin((d-b)*p/2),2);
+  return 2*R*Math.asin(Math.sqrt(x));};
+
+async function geoSor(adres,opt){
+  opt=opt||{};
+  let url='https://photon.komoot.io/api?lang=default&limit='+(opt.limit||5)+
+          '&q='+encodeURIComponent(adres);
+  if(opt.lat!==undefined&&opt.lat!==null)url+='&lat='+opt.lat+'&lon='+opt.lon;
+  if(opt.tag)url+='&osm_tag='+encodeURIComponent(opt.tag);
   const kes=new AbortController();
   const sayac=setTimeout(()=>kes.abort(),GEO_ZAMAN_ASIMI);
   try{
     const r=await fetch(url,{signal:kes.signal});
-    if(!r.ok)return null;
+    if(!r.ok)return [];
     const j=await r.json();
-    const k=j&&j.features&&j.features[0]&&j.features[0].geometry&&j.features[0].geometry.coordinates;
-    if(!k||k.length<2)return null;
-    const enlem=Number(k[1]),boylam=Number(k[0]);
-    return isFinite(enlem)&&isFinite(boylam)?{enlem,boylam}:null;
-  }catch(e){return null;}
+    return (((j||{}).features)||[]).map(f=>{
+      const k=f.geometry&&f.geometry.coordinates,pr=f.properties||{};
+      if(!k||k.length<2)return null;
+      const enlem=Number(k[1]),boylam=Number(k[0]);
+      if(!isFinite(enlem)||!isFinite(boylam))return null;
+      return {enlem,boylam,il:pr.state||'',ilce:pr.city||''};
+    }).filter(Boolean);
+  }catch(e){return [];}
   finally{clearTimeout(sayac);}
 }
-/* Önce tam adres, olmazsa ilçe merkezi */
+/* İlçe merkezi; bulunamazsa il merkezi. Aynı ilçe çok kayıtta
+   tekrarlandığı için oturum boyunca akılda tutulur. */
+const _geoMerkez={};
+async function geoMerkez(il,ilce){
+  const anahtar=geoNorm(il)+'|'+geoNorm(ilce);
+  if(_geoMerkez[anahtar]!==undefined)return _geoMerkez[anahtar];
+  const dene=[];
+  if(ilce)dene.push([ilce,il,'Türkiye'].filter(Boolean).join(', '));
+  if(il)dene.push([il,'Türkiye'].join(', '));
+  let bulunan=null;
+  for(const q of dene){
+    const list=await geoSor(q,{limit:3,tag:'place'});
+    const hit=list.find(r=>!il||geoNorm(r.il)===geoNorm(il));
+    if(hit){bulunan=hit;break;}
+  }
+  _geoMerkez[anahtar]=bulunan;
+  return bulunan;
+}
 async function konumBul(c){
   const il=(c.il||'').trim(),ilce=(c.ilce||'').trim(),adres=(c.adres||'').trim();
   if(!il&&!adres)return null;
+  const merkez=await geoMerkez(il,ilce);
   if(adres){
-    const t=await geoSor([adres,ilce,il,'Türkiye'].filter(Boolean).join(', '));
-    if(t)return {enlem:t.enlem,boylam:t.boylam,kaynak:'adres'};
+    const q=[kapiSil(adres),ilce,il].filter(Boolean).join(', ');
+    const list=await geoSor(q,merkez?{lat:merkez.enlem,lon:merkez.boylam}:{});
+    const aday=list.filter(r=>{
+      if(il&&geoNorm(r.il)!==geoNorm(il))return false;
+      if(merkez&&mesafeKm(merkez.enlem,merkez.boylam,r.enlem,r.boylam)>GEO_MAX_KM)return false;
+      return true;
+    });
+    /* Aynı ilçeyi yazan sonuç varsa onu yeğle */
+    const iyi=ilce?aday.filter(r=>geoNorm(r.ilce)===geoNorm(ilce)):[];
+    const sec=iyi[0]||aday[0];
+    if(sec)return {enlem:sec.enlem,boylam:sec.boylam,kaynak:'adres'};
   }
-  if(ilce||il){
-    const t=await geoSor([ilce,il,'Türkiye'].filter(Boolean).join(', '));
-    if(t)return {enlem:t.enlem,boylam:t.boylam,kaynak:'ilce'};
-  }
+  if(merkez)return {enlem:merkez.enlem,boylam:merkez.boylam,kaynak:'ilce'};
   return null;
 }
 /* Kaydedilen müşterinin koordinatını yaz. Hata fırlatmaz. */
