@@ -225,6 +225,7 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .rnd-pin .yn{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:6px;
   padding:2px 6px;font-size:11px;font-weight:600;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .rnd-pin:hover .nk{filter:brightness(1.08)}
+.badge.metro{background:#EDE9FE;color:#6D28D9;border-color:#DDD6FE}
 .hrt-bekleyen:not(:empty){padding:10px 14px;border-top:1px solid var(--line);
   font-size:13px;color:var(--muted);background:var(--paper)}
 .yeni-surum{position:fixed;left:50%;transform:translateX(-50%);z-index:90;
@@ -312,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='03.10.2026-d';
+const SURUM='05.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -623,11 +624,16 @@ const mapMusteri=r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_a
   mobilAdet:r.mobil_adet||0,mobilTaahhutAy:r.mobil_taahhut_ay||'',mobilTaahhutYil:r.mobil_taahhut_yil||'',
   dslVar:!!r.dsl_var,dslHizmetNo:r.dsl_hizmet_no||'',dslAdet:r.dsl_adet||0,dslTaahhutAy:r.dsl_taahhut_ay||'',dslTaahhutYil:r.dsl_taahhut_yil||'',
   pstnVar:!!r.pstn_var,pstnHizmetNo:r.pstn_hizmet_no||'',pstnAdet:r.pstn_adet||0,pstnTaahhutAy:r.pstn_taahhut_ay||'',pstnTaahhutYil:r.pstn_taahhut_yil||'',
-  metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||''});
+  metroVar:!!r.metro_var,metroHizmetNo:r.metro_hizmet_no||'',metroAdet:r.metro_adet||0,metroTaahhutAy:r.metro_taahhut_ay||'',metroTaahhutYil:r.metro_taahhut_yil||'',
+  teklifTutar:r.teklif_tutar==null?null:num(r.teklif_tutar),
+  sonFatura:r.son_fatura==null?null:num(r.son_fatura),
+  teklifTarihi:r.teklif_tarihi||''});
 const mapRandevu=(r,log)=>({id:r.id,customerId:r.customer_id,employeeId:r.employee_id,
   alanId:r.alan_id||null,date:r.date,desc:r.descr,status:r.status,
   createdAt:r.created_at||'',
-  sonuc:r.sonuc||'',ziyaret:r.ziyaret||1,
+  sonuc:r.sonuc||'',ziyaret:r.ziyaret||1,tur:r.tur||'normal',
+  teklifTutar:r.teklif_tutar==null?null:num(r.teklif_tutar),
+  sonFatura:r.son_fatura==null?null:num(r.son_fatura),
   closeDesc:r.close_descr||'',closeDate:r.close_date||'',log:log||[]});
 const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
   enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
@@ -1483,7 +1489,7 @@ function haritaYenile(){
   if(state.hrt.sekme==='isi')haritaIsi();else haritaCanli();
 }
 /* --- Açık randevular --- */
-const RND_RENK={gecmis:'#DC2626',bugun:'#D97706',gelecek:'#2563EB'};
+const RND_RENK={gecmis:'#DC2626',bugun:'#D97706',gelecek:'#2563EB',metro:'#7C3AED'};
 function randevuRenk(tarih){
   if(!tarih)return RND_RENK.gelecek;
   if(tarih<TODAY)return RND_RENK.gecmis;
@@ -1509,20 +1515,26 @@ function haritaRandevuCiz(m,noktalar){
     if(c.enlem==null||c.boylam==null){konumsuz++;
       if(bekleyen.indexOf(c.unvan)<0)bekleyen.push(c.unvan);return;}
     if(c.geoKaynak==='ilce')yaklasik++;
-    const renk=randevuRenk(a.date),h=emp(a.employeeId),alan=emp(a.alanId);
-    /* Pinin içinde hat adedi; yanında operatör kısaltması */
+    const metro=metroRnd(a);
+    /* Metro randevusu kendi renginde çıkar. Tarihi geçmişse beyaz
+       çerçeve yerine kırmızı halka alır; renk değişse de gecikme
+       bilgisi kaybolmasın. */
+    const renk=metro?RND_RENK.metro:randevuRenk(a.date),h=emp(a.employeeId),alan=emp(a.alanId);
+    const cerceve=(metro&&a.date<TODAY)?RND_RENK.gecmis:'#fff';
+    /* Pinin içinde hat adedi; metro randevusunda "Metro" yazar */
     const hatliMi=c.operator&&c.operator!=='Hattı yok'&&num(c.mobilAdet)>0;
-    const icerik=hatliMi?String(num(c.mobilAdet)):(c.operator==='Hattı yok'?'0':'?');
-    const yan=hatliMi?num(c.mobilAdet)+' hat'+(c.operator?' · '+OPER_KISA(c.operator):''):'';
+    const icerik=metro?'Metro':(hatliMi?String(num(c.mobilAdet)):(c.operator==='Hattı yok'?'0':'?'));
+    const yan=metro?'':(hatliMi?num(c.mobilAdet)+' hat'+(c.operator?' · '+OPER_KISA(c.operator):''):'');
     const pin=L.divIcon({className:'',iconSize:null,
-      html:'<div class="rnd-pin"><span class="nk" style="background:'+renk+'">'+esc(icerik)+'</span>'+
+      html:'<div class="rnd-pin"><span class="nk" style="background:'+renk+';border-color:'+cerceve+'">'+esc(icerik)+'</span>'+
         (yan?'<span class="yn">'+esc(yan)+'</span>':'')+'</div>'});
     const mk=L.marker([c.enlem,c.boylam],{icon:pin,riseOnHover:true,
-      title:c.unvan+(hatliMi?' · '+c.operator+' '+num(c.mobilAdet)+' hat':'')}).addTo(m);
+      title:c.unvan+(metro?' · Metro randevusu':'')+(hatliMi?' · '+c.operator+' '+num(c.mobilAdet)+' hat':'')}).addTo(m);
     mk.bindPopup('<b>'+esc(c.unvan)+'</b>'+
       (c.yetkili?'<br>'+esc(c.yetkili):'')+
       (operatorOzet(c)?'<br><b>'+esc(operatorOzet(c))+'</b>':'')+
       (c.telefon?'<br><a href="tel:'+esc(c.telefon)+'">'+esc(c.telefon)+'</a>':'')+
+      (metro?'<br><b style="color:'+RND_RENK.metro+'">Metro randevusu</b>':'')+
       '<br>Randevu: '+esc(fmtDate(a.date))+(a.date<TODAY?' <span style="color:'+RND_RENK.gecmis+'">(geçmiş)</span>':'')+
       (h?'<br>Atanan: '+esc(h.name):'')+
       (alan?'<br>Alan: '+esc(alan.name):'')+
@@ -1571,7 +1583,8 @@ function viewHarita(){
       (f.katRnd?'<b class="sm">Randevu:</b> <span style="color:'+RND_RENK.gecmis+'">●</span> Tarihi geçmiş'+
         ' <span style="color:'+RND_RENK.bugun+'">●</span> Bugün'+
         ' <span style="color:'+RND_RENK.gelecek+'">●</span> İleri tarihli'+
-        ' <span class="muted">(içindeki sayı = hat adedi)</span>':'')]
+        ' <span style="color:'+RND_RENK.metro+'">●</span> Metro randevusu'+
+        ' <span class="muted">(içindeki sayı = hat adedi; metro randevusunda “Metro” yazar, tarihi geçmişse kırmızı halka alır)</span>':'')]
       .filter(Boolean).join('<span class="lejant-ara"></span>');
 
   return head('Harita',isi
@@ -2543,6 +2556,30 @@ function hizmetSatirlari(c){
     rows.map(r=>'<tr><td><b>'+esc(r[0])+'</b></td><td>'+esc(r[1])+'</td><td>'+(r[2]?esc(r[2]):'<span class="muted">—</span>')+'</td><td>'+r[3]+'</td></tr>').join('')+
     '</tbody></table></div>';
 }
+/* Müşteriye verilen teklifler. Kartta en son teklif durur; altındaki
+   liste "Teklif verildi" ile kapatılmış randevulardan gelir, böylece
+   aynı müşteriye zaman içinde verilen teklifler kaybolmaz. */
+function teklifBolumu(c){
+  const gecmis=db.appointments
+    .filter(a=>a.customerId===c.id&&a.sonuc==='teklif')
+    .sort((x,y)=>(x.closeDate||x.date)<(y.closeDate||y.date)?1:-1);
+  if(c.teklifTarihi==null&&!gecmis.length)return '';
+  const fark=(c.teklifTutar!=null&&c.sonFatura!=null)?(c.sonFatura-c.teklifTutar):null;
+  return '<section class="dsec"><h3>Verilen teklif</h3>'+
+    (c.teklifTarihi?'<dl class="kv">'+
+      '<dt>Teklif tarihi</dt><dd>'+fmtDate(c.teklifTarihi)+'</dd>'+
+      '<dt>Teklif tutarı</dt><dd><b>'+money(c.teklifTutar||0)+'</b></dd>'+
+      '<dt>Son ödediği fatura</dt><dd>'+money(c.sonFatura||0)+'</dd>'+
+      (fark!=null?'<dt>Fark</dt><dd class="'+(fark>=0?'in':'out')+'"><b>'+money(fark)+'</b></dd>':'')+
+      '<dt>Taahhüt bitişi</dt><dd>'+taahhutMetni(c.mobilTaahhutAy,c.mobilTaahhutYil)+'</dd>'+
+    '</dl><p class="hint">Fark, müşterinin son ödediği fatura ile verilen teklif arasındaki tutardır.</p>':'')+
+    (gecmis.length>1||(gecmis.length&&!c.teklifTarihi)
+      ?'<ul class="log" style="margin-top:10px">'+gecmis.map(a=>'<li><span class="muted">'+fmtDate(a.closeDate||a.date)+'</span>'+
+        '<span>Teklif '+money(a.teklifTutar||0)+' · son fatura '+money(a.sonFatura||0)+
+        '<div class="muted sm">'+esc((emp(alanOf(a))||{}).name||'')+(a.closeDesc?' — '+esc(a.closeDesc):'')+'</div></span></li>').join('')+'</ul>'
+      :'')+
+  '</section>';
+}
 function openCustomerInfo(id){
   const c=byId(db.customers,id);if(!c)return;
   dlgState={kind:'custinfo',id};
@@ -2561,6 +2598,7 @@ function openCustomerInfo(id){
     '<section class="dsec"><h3>Adres</h3><p>'+(c.adres?esc(c.adres):'<span class="muted">Adres girilmemiş</span>')+'</p>'+
       (harita?'<div class="row" style="margin-top:10px">'+harita+'</div>':'')+'</section>'+
     '<section class="dsec"><h3>Mevcut hizmetler</h3>'+hizmetSatirlari(c)+'</section>'+
+    teklifBolumu(c)+
     (appts.length?'<section class="dsec"><h3>Randevu geçmişi</h3><ul class="log">'+appts.map(a=>'<li><span class="muted">'+fmtDate(a.date)+'</span><span>'+esc((emp(alanOf(a))||{}).name||'')+' — '+esc(a.desc)+' <span class="badge '+(a.status==='Açık'?'warn':'ok')+'">'+a.status+'</span>'+(a.closeDesc?'<div class="muted sm">'+esc(a.closeDesc)+'</div>':'')+'</span></li>').join('')+'</ul></section>':'')+
     (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(x=>'<li><span class="muted">'+fmtDate(x.date)+'</span><span>'+esc(prodLabel(byId(db.products,x.productId)))+', '+x.qty+' adet'+((x.abone&&x.abone.length)?' · '+esc(x.abone.join(', ')):'')+'</span></li>').join('')+'</ul></section>':'')+
     '<p class="hint">Bu kart bilgi amaçlıdır. Düzeltme yetkiniz varsa aşağıdaki düğmeyle açabilirsiniz.</p>',
@@ -2755,8 +2793,9 @@ function apptTable(){
        '<button class="btn sm primary" data-act="close-appt" data-id="'+a.id+'">Kapat</button>'
       :'<button class="btn sm" data-act="appt-detail" data-id="'+a.id+'">Detay</button>');
     const al=emp(alanOf(a)),sh=apptSaha(a);
-    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>')+'</td>'+
-      '<td>'+(c&&c.operator
+    return '<tr><td class="nowrap">'+fmtDate(a.date)+'</td><td>'+(c?'<div>'+esc(c.unvan)+turRozet(a)+'</div><div class="muted sm">'+esc(c.yetkili)+'</div>':'<span class="muted">Silinmiş müşteri</span>'+turRozet(a))+'</td>'+
+      '<td>'+(metroRnd(a)?'<div>Metro</div>'+(c&&c.operator?'<div class="muted sm">'+esc(c.operator)+'</div>':'')
+        :c&&c.operator
         ?'<div>'+esc(c.operator)+'</div>'+(c.operator!=='Hattı yok'&&c.mobilAdet?'<div class="muted sm">'+c.mobilAdet+' hat</div>':'')
         :'<span class="muted">—</span>')+'</td>'+
       '<td>'+(sh?esc(sh.name):'<span class="muted">—</span>')+'</td><td>'+(al?'<div>'+esc(al.name)+'</div><div class="muted sm">'+esc((dept(al.departmentId)||{}).name||'')+'</div>':'<span class="muted">—</span>')+'</td><td>'+esc(e?e.name:'')+(e&&e.bayiMuduru?' <span class="badge">Bayi Müdürü</span>':'')+'</td><td><div class="clamp">'+esc(a.desc)+'</div>'+(a.status==='Kapandı'?'<div class="muted sm clamp">'+esc(a.closeDesc||'')+'</div>':'')+'</td><td>'+(a.status==='Açık'
@@ -2942,6 +2981,8 @@ function openAppointment(customerId,sahaId){
     '<div class="field full" id="ap-openwarn">'+acikRandevuUyari(customerId)+'</div>'+
     '<div class="field full" id="ap-birim">'+baskaBirimUyari(customerId)+'</div>'+
     quickCustomerFields('ap')+
+    '<div class="field"><label for="ap-tur">Randevu türü</label><select id="ap-tur">'+
+      opt(RND_TUR.map(t=>[t.k,t.ad]),'normal')+'</select></div>'+
     '<div class="field"><label for="ap-date">Randevu tarihi</label><input id="ap-date" type="date" value="'+TODAY+'"></div>'+
     '<div class="field"><label for="ap-oper">Mevcut operatör</label><select id="ap-oper">'+opt(OPERATORLER,'','Seçin')+'</select></div>'+
     '<div class="field"><label for="ap-hat">Hat adedi</label><input id="ap-hat" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>'+
@@ -2984,6 +3025,7 @@ function saveAppointment(){
   if(!custSel)return err('Müşteri seçin.');if(!date)return err('Tarih seçin.');if(!desc)return err('Açıklama girin.');
   if(!alan)return err('Randevuyu alan personeli seçin.');
   const oper=($('#ap-oper')||{}).value||'';
+  const tur=(($('#ap-tur')||{}).value==='metro')?'metro':'normal';
   const hatStr=($('#ap-hat')||{}).value;
   const hat=hatStr===''?null:Math.max(0,Math.floor(Number(hatStr)||0));
   if(!oper)return err('Müşterinin mevcut operatörünü seçin.');
@@ -3015,7 +3057,7 @@ function saveAppointment(){
     if(dr.error)throw new Error(dbErr(dr.error));
     const h=randevuSahibi(custId);
     const a=await ins('appointments',{customer_id:custId,employee_id:h.emp.id,alan_id:alan,
-      date,descr:desc,status:'Açık'});
+      date,descr:desc,status:'Açık',tur});
     /* Randevu alınan müşterinin haritada yeri yoksa koordinatı şimdi ara.
        Mevcut bir müşteriye randevu alındığında daha önce hiçbir şey
        tetiklenmiyordu; pin ancak zamanlanmış çevrimde oluşuyordu. */
@@ -3024,7 +3066,9 @@ function saveAppointment(){
       await konumIsle(custId,{il:mus.il||'',ilce:mus.ilce||'',adres:mus.adres||''});
     const sh=sahaSahibiOf(custId);
     await ins('appointment_logs',{appt_id:a.id,date:TODAY,
-      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+' · Operatör: '+oper+(oper!=='Hattı yok'?' ('+hat+' hat)':'')+
+      text:'Randevuyu alan: '+((emp(alan)||{}).name||'—')+
+        (tur==='metro'?' · Metro randevusu':'')+
+        ' · Operatör: '+oper+(oper!=='Hattı yok'?' ('+hat+' hat)':'')+
         ' · Bayi Müdürü\u2019ne atandı: '+h.emp.name+
         (sh?' · Potansiyel kaydını giren saha personeli: '+sh.name:'')});
   },custSel===NEW_CUST?'Yeni müşteri ve randevu kaydedildi':'Randevu kaydedildi');
@@ -3056,8 +3100,17 @@ function saveTransferAppt(id,hedef){
 }
 /* Randevu sonuçları. kapat:false olanlar randevuyu açık bırakır,
    yalnızca tarihini ileri alır ve ziyaret sayısını artırır. */
+/* Randevu türleri. Metro randevuları haritada ayrı renkte ve hat
+   adedi yerine "Metro" yazısıyla çıkar. */
+const RND_TUR=[
+  {k:'normal',ad:'Normal randevu'},
+  {k:'metro', ad:'Metro randevusu'}
+];
+const metroRnd=a=>!!a&&a.tur==='metro';
+const turRozet=a=>metroRnd(a)?' <span class="badge metro">Metro</span>':'';
 const RND_SONUC=[
   {k:'satis',   ad:'Satış yapıldı',            kapat:true,  ton:'ok'},
+  {k:'teklif',  ad:'Teklif verildi',           kapat:true,  ton:'warn'},
   {k:'olumsuz', ad:'Olumsuz — ilgilenmiyor',   kapat:true,  ton:'bad'},
   {k:'ulasilamadi',ad:'Ulaşılamadı',           kapat:true,  ton:''},
   {k:'yanlis',  ad:'Yanlış kayıt',             kapat:true,  ton:''},
@@ -3091,15 +3144,33 @@ const RAND_ODAK={
   beyan  :{ad:'Satış beyanı, kaydı yok',f:a=>satisBeyani(a)},
   iptal  :{ad:'İptal edilen',           f:a=>iptalMi(a)}
 };
+/* "Teklif verildi" ile kapatırken zorunlu alanlar. Müşteri kartındaki
+   değerler hazır gelir; personel doğrular veya düzeltir. Kaydedilince
+   hepsi müşteri kartına teklif tarihiyle birlikte işlenir. */
+function teklifAlanlari(c){
+  c=c||{};
+  return '<div class="field full"><div class="ro-banner" style="margin:0"><b>Teklif bilgileri zorunludur.</b>'+
+      '<div class="sm">Girdikleriniz müşteri kartına teklif tarihiyle birlikte işlenir.</div></div></div>'+
+    '<div class="field"><label for="cl-oper">Mevcut operatör</label><select id="cl-oper">'+
+      opt(OPERATORLER,c.operator||'','Seçin')+'</select></div>'+
+    '<div class="field"><label for="cl-hat">Hat adedi</label>'+
+      '<input id="cl-hat" type="number" min="0" step="1" inputmode="numeric" value="'+esc(c.mobilAdet||'')+'" placeholder="0"></div>'+
+    custMonthYear('cl-',c.mobilTaahhutAy,c.mobilTaahhutYil)+
+    '<div class="field"><label for="cl-teklif">Verilen teklif tutarı (\u20ba)</label>'+
+      '<input id="cl-teklif" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>'+
+    '<div class="field"><label for="cl-fatura">Müşterinin son ödediği fatura (\u20ba)</label>'+
+      '<input id="cl-fatura" type="number" min="0" step="0.01" inputmode="decimal" value="'+esc(c.sonFatura==null?'':c.sonFatura)+'" placeholder="0"></div>';
+}
 /* Seçilen sonuca göre pencerenin alt kısmı değişir */
-function kapatAlanlari(k){
+function kapatAlanlari(k,c){
   const s=sonucBilgi(k);
   const erteleme=s&&!s.kapat;
-  return '<div class="field full"><label for="cl-desc">'+(erteleme?'Not':'Sonuç açıklaması')+'</label>'+
+  return (k==='teklif'?teklifAlanlari(c):'')+
+    '<div class="field full"><label for="cl-desc">'+(erteleme?'Not':'Sonuç açıklaması')+'</label>'+
       '<textarea id="cl-desc" rows="3" placeholder="'+(erteleme?'Neden ertelendi, neye göre tekrar gidilecek':'Görüşmede ne konuşuldu, sonuç ne oldu')+'"></textarea></div>'+
     (erteleme
       ?'<div class="field"><label for="cl-date">Yeni randevu tarihi</label><input id="cl-date" type="date" value="'+gunSonra(7)+'" min="'+TODAY+'"></div>'
-      :'<div class="field"><label for="cl-date">Kapanma tarihi</label><input id="cl-date" type="date" value="'+TODAY+'"></div>');
+      :'<div class="field"><label for="cl-date">'+(k==='teklif'?'Teklif tarihi':'Kapanma tarihi')+'</label><input id="cl-date" type="date" value="'+TODAY+'"></div>');
 }
 const gunSonra=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);};
 
@@ -3117,7 +3188,7 @@ function openCloseAppt(id){
       '<div class="seg" role="group" aria-label="Sonuç" id="cl-sonuc">'+
       RND_SONUC.map(x=>'<button type="button" data-act="cl-sonuc" data-v="'+x.k+'" aria-pressed="'+(x.k==='satis')+'">'+esc(x.ad)+'</button>').join('')+
       '</div></div>'+
-      '<div class="field full" id="cl-alanlar"><div class="fields">'+kapatAlanlari('satis')+'</div></div>'+
+      '<div class="field full" id="cl-alanlar"><div class="fields">'+kapatAlanlari('satis',c)+'</div></div>'+
     '</div><p class="hint" id="cl-ipucu">Satış yapıldıysa randevu kapanır. “Tekrar ziyaret edilecek” veya “Ertelendi” seçerseniz randevu açık kalır, yalnızca tarihi ileri alınır.</p><p class="err" id="cl-err"></p>',
     (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
     '<button class="btn" data-act="close">Vazgeç</button>'+
@@ -3130,11 +3201,14 @@ function closeApptSonucSec(k){
   const not=($('#cl-desc')||{}).value||'';
   [...document.querySelectorAll('#cl-sonuc button')].forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===k)));
   const kutu=$('#cl-alanlar');
-  if(kutu){kutu.innerHTML='<div class="fields">'+kapatAlanlari(k)+'</div>';
+  const ap=byId(db.appointments,dlgState.id),mus=ap?apptCustomer(ap):null;
+  if(kutu){kutu.innerHTML='<div class="fields">'+kapatAlanlari(k,mus)+'</div>';
     const t=$('#cl-desc');if(t)t.value=not;}
   const btn=$('#cl-kaydet');if(btn)btn.textContent=s.kapat?'Randevuyu kapat':'Yeni tarihe al';
   const ip=$('#cl-ipucu');
-  if(ip)ip.textContent=s.kapat
+  if(ip)ip.textContent=k==='teklif'
+    ? 'Randevu kapanacak. Operatör, hat adedi, taahhüt bitişi, teklif ve son fatura tutarı müşteri kartına teklif tarihiyle birlikte işlenecek.'
+    : s.kapat
     ? 'Randevu kapanacak ve sonucu “'+s.ad+'” olarak kaydedilecek.'
     : 'Randevu açık kalacak, tarihi yeni güne alınacak ve ziyaret sayısı bir artacak.';
   const e=$('#cl-err');if(e)e.textContent='';
@@ -3148,10 +3222,37 @@ function saveCloseAppt(id){
   if(!date)return err('Tarih seçin.');
   if(s.kapat&&!desc)return err('Sonuç açıklaması girin.');
   if(!s.kapat&&date<TODAY)return err('Yeni randevu tarihi bugünden önce olamaz.');
+  /* Teklif verildi: hepsi zorunlu, hepsi müşteri kartına işlenir */
+  let tk=null;
+  if(k==='teklif'){
+    const sayi=i=>{const v=($('#'+i)||{}).value;return v===''?null:parseFloat(String(v).replace(',','.'));};
+    const oper=($('#cl-oper')||{}).value||'',ay=($('#cl-ay')||{}).value||'',yil=($('#cl-yil')||{}).value||'';
+    const hatStr=($('#cl-hat')||{}).value;
+    const hat=hatStr===''?null:Math.max(0,Math.floor(Number(hatStr)||0));
+    const teklif=sayi('cl-teklif'),fatura=sayi('cl-fatura');
+    if(!oper)return err('Müşterinin mevcut operatörünü seçin.');
+    if(hat===null)return err('Müşterinin hat adedini girin.');
+    if(oper!=='Hattı yok'&&hat<1)return err('Hat adedi en az 1 olmalı. Müşterinin hattı yoksa operatör olarak “Hattı yok” seçin.');
+    if(!ay||!yil)return err('Taahhüt bitiş ayını ve yılını seçin.');
+    if(teklif===null||!(teklif>0))return err('Verilen teklif tutarını 0’dan büyük girin.');
+    if(fatura===null||!(fatura>=0))return err('Müşterinin son ödediği fatura tutarını girin.');
+    tk={oper,hat,ay,yil,teklif,fatura};
+  }
   if(s.kapat){
     run('cl-err',async()=>{
-      await upd('appointments',id,{status:'Kapandı',sonuc:k,close_descr:desc,close_date:date});
-      await ins('appointment_logs',{appt_id:id,date,text:'Randevu kapatıldı — '+s.ad+(desc?': '+desc:'')});
+      if(tk){
+        /* Müşteri kartını randevuyu kapatan kişi çoğu zaman
+           düzenleyemez; yazma dar yetkili işlevden geçer. */
+        const r=await sb.rpc('randevu_teklif_damga',
+          {p_cust:a.customerId,p_operator:tk.oper,p_hat:tk.hat,p_ay:tk.ay,p_yil:String(tk.yil),
+           p_teklif:tk.teklif,p_fatura:tk.fatura,p_tarih:date});
+        if(r.error)throw new Error(dbErr(r.error));
+      }
+      await upd('appointments',id,Object.assign({status:'Kapandı',sonuc:k,close_descr:desc,close_date:date},
+        tk?{teklif_tutar:tk.teklif,son_fatura:tk.fatura}:{}));
+      await ins('appointment_logs',{appt_id:id,date,text:'Randevu kapatıldı — '+s.ad+
+        (tk?': Teklif '+money(tk.teklif)+' · Son fatura '+money(tk.fatura)+' · '+tk.oper+' '+tk.hat+' hat · Taahhüt bitişi '+MONTHS[+tk.ay-1]+' '+tk.yil:'')+
+        (desc?(tk?' · ':': ')+desc:'')});
     },'Randevu kapatıldı: '+s.ad);
   }else{
     const yeniZiyaret=(a.ziyaret||1)+1;
@@ -3191,9 +3292,12 @@ function openApptDetail(id){
   const a=byId(db.appointments,id);if(!a)return;const c=apptCustomer(a),e=emp(a.employeeId),conv=isConverted(a.customerId,a.date);dlgState={kind:'apptdetail',id};
   const log=(a.log||[]).slice().reverse();
   const al=emp(alanOf(a));
-  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Ziyaret</dt><dd>'+(a.ziyaret||1)+'. ziyaret</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+
+  openDlg(dlgHtml('Randevu detayı','<dl class="kv"><dt>Müşteri</dt><dd>'+esc(c?c.unvan:'')+'</dd><dt>Yetkili</dt><dd>'+esc(c?c.yetkili:'')+'</dd><dt>Randevu türü</dt><dd>'+(metroRnd(a)?'<b>Metro randevusu</b>':'Normal randevu')+'</dd><dt>Randevuyu alan</dt><dd>'+esc(al?al.name:'—')+'</dd><dt>Atanan personel</dt><dd>'+esc(e?e.name:'')+'</dd><dt>Randevu tarihi</dt><dd>'+fmtDate(a.date)+'</dd><dt>Ziyaret</dt><dd>'+(a.ziyaret||1)+'. ziyaret</dd><dt>Açıklama</dt><dd>'+esc(a.desc)+'</dd><dt>Durum</dt><dd>'+esc(a.status)+'</dd>'+
     (a.status==='Kapandı'?'<dt>Kapanma tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd>'+
       (a.sonuc?'<dt>Sonuç</dt><dd>'+esc(sonucAdi(a.sonuc))+'</dd>':'')+
+      (a.sonuc==='teklif'
+        ?'<dt>Verilen teklif</dt><dd><b>'+money(a.teklifTutar||0)+'</b></dd>'+
+         '<dt>Son ödediği fatura</dt><dd>'+money(a.sonFatura||0)+'</dd>':'')+
       '<dt>Açıklama</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+
     (a.status==='İptal'?'<dt>İptal tarihi</dt><dd>'+fmtDate(a.closeDate)+'</dd><dt>İptal nedeni</dt><dd>'+esc(a.closeDesc)+'</dd>':'')+'<dt>Satışa döndü mü</dt><dd>'+(conv?'Evet':'Hayır')+'</dd></dl>'+
     (log.length?'<section class="dsec"><h3>Geçmiş</h3><ul class="log">'+log.map(l=>'<li><span class="muted">'+fmtDate(l.date)+'</span><span>'+esc(l.text)+'</span></li>').join('')+'</ul></section>':''),
