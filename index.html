@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-d';
+const SURUM='05.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3500,6 +3500,53 @@ function rolBadge(r){
 function rolVerebilirim(r){
   return isMaster();   /* kullanıcı yetkilerini yalnızca Master düzenler */
 }
+/* ---------- Eşleştirilmemiş hesaplar (yalnızca Master) ----------
+   İki durum: profili var ama personele bağlı değil; ya da profili hiç
+   yok — "Erişimi kaldır" denmiş, geriye yalnız giriş hesabı kalmış.
+   İkincisi listede hiç görünmüyordu ve kişi aynı e-postayla yeniden
+   hesap açamıyordu. Liste sunucudaki dar bir işlevden gelir; 60
+   numaralı dosya çalıştırılmadıysa boş kalır ve ekran eskisi gibi
+   çalışır. */
+let _bosHesap=null,_bosHesapIsi=null,_bosHesapHata='';
+function bosHesapGetir(zorla){
+  if(zorla){_bosHesap=null;_bosHesapIsi=null;_bosHesapHata='';}
+  if(_bosHesap)return Promise.resolve(_bosHesap);
+  if(_bosHesapIsi)return _bosHesapIsi;
+  _bosHesapIsi=sb.rpc('master_eslesmemis_hesaplar').then(r=>{
+    _bosHesapHata=r.error?dbErr(r.error):'';
+    _bosHesap=r.error?[]:(r.data||[]);
+    _bosHesapIsi=null;return _bosHesap;
+  }).catch(e=>{_bosHesapHata=(e&&e.message)||'Liste alınamadı.';
+    _bosHesap=[];_bosHesapIsi=null;return _bosHesap;});
+  return _bosHesapIsi;
+}
+function bosHesapBolumu(){
+  if(!isMaster())return '';
+  if(_bosHesap===null){
+    bosHesapGetir().then(()=>{if(state&&state.view==='kullanici')render();});
+    return '<section class="panel"><div class="panel-h"><h2>Eşleştirilmemiş hesaplar</h2></div>'+
+      '<div class="panel-b muted">Yükleniyor…</div></section>';
+  }
+  const list=_bosHesap.slice();
+  const zaman=t=>t?fmtDate(String(t).slice(0,10)):'<span class="muted">—</span>';
+  return '<section class="panel"><div class="panel-h"><div><h2>Eşleştirilmemiş hesaplar</h2>'+
+    '<p class="muted sm">Bir personel kaydına bağlanmamış giriş hesapları. Silmek hesabı tamamen kaldırır; kişi aynı e-posta ile yeniden hesap açabilir.</p></div>'+
+    '<button class="btn sm" data-act="bos-hesap-yenile">Yenile</button></div>'+
+    (_bosHesapHata
+      ?'<div class="panel-b"><p class="hint">Liste alınamadı: '+esc(_bosHesapHata)+' Bu bölüm için <b>60-hesap-sil.sql</b> dosyasının çalıştırılmış olması gerekir.</p></div>'
+      :list.length
+      ?'<div class="scroll"><table><thead><tr><th>E-posta</th><th>Durum</th><th>Kayıt</th><th>Son giriş</th><th></th></tr></thead><tbody>'+
+        list.map(x=>'<tr><td><b>'+esc(x.email||'')+'</b></td>'+
+          '<td>'+(x.profil_var
+            ?'<span class="badge warn">Eşleştirilmedi</span>'+(x.rol?' <span class="muted sm">'+esc(ROL_ADI[x.rol]||x.rol)+'</span>':'')
+            :'<span class="badge bad">Profilsiz</span><div class="muted sm">Erişimi kaldırılmış; listede görünmüyordu</div>')+'</td>'+
+          '<td class="nowrap">'+zaman(x.kayit_tarihi)+'</td>'+
+          '<td class="nowrap">'+zaman(x.son_giris)+'</td>'+
+          '<td class="num"><button class="btn sm danger" data-act="del-hesap" data-id="'+esc(x.user_id)+'" data-eposta="'+esc(x.email||'')+'">Hesabı sil</button></td></tr>').join('')+
+        '</tbody></table></div>'
+      :'<div class="empty">Eşleştirilmemiş hesap yok.</div>')+
+    '</section>';
+}
 function viewKullanici(){
   const users=(db.users||[]).slice().sort((a,b)=>
     (ROL_SIRA[rolAdi(a.role)]-ROL_SIRA[rolAdi(b.role)])||a.email.localeCompare(b.email,'tr',SAYISAL));
@@ -3522,7 +3569,8 @@ function viewKullanici(){
                :'<span class="muted sm">Yetkiniz yok</span>')+'</td></tr>';
   }).join(''):'<tr><td colspan="4"><div class="empty">Henüz kullanıcı yok.</div></td></tr>')+
   '</tbody></table></div></section>'+
-  '<p class="hint" style="margin-top:10px">Yeni personel giriş ekranındaki “Hesap oluştur” bağlantısıyla kendi hesabını açar, bu listeye düşer ve siz eşleştirirsiniz. İşten ayrılanın erişimini kaldırın; girdiği satış, müşteri ve randevular sistemde kalır.</p>';
+  bosHesapBolumu()+
+  '<p class="hint" style="margin-top:10px">Yeni personel giriş ekranındaki “Hesap oluştur” bağlantısıyla kendi hesabını açar, bu listeye düşer ve siz eşleştirirsiniz. İşten ayrılanın <b>erişimini kaldırın</b>; girdiği satış, müşteri ve randevular sistemde kalır. Erişimi kaldırılan hesap giriş hesabı olarak durmaya devam eder; tamamen silmek isterseniz yukarıdaki <b>Eşleştirilmemiş hesaplar</b> listesinden silin.</p>';
 }
 function openUser(uid){
   const u=(db.users||[]).find(x=>x.userId===uid);if(!u)return;
@@ -3543,6 +3591,8 @@ function openUser(uid){
     '<p class="err" id="us-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+
     (isMaster()&&uid!==me.userId?'<button class="btn" data-act="open-sifrebelirle" data-id="'+uid+'">Şifre belirle</button>':'')+
+    (isMaster()&&uid!==me.userId&&!u.employeeId
+      ?'<button class="btn danger" data-act="del-hesap" data-id="'+uid+'" data-eposta="'+esc(u.email)+'">Hesabı sil</button>':'')+
     '<button class="btn danger" data-act="del-user" data-id="'+uid+'">Erişimi kaldır</button>'+
     '<button class="btn primary" data-act="save-user">Kaydet</button>'));
 }
@@ -6236,6 +6286,24 @@ const actions={
       if(!r.data||!r.data.length)
         throw new Error('Erişim kaldırılamadı: bu hesap üzerinde yetkiniz yok.');
     },'Erişim kaldırıldı');
+  },
+  'bos-hesap-yenile'(){bosHesapGetir(true).then(()=>render());},
+  'del-hesap'(el){
+    if(!isMaster())return void toast('Hesap silme yalnızca Master yetkisindedir');
+    confirmDlg('Hesabı tamamen sil',
+      (el.dataset.eposta||'Bu hesap')+' adresli giriş hesabı kalıcı olarak silinecek. '+
+      'Geri alınamaz.\n\nKişinin girdiği satış, müşteri ve randevu kayıtları SİLİNMEZ, yerinde kalır. '+
+      'Kişi isterse aynı e-posta ile yeniden hesap açabilir.\n\n'+
+      'Yalnızca bir personele bağlı OLMAYAN hesaplar silinebilir.',
+      'confirm-del-hesap',el.dataset.id,'Hesabı sil');
+  },
+  'confirm-del-hesap'(el){
+    const uid=el.dataset.id;
+    run(null,async()=>{
+      const r=await sb.rpc('master_hesap_sil',{p_user:uid});
+      if(r.error)throw new Error(dbErr(r.error));
+      _bosHesap=null;_bosHesapIsi=null;     /* liste yeniden çekilsin */
+    },'Hesap silindi');
   },
   'show-signup'(){renderSignup();},
   'show-login'(){renderLogin();},
