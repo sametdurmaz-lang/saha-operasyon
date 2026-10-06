@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='05.10.2026-m';
+const SURUM='06.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4013,14 +4013,15 @@ function dagitimBandi(p){
     '<button class="btn sm" data-act="drill" data-dim="personel" data-key="__none" type="button">Dağıtıma giren hareketler</button></p></div>';
 }
 function gelirExportRows(){
-  const rows=gelirMaliyetRows(state.period),fin=isFinans();
+  const rows=gelirMaliyetRows(xlAyi()),fin=isFinans();
   const head=['Personel','Departman','Satış','Randevu katkısı','Gelir']
     .concat(fin?['Maaş','Gider','Zimmet bakım','Dağıtılan gider','Maliyet','Net']:[]);
   return [head].concat(rows.map(r=>[r.e.name,(dept(r.e.departmentId)||{}).name||'',
     r.satis,r.randevuKatkisi,r.gelir].concat(fin?[r.maas,r.gider,r.zimmet,r.dagitilan,r.maliyet,r.net]:[])));
 }
 function girisExportRows(){
-  const rows=girisRaporRows(state.period);
+  const kap=xlKapsam();
+  const rows=girisRaporRows(xlAyi()).filter(r=>!kap||!r.eid||kap.has(r.eid));
   const head=['Kaydı giren','Departman','Elle girilen','Excel ile','Toplam',
               'Aranan','Randevuya dönen','Müşteri olan','Satışa dönen','Randevu oranı %'];
   return [head].concat(rows.map(r=>[r.ad,r.altAd,r.elle,r.excel,r.toplam,
@@ -4044,13 +4045,23 @@ function viewRapor(){
       ?'Gider raporunu filtreleyin; satış ve randevu kayıtlarının tamamını Excel\u2019e aktarın.'
       :'Ekibinizin potansiyel müşteri girişleri ve satış kayıtları. Excel\u2019e aktarabilirsiniz.','')+
   '<div class="stack">'+
-  '<section class="panel"><div class="panel-h"><h2>Excel\u2019e aktarma</h2><span class="muted sm">Tüm kayıtlar, dönem filtresinden bağımsız</span></div>'+
+  '<section class="panel"><div class="panel-h"><div><h2>Excel\u2019e aktarma</h2>'+
+    '<p class="muted sm">Aktarılacak dönemi seçin; dosya adına da yazılır.</p></div>'+
+    '<select data-set="xlAy" aria-label="Aktarılacak dönem">'+
+      '<option value="all"'+(xlAyi()==='all'?' selected':'')+'>Tüm kayıtlar</option>'+
+      monthsList().map(x=>'<option value="'+x+'"'+(x===xlAyi()?' selected':'')+'>'+monthLabel(x)+'</option>').join('')+
+    '</select></div>'+
   '<div class="panel-b"><div class="tools">'+
-    xlBtn('satis','Tüm satışlar')+xlBtn('randevu','Tüm randevular')+xlBtn('giris','Potansiyel girişi')+(gelirRaporGor()?xlBtn('gelir','Personel geliri'):'')+xlBtn('hepsi','Hepsi')+
-  '</div><p class="hint">Dosya iki ayrı sayfa olarak açılır. '+
+    xlBtn('satis','Satışlar')+xlBtn('randevu','Randevular')+xlBtn('giris','Potansiyel girişi')+(gelirRaporGor()?xlBtn('gelir','Personel geliri'):'')+xlBtn('hepsi','Hepsi')+
+  '</div><p class="hint"><b>'+esc(xlDonemAdi())+'</b> aktarılacak. '+
     (isUst()||isMuhasebe()
-      ?'Tüm kayıtlar aktarılır.'
-      :'Yalnızca görebildiğiniz kayıtlar, yani kendi ekibinizin verisi aktarılır.')+'</p></div></section>'+
+      ?'Tüm personelin kayıtları girer.'
+      :isBirim()
+      ?'Yalnızca kendi biriminizin personeli girer.'
+      :isTLider()
+      ?'Yalnızca kendi ekibinizin kayıtları girer; ekibinizin aldığı randevudan doğan satışlar da dahildir.'
+      :'Yalnızca görebildiğiniz kayıtlar girer.')+
+    ' Satış ve randevu kendi tarihine, potansiyel girişi kaydın oluşturulma tarihine göre süzülür.</p></div></section>'+
   mutBolumu()+
   yedekBolumu()+
   stokDegerBolumu()+
@@ -4089,8 +4100,13 @@ function satisExportRows(){
               'Kategori','Marka',
               'Adet','Tutar','Puan'].concat(primGor()?['Prim']:[]).concat(
               ['Abone no','Seri no','Satır','Hedef kategorisi','Satış no']);
-  const rows=[];
-  db.sales.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).forEach(x=>{
+  const rows=[],kap=xlKapsam(),ay=xlAyi();
+  db.sales.slice()
+    .filter(x=>xlDonemde(x.date,ay))
+    /* Takım liderinde ekibin aldığı randevudan doğan satışlar da
+       kapsamdadır; o satışın geliri zaten ekibe pay ediliyor. */
+    .filter(x=>!kap||kap.has(x.employeeId)||(x.gelirAlanId&&kap.has(x.gelirAlanId)))
+    .sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).forEach(x=>{
     const e=emp(x.employeeId)||{},p=byId(db.products,x.productId)||{},
           c=x.customerId?(byId(db.customers,x.customerId)||{}):{};
     const gb=x.gbProductId?(byId(db.products,x.gbProductId)||{}):null;
@@ -4122,7 +4138,11 @@ function randevuExportRows(){
               'Mevcut operatör','Hat adedi',
               'Randevuyu alan','Atanan personel','Durum','Sonuç','Satış kaydı var mı','Ziyaret','Açıklama',
               'Kapanış / iptal tarihi','Kapanış / iptal açıklaması','Satışa döndü mü'];
-  const rows=db.appointments.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(a=>{
+  const kap=xlKapsam(),ay=xlAyi();
+  const rows=db.appointments.slice()
+    .filter(a=>xlDonemde(a.date,ay))
+    .filter(a=>!kap||kap.has(a.employeeId)||kap.has(alanOf(a)))
+    .sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).map(a=>{
     const c=byId(db.customers,a.customerId)||{};
     return [dIso(a.date),c.unvan||'',c.yetkili||'',c.telefon||'',c.il||'',c.ilce||'',c.adres||'',
       c.operator||'',c.mobilAdet||0,
@@ -4150,6 +4170,24 @@ function sheetOf(aoa,dateCols,widths){
    birim müdürü ve telesatış takım lideri. Müdürler yalnızca kendi
    ekiplerinin verisini görebildiği için dosyaya da o kadarı iner. */
 const excelYetkisi=()=>isUst()||isMuhasebe()||isBirim()||isTLider();
+/* ---------- Excel aktarımında kapsam ve dönem ----------
+   Kapsam: bayi müdürü, master ve muhasebe her şeyi; birim müdürü
+   yalnızca kendi birimini; telesatış takım lideri yalnızca kendi
+   ekibini aktarır. Satır yetkisi zaten bir süzgeç uyguluyor ama
+   ekibine randevu aldığı müşteriye BAŞKASININ yaptığı satışları da
+   görebildiği için burada ayrıca daraltıyoruz.
+   İşten ayrılanlar kapsamda kalır; geçmiş kayıtları aktarılabilsin. */
+function xlKapsam(){
+  if(isUst()||isMuhasebe())return null;            /* tümü */
+  const bid=birimKapsamim();
+  let list=tumPersonel();
+  if(bid)list=list.filter(e=>e.birimId===bid);
+  if(isTLider())list=list.filter(e=>telesatisciMi(e.id));
+  return new Set(list.map(e=>e.id));
+}
+const xlAyi=()=>(state&&state.xlAy!==undefined)?state.xlAy:'all';
+const xlDonemde=(tarih,ay)=>ay==='all'||String(tarih||'').slice(0,7)===ay;
+const xlDonemAdi=()=>{const a=xlAyi();return a==='all'?'Tüm kayıtlar':monthLabel(a);};
 function exportExcel(which){
   if(!excelYetkisi())return;
   if(!XL_HAZIR())return needDlg('Excel dışa aktarma','Excel bileşeni yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.');
@@ -4176,8 +4214,9 @@ function exportExcel(which){
     if(which==='giris')ad='potansiyel-girisi';
   }
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
-  XLSX.writeFile(wb,'saha-'+ad+'-'+t.getFullYear()+iki(t.getMonth()+1)+iki(t.getDate())+'.xlsx');
-  toast('Excel dosyası indirildi');
+  const donem=xlAyi()==='all'?'tum':xlAyi();
+  XLSX.writeFile(wb,'saha-'+ad+'-'+donem+'-'+t.getFullYear()+iki(t.getMonth()+1)+iki(t.getDate())+'.xlsx');
+  toast(xlDonemAdi()+' aktarıldı');
 }
 /* ---------------------------------------------------------------
    HAKEDİŞ MUTABAKATI
@@ -6924,7 +6963,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
