@@ -411,7 +411,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='06.10.2026-i';
+const SURUM='06.10.2026-j';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -833,7 +833,7 @@ async function loadAll(zorla){
       companyId:r.company_id,holderId:r.holder_id,status:r.status,log:aLog[r.id]||[],
       cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     products:products.map(r=>({id:r.id,category:r.category,brand:r.brand,name:r.name,stocked:!!r.stocked,
-      hedefKat:r.hedef_kat||'',calcType:r.calc_type,prim:num(r.prim),puan:num(r.puan),
+      hedefKat:r.hedef_kat||'',hedefKat2:r.hedef_kat2||'',calcType:r.calc_type,prim:num(r.prim),puan:num(r.puan),
       primPct:num(r.prim_pct),puanPct:num(r.puan_pct),mobilTip:r.mobil_tip||'',
       gelir:num(r.gelir),gelirTip:r.gelir_tip||'sabit'})),
     warehouses:warehouses.map(r=>({id:r.id,name:r.name})),
@@ -842,7 +842,7 @@ async function loadAll(zorla){
       if(r.sale_id)u.saleId=r.sale_id;return u;}),
     sales:sales.map(r=>({id:r.id,date:r.date,employeeId:r.employee_id,departmentId:r.department_id,
       companyId:r.company_id,customerId:r.customer_id,customer:r.customer,productId:r.product_id,
-      qty:r.qty,amount:num(r.amount),calcType:r.calc_type,hedefKat:r.hedef_kat||'',
+      qty:r.qty,amount:num(r.amount),calcType:r.calc_type,hedefKat:r.hedef_kat||'',hedefKat2:r.hedef_kat2||'',
       unitPrim:num(r.unit_prim),unitPuan:num(r.unit_puan),prim:num(r.prim),puan:num(r.puan),
       gbProductId:r.gb_product_id||null,hatTip:r.hat_tip||'',
       gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
@@ -1950,7 +1950,8 @@ function prodTable(){
     const puanCell=isPct?'%'+nf.format(p.puanPct||0):nf.format(p.puan||0);
     const rolAd={dakika:'Mobil hat',gb:'GB paketi',tarife:'PSTN tarifesi',upcell:'PSTN Upcell'}[p.mobilTip||''];
     return '<tr><td>'+esc(p.category)+'</td><td>'+esc(p.brand)+'</td><td><b>'+esc(p.name)+'</b>'+
-      (rolAd?'<div class="muted sm">'+esc(rolAd)+'</div>':'')+'</td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+'</td><td class="num">'+(p.gelir?esc(gelirEtiketi(p)):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
+      (rolAd?'<div class="muted sm">'+esc(rolAd)+'</div>':'')+'</td><td>'+(kat?esc(kat.name):'<span class="muted">—</span>')+
+      (hedefKat(p.hedefKat2)?'<div class="muted sm">+ '+esc(hedefKat(p.hedefKat2).name)+'</div>':'')+'</td><td class="num">'+(p.gelir?esc(gelirEtiketi(p)):'<span class="muted">—</span>')+'</td><td class="num">'+primCell+'</td><td class="num">'+puanCell+'</td><td>'+(p.stocked?'<span class="badge ok">Seri no ile, '+db.stock.filter(u=>u.productId===p.id&&u.status==='Depoda').length+' depoda</span>':'<span class="muted">Stok takibi yok</span>')+'</td><td class="num"><button class="btn sm" data-act="open-prod" data-id="'+p.id+'">Düzenle</button> <button class="btn sm" data-act="del-prod" data-id="'+p.id+'">Sil</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewUrun(){
   const pr=state.prod;
@@ -2153,7 +2154,9 @@ function personelGelir(empId,period){
   });
   return t;
 }
-function needsAmount(p){return !!p&&(p.calcType==='yuzde'||(hedefKat(p.hedefKat)||{}).kind==='tutar');}
+function needsAmount(p){return !!p&&(p.calcType==='yuzde'
+  ||(hedefKat(p.hedefKat)||{}).kind==='tutar'
+  ||(hedefKat(p.hedefKat2)||{}).kind==='tutar');}
 function newLine(){return {id:'L'+(seq++).toString(36),cat:'',prod:'',qty:'1',amount:'',serials:'',abone:'',gb:'',tip:'BASE',eski:'',yeni:''};}
 /* Ekrandaki değerleri satır durumuna aktarır (yeniden çizimde kaybolmasın) */
 function slRead(){
@@ -2420,7 +2423,7 @@ function saveSale(){
     for(const L of hazir){
       const sale=await ins('sales',{date,employee_id:empId,department_id:nz(e.departmentId),
         company_id:nz(e.companyId),customer_id:custId,customer,product_id:L.p.id,qty:L.qty,
-        amount:L.amount,calc_type:L.calc,hedef_kat:L.p.hedefKat||'',batch_id:batch,
+        amount:L.amount,calc_type:L.calc,hedef_kat:L.p.hedefKat||'',hedef_kat2:L.p.hedefKat2||'',batch_id:batch,
         unit_prim:L.calc==='yuzde'?(L.p.primPct||0):(L.p.prim||0),
         unit_puan:L.calc==='yuzde'?(L.p.puanPct||0):(L.p.puan||0),
         /* Ondalık çarpımlarda 3,5999999999999996 gibi artıklar kalmasın */
@@ -2447,7 +2450,7 @@ function saveSale(){
     (tUnit?', '+tUnit+' adet stoktan düştü':'')+(tAbone?', '+tAbone+' abone no':''));
 }
 function openSaleDetail(id){
-  const s=byId(db.sales,id);if(!s)return;const p=byId(db.products,s.productId),e=emp(s.employeeId),kat=hedefKat(s.hedefKat);dlgState={kind:'saledetail',id};
+  const s=byId(db.sales,id);if(!s)return;const p=byId(db.products,s.productId),e=emp(s.employeeId),kat=hedefKat(s.hedefKat),kat2=hedefKat(s.hedefKat2);dlgState={kind:'saledetail',id};
   const serials=s.items.map(it=>{const u=byId(db.stock,it.unitId);return u?u.serial:'';}).filter(Boolean);
   const kardes=s.batchId?db.sales.filter(x=>x.batchId===s.batchId&&x.id!==s.id):[];
   const rateLine=s.calcType==='yuzde'
@@ -2456,7 +2459,7 @@ function openSaleDetail(id){
     :(primGor()?'Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim)
                :'Adet başına '+nf.format(s.unitPuan)+' puan');
   const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
-  openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+'</dd>'+
+  openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+(kat2?' <b>+ '+esc(kat2.name)+'</b>':'')+'</dd>'+
     (s.upcellYeni?'<dt>Tarife yükseltme</dt><dd>'+
       esc((byId(db.products,s.upcellEski)||{}).name||'—')+' → '+
       esc((byId(db.products,s.upcellYeni)||{}).name||'—')+
@@ -2531,11 +2534,16 @@ function realizedFor(empId,katId,period){
   const kat=hedefKat(katId);if(!kat)return 0;
   if(kat.kind==='randevu')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)).length;
   if(kat.kind==='donusum')return db.appointments.filter(a=>alanOf(a)===empId&&inPeriod(a,period)&&!iptalMi(a)&&donustu(a)).length;
-  /* Kaynak doluysa o kategorinin satışları kullanılır. Bir ürün tek
-     kategoriye etiketlenebildiği için, aynı satıştan hem puan hem
-     adet hedefi çıkarmanın yolu bu. */
+  /* Bir satış iki hedefe birden sayılabilir:
+       · ürünün BİRİNCİ hedef kategorisi (hedefKat)
+       · ürünün İKİNCİ hedef kategorisi (hedefKat2) — tarife tarife
+         seçilir; örneğin bazı mobil tarifeler hem puan hem adet
+         hedefine yazılır.
+     Kategori düzeyindeki eski "kaynak" yolu da duruyor: o, kaynak
+     kategorinin BÜTÜN ürünlerini ikinci hedefe taşır. */
   const kaynak=kat.kaynak||katId;
-  const rows=salesIn(period).filter(s=>s.employeeId===empId&&s.hedefKat===kaynak);
+  const rows=salesIn(period).filter(s=>s.employeeId===empId&&
+    (s.hedefKat===kaynak||s.hedefKat2===kaynak));
   if(kat.kind==='puan')return sum(rows.map(s=>({amount:s.puan})));
   /* Satış adedi: satırdaki adet toplanır. Mobilde hat sayısı,
      DSL ve PSTN'de hizmet numarası sayısı bu alana yazılıyor. */
@@ -2732,8 +2740,8 @@ function viewHedef(){
 /* ----- Hedef kategorileri ----- */
 function katKullanim(id){
   return {hedef:(db.targets||[]).filter(t=>t.kat===id).length,
-          urun:(db.products||[]).filter(p=>p.hedefKat===id).length,
-          satis:(db.sales||[]).filter(x=>x.hedefKat===id).length};
+          urun:(db.products||[]).filter(p=>p.hedefKat===id||p.hedefKat2===id).length,
+          satis:(db.sales||[]).filter(x=>x.hedefKat===id||x.hedefKat2===id).length};
 }
 /* Kimlik, hedef ve ürün kayıtlarında metin olarak saklanır; Türkçe
    harfleri önce karşılıklarına katlıyoruz, yoksa "taahhüt" -> "taahh_t"
@@ -4413,7 +4421,9 @@ function satisExportRows(){
         adOf(p,'category'),adOf(p,'brand'),
         miktar[i],tutar[i],puan[i]].concat(primGor()?[prim[i]]:[]).concat(
         [abone[i]||'',seri[i]||'',(i+1)+'/'+adet,
-         adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',x.id]));
+         [adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',
+          adOf(hedefKat(x.hedefKat2),'name')||x.hedefKat2||''].filter(Boolean).join(' · '),
+         x.id]));
     }
   });
   return [head].concat(rows);
@@ -6071,6 +6081,15 @@ function openProd(id,pre){
             (v.hedefKat&&!HEDEF_KATS.some(k=>k.id===v.hedefKat)&&hedefKat(v.hedefKat))
               ? [{...hedefKat(v.hedefKat),name:hedefKat(v.hedefKat).name+' (pasif)'}] : []
           ).map(k=>[k.id,k.name]),v.hedefKat||'','Yok, hedefe dahil değil')+'</select></div>'+
+    /* Aynı satış iki hedefe birden sayılsın diye ikinci kategori.
+       Örnek: tarife "Mobil Puan"a yazılırken bazı tarifeler ayrıca
+       "Mobil Hat Adedi" hedefine de sayılır. */
+    '<div class="field full"><label for="pr-hedef2">İkinci hedef kategorisi</label><select id="pr-hedef2">'+
+      opt(HEDEF_KATS.concat(
+            (v.hedefKat2&&!HEDEF_KATS.some(k=>k.id===v.hedefKat2)&&hedefKat(v.hedefKat2))
+              ? [{...hedefKat(v.hedefKat2),name:hedefKat(v.hedefKat2).name+' (pasif)'}] : []
+          ).map(k=>[k.id,k.name]),v.hedefKat2||'','Yok')+'</select>'+
+      '<p class="hint" style="margin-top:4px">İsteğe bağlı. Bu ürünün satışı iki hedefe birden sayılsın istiyorsanız ikinci kategoriyi seçin; örneğin tarife hem <b>Mobil Puan</b> hem <b>Mobil Hat Adedi</b> hedefine yazılır. Prim ve puan iki kez hesaplanmaz, yalnızca hedefe sayılır.</p></div>'+
     '<div class="field"><label for="pr-gelirtip">Gelir hesabı</label><select id="pr-gelirtip">'+opt(GELIR_TIP,v.gelirTip||'sabit')+'</select></div>'+
     '<div id="pr-gelirwrap" style="display:contents">'+prodGelirField(v)+'</div>'+
     '<div class="field full"><label for="pr-mobil">Satırdaki özel rol</label><select id="pr-mobil">'+
@@ -6089,8 +6108,10 @@ function openProd(id,pre){
     '<button class="btn" data-act="close">Vazgeç</button>'+(p?'':'<button class="btn" data-act="save-prod-next">Kaydet ve yeni ekle</button>')+'<button class="btn primary" data-act="save-prod">'+(p?'Kaydet':'Ürünü kaydet')+'</button>'));
 }
 function saveProd(next){
-  const cat=canonCat(prodCats(),$('#pr-cat').value),brand=canon(prodBrands(),$('#pr-brand').value),name=norm($('#pr-name').value),stocked=!!$('#pr-stock').checked,hedefKatV=$('#pr-hedef').value,calcType=$('#pr-calc').value==='yuzde'?'yuzde':'sabit',err=m=>{$('#pr-err').textContent=m;},id=dlgState.id;
+  const cat=canonCat(prodCats(),$('#pr-cat').value),brand=canon(prodBrands(),$('#pr-brand').value),name=norm($('#pr-name').value),stocked=!!$('#pr-stock').checked,hedefKatV=$('#pr-hedef').value,hedefKat2V=(($('#pr-hedef2')||{}).value)||'',calcType=$('#pr-calc').value==='yuzde'?'yuzde':'sabit',err=m=>{$('#pr-err').textContent=m;},id=dlgState.id;
   if(!cat)return err('Kategori girin.');if(!brand)return err('Marka girin.');if(!name)return err('Ürün adını girin.');
+  if(hedefKat2V&&hedefKat2V===hedefKatV)
+    return err('İkinci hedef kategorisi birincisiyle aynı olamaz. Farklı bir kategori seçin ya da boş bırakın.');
   let prim=0,puan=0,primPct=0,puanPct=0;
   if(calcType==='yuzde'){
     primPct=parseFloat(String($('#pr-primpct').value).replace(',','.'))||0;puanPct=parseFloat(String($('#pr-puanpct').value).replace(',','.'))||0;
@@ -6106,14 +6127,14 @@ function saveProd(next){
   const gelirV=parseFloat(String(($('#pr-gelir')||{}).value||'0').replace(',','.'))||0;
   if(gelirV<0)return err('Gelir negatif olamaz.');
   if(gelirTip==='yuzde'&&gelirV>100)return err('Gelir yüzdesi 100\u2019den büyük olamaz. Satış tutarının üstünde gelir için \u201cSatış tutarının katı\u201d seçin.');
-  const row={category:cat,brand,name,stocked,hedef_kat:hedefKatV,calc_type:calcType,
+  const row={category:cat,brand,name,stocked,hedef_kat:hedefKatV,hedef_kat2:hedefKat2V,calc_type:calcType,
              prim,puan,prim_pct:primPct,puan_pct:puanPct,mobil_tip:nz(mobilTip),
              gelir:gelirV,gelir_tip:gelirTip};
   run('pr-err',()=>id?upd('products',id,row):ins('products',row),'Ürün kaydedildi').then(()=>{
     /* Arka arkaya ürün girerken özel rol ve gelir ayarı da taşınsın;
        on tarifeyi sırayla girerken her seferinde yeniden seçmek
        gerekmesin. Yalnızca ürün adı ve tutarlar sıfırlanır. */
-    if(next&&!$('#pr-err'))openProd(null,{category:cat,brand,name:'',stocked,hedefKat:hedefKatV,
+    if(next&&!$('#pr-err'))openProd(null,{category:cat,brand,name:'',stocked,hedefKat:hedefKatV,hedefKat2:hedefKat2V,
       calcType,prim:0,puan:0,primPct:0,puanPct:0,
       mobilTip,gelir:gelirV,gelirTip});
   });
