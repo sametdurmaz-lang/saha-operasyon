@@ -313,7 +313,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='06.10.2026-a';
+const SURUM='06.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1897,7 +1897,11 @@ function viewSatis(){
   const bugunList=db.sales.filter(x=>x.date===TODAY);
   const bugunAdet=bugunList.reduce((a,x)=>a+x.qty,0);
   const groups=satGroups(list,st.group),gl={personel:'Personel',departman:'Departman',urun:'Ürün',kategori:'Kategori'};
-  return head('Satışlar','Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',periodSel()+xlBtn('satis','Excel’e aktar')+'<button class="btn primary" data-act="open-sale">Satış ekle</button>')+
+  return head('Satışlar',isSaha()
+      ?'Satışlarınız, kazandığınız puan ve prim.'
+      :'Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',
+    periodSel()+xlBtn('satis','Excel’e aktar')+
+    (isSaha()?'':'<button class="btn primary" data-act="open-sale">Satış ekle</button>'))+
   '<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Bugün yapılan satış</span><b>'+bugunAdet+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+(primGor()?'<div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div>':'')+'<div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>'+
   '<div class="stack"><section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
   (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+
@@ -6528,10 +6532,12 @@ const EKRAN_YETKI={
   satis    :()=>true,
   /* Satış destek kendi hedefi olmayan bir destek rolü; hedef ekranı işine yaramıyor */
   hedef    :()=>!isDestek(),
-  musteri  :()=>!isMuhasebe()||true,
+  /* Saha personelinin ekranı sade tutuldu: müşteri listesini gezmesine
+     gerek yok, müşteriye randevu ve satış kayıtlarından ulaşıyor. */
+  musteri  :()=>!isSaha(),
   potansiyel:()=>!isMuhasebe(),
   randevu  :()=>!isMuhasebe(),
-  arac     :()=>takipliAraclar().length>0,
+  arac     :()=>!isSaha()&&takipliAraclar().length>0,
   /* Harita saha yönlendirmesi içindir; satış destek saha işi yapmıyor */
   harita   :()=>!isDestek()&&(takipliAraclar().length>0||db.appointments.some(a=>a.status==='Açık'))
 };
@@ -6835,7 +6841,7 @@ const actions={
   'lead-import'(){openLeadImport();},
   'lead-imp-go'(){leadImportGo();},
   'lead-tpl'(){leadSablon();},
-  'open-sale'(){openSale();},'save-sale'(){saveSale();},
+  'open-sale'(){if(isSaha())return void toast('Satış kaydı girme yetkiniz yok');openSale();},'save-sale'(){saveSale();},
   'sl-add'(){slRead();dlgState.lines.push(newLine());renderLines();},
   'sl-del'(el){slRead();dlgState.lines=dlgState.lines.filter(L=>L.id!==el.dataset.id);
     if(!dlgState.lines.length)dlgState.lines=[newLine()];renderLines();},
