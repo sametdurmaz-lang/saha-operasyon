@@ -356,7 +356,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='06.10.2026-d';
+const SURUM='06.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3341,7 +3341,9 @@ function viewRandevu(){
       kutu('iptal','İptal edilen',iptalSayi)+
     '</div>';})()+
   '<div class="stack">'+ekipTabloBolumu()+atamaBolumu()+
-  (rows.length?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
+  /* Dönüşüm tablosu randevuyu ALANLARIN performansıdır; saha
+     personelinin ekranında başkalarının rakamları duruyordu. */
+  ((rows.length&&!isSaha())?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><div>'+esc(r.e.name)+'</div><div class="muted sm">'+esc((dept(r.e.departmentId)||{}).name)+'</div></td><td class="num">'+r.total+'</td><td class="num">'+r.closed+'</td><td class="num'+(r.iptal?' out':' muted')+'">'+(r.iptal||'-')+'</td><td class="num"><b>'+r.conv+'</b></td><td class="num">%'+pct(r.conv,r.total)+'</td></tr>').join('')+
     '</tbody></table></div></section>':'')+
   '<section class="panel"><div class="panel-h">'+
