@@ -356,7 +356,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='06.10.2026-e';
+const SURUM='06.10.2026-f';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2001,10 +2001,13 @@ function viewSatis(){
     periodSel()+xlBtn('satis','Excel’e aktar')+
     (isSaha()?'':'<button class="btn primary" data-act="open-sale">Satış ekle</button>'))+
   '<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Bugün yapılan satış</span><b>'+bugunAdet+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+(primGor()?'<div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div>':'')+'<div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>'+
-  '<div class="stack"><section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
+  '<div class="stack">'+
+  /* Kırılım tablosu ekip karşılaştırması içindir; saha personelinin
+     ekranında kendi satışlarını tekrar eden bir blok oluyordu. */
+  (isSaha()?'':'<section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
   (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+
     groups.map(g=>'<tr><td><div>'+esc(g.l)+'</div>'+(g.sub?'<div class="muted sm">'+esc(g.sub)+'</div>':'')+'</td><td class="num">'+g.n+'</td><td class="num">'+g.qty+'</td><td class="num"><b>'+nf.format(g.puan)+'</b></td>'+(primGor()?'<td class="num">'+money(g.prim)+'</td>':'')+'</tr>').join('')+
-    '<tr class="total"><td>Toplam</td><td class="num">'+list.length+'</td><td class="num">'+qty+'</td><td class="num">'+nf.format(puan)+'</td>'+(primGor()?'<td class="num">'+money(prim)+'</td>':'')+'</tr></tbody></table></div>':'<div class="empty">Bu dönemde satış kaydı yok.</div>')+'</section>'+
+    '<tr class="total"><td>Toplam</td><td class="num">'+list.length+'</td><td class="num">'+qty+'</td><td class="num">'+nf.format(puan)+'</td>'+(primGor()?'<td class="num">'+money(prim)+'</td>':'')+'</tr></tbody></table></div>':'<div class="empty">Bu dönemde satış kaydı yok.</div>')+'</section>')+
   '<section class="panel"><div class="panel-h"><input id="slq" type="search" placeholder="Müşteri, ürün, personel veya abone no ara" value="'+esc(st.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools"><select data-set="sat.emp" aria-label="Personel">'+empSecim(st.emp,'Tüm personel')+'</select></div></div><div id="satlist">'+satTable()+'</div></section></div>';
 }
 /* ---------------------------------------------------------------
