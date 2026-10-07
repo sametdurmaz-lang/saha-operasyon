@@ -411,7 +411,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='07.10.2026-b';
+const SURUM='07.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2196,7 +2196,15 @@ function personelGelir(empId,period){
   });
   return t;
 }
+/* Satış tutarı alanı, tutarın bir şeyi gerçekten etkilediği durumda
+   açılır:
+     · prim/puan satış tutarının yüzdesi hesaplanıyorsa,
+     · GELİR satış tutarının yüzdesi ya da katı olarak tanımlıysa,
+     · hedef kategorilerinden biri "satış tutarı" türündeyse.
+   Gelir koşulu eksikti: geliri "tutarın katı" olarak tanımlanmış bir
+   üründe tutar sorulmuyor, dolayısıyla gelir sessizce ₺0 kalıyordu. */
 function needsAmount(p){return !!p&&(p.calcType==='yuzde'
+  ||(p.gelir&&(p.gelirTip==='yuzde'||p.gelirTip==='kat'))
   ||(hedefKat(p.hedefKat)||{}).kind==='tutar'
   ||(hedefKat(p.hedefKat2)||{}).kind==='tutar');}
 function newLine(){return {id:'L'+(seq++).toString(36),cat:'',prod:'',qty:'1',amount:'',serials:'',abone:'',gb:'',tip:'BASE',eski:'',yeni:'',hiz:'',simetri:'simetrik'};}
