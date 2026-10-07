@@ -119,6 +119,7 @@ th.num{text-align:right}
 tr.click{cursor:pointer}
 tr.click:hover{background:var(--accent-soft)}
 tr.total td{font-weight:600;border-top:1px solid var(--line)}
+tr.vurgu td{background:var(--paper)}
 tr.total-top td{font-weight:600;border-top:0;border-bottom:2px solid var(--line);background:var(--paper)}
 .plain td{padding:8px 16px}
 
@@ -411,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='07.10.2026-e';
+const SURUM='07.10.2026-f';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -475,6 +476,9 @@ const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+S
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
 const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
 const CAT_ENV='Envanter bakım';
+/* Banka kredisi taksidi. Yalnızca Krediler ekranından yazılır;
+   elle hareket girişinde kapalıdır ki taksit iki kez işlenmesin. */
+const CAT_KREDI='Kredi taksidi';
 /* Personele yapılan ek ödemeler. Maaş ve avans gibi, elle hareket
    girişinden değil Maaş ve ödemeler ekranından yazılır. */
 const ODEME_TURU=[
@@ -486,7 +490,7 @@ const ODEME_TURU=[
 ];
 const CAT_ODEME=ODEME_TURU.map(t=>t.kat);
 const CAT_OUT=['Maaş','Personel avansı'].concat(CAT_ODEME,
-  ['Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK','Diğer gider']);
+  ['Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK',CAT_KREDI,'Diğer gider']);
 /* Elle hareket girişinde kapalı kategoriler.
    Maaş, avans, ticket, yol parası, ek ödeme ve prim:
    Maaş ve ödemeler ekranından yazılır.
@@ -494,7 +498,7 @@ const CAT_OUT=['Maaş','Personel avansı'].concat(CAT_ODEME,
    diye kapalı; envanter masrafı yalnızca "Envanter bakım" ile girilir.
    İkisi de CAT_OUT'ta duruyor, çünkü eski kayıtlar ve cihaz detayından
    girilen tamirler bu kategorilerde ve raporlarda süzülebilmeli. */
-const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir'].concat(CAT_ODEME);
+const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir',CAT_KREDI].concat(CAT_ODEME);
 const CAT_OUT_MANUAL=CAT_OUT.filter(c=>CAT_ELLE_KAPALI.indexOf(c)<0);
 const IL_ILCE={
 "İstanbul":["Adalar","Arnavutköy","Ataşehir","Avcılar","Bağcılar","Bahçelievler","Bakırköy","Başakşehir","Bayrampaşa","Beşiktaş","Beykoz","Beylikdüzü","Beyoğlu","Büyükçekmece","Çatalca","Çekmeköy","Esenler","Esenyurt","Eyüpsultan","Fatih","Gaziosmanpaşa","Güngören","Kadıköy","Kağıthane","Kartal","Küçükçekmece","Maltepe","Pendik","Sancaktepe","Sarıyer","Silivri","Sultanbeyli","Sultangazi","Şile","Şişli","Tuzla","Ümraniye","Üsküdar","Zeytinburnu"],
@@ -754,6 +758,13 @@ const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
   enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
   asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
   veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''});
+const mapKredi=r=>({id:r.id,companyId:r.company_id||'',banka:r.banka||'',ad:r.name||'',
+  cekilen:num(r.cekilen),taksitSayisi:+r.taksit_sayisi||0,taksitTutari:num(r.taksit_tutari),
+  ilkOdeme:r.ilk_odeme||'',kalanAnapara:num(r.kalan_anapara),faiz:num(r.faiz),
+  durum:r.durum||'Aktif',descr:r.descr||''});
+const mapKrediOdeme=r=>({id:r.id,krediId:r.kredi_id,
+  taksitNo:r.taksit_no==null?null:+r.taksit_no,tarih:r.tarih||'',tutar:num(r.amount),
+  accountId:r.account_id||'',txId:r.tx_id||'',descr:r.descr||''});
 const mapAracGunluk=r=>({assetId:r.asset_id,gun:r.gun,
   km:r.km==null?null:num(r.km),
   hareketDk:r.hareket_dk==null?null:num(r.hareket_dk),
@@ -775,7 +786,11 @@ async function loadAll(zorla){
      sürekli büyüyor ve ekranı hiç açmayan personele de iniyordu;
      artık o ekran açılınca yükleniyor (aracGunlukGetir). */
   const bos=p=>p.catch(()=>[]);
-  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum]=await Promise.all([
+  /* Krediler yalnızca master'a görünür (RLS). Diğer rollerde boşuna
+     iki istek atmamak için hiç sorulmuyor. */
+  const krediIste=isMaster();
+  const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum,
+         krediler,krediOdemeler]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -788,7 +803,10 @@ async function loadAll(zorla){
     bos(q('hedef_kat')),            /* tablo yoksa varsayılan kategoriler */
     /* Kendi randevularımdan satışa dönenler. 57 numaralı dosya
        çalıştırılmadıysa boş gelir, davranış eskisi gibi kalır. */
-    sb.rpc('randevu_donusumlerim').then(r=>r.error?[]:(r.data||[])).catch(()=>[])]);
+    sb.rpc('randevu_donusumlerim').then(r=>r.error?[]:(r.data||[])).catch(()=>[]),
+    /* 68 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
+    krediIste?bos(q('krediler')):Promise.resolve([]),
+    krediIste?bos(q('kredi_odemeler')):Promise.resolve([])]);
   katlariKur(katlar);
   donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
@@ -860,6 +878,8 @@ async function loadAll(zorla){
     appointments:appointments.map(r=>mapRandevu(r,pLog[r.id]||[])),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(mapLead),
+    krediler:krediler.map(mapKredi),
+    krediOdemeler:krediOdemeler.map(mapKrediOdeme),
     havuz:havuz
   };
 }
@@ -912,7 +932,7 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+    assets:[],repairs:[],users:[],leads:[],krediler:[],krediOdemeler:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
@@ -5714,14 +5734,382 @@ function viewDenetim(){
   '</div></div><div id="denlist">'+denetimTablo()+'</div></section>';
 }
 
-const VIEWS={anasayfa:viewAnasayfa,ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,harita:viewHarita,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim};
+
+/* ====================== BANKA KREDİLERİ ==========================
+   Yalnızca master görür (EKRAN_YETKI.kredi) ve yetki sunucuda da
+   kapalıdır (68-krediler.sql).
+
+   Ödeme planı tabloda TUTULMAZ, krediden türetilir:
+     n. taksidin vadesi = ilk ödeme tarihi + (n-1) ay.
+   Böylece taksit sayısı veya ilk tarih düzeltildiğinde plan
+   kendiliğinden düzelir; yüzlerce plan satırı taşımak gerekmez.
+
+   Kalan ana para elle tutulur. Taksidin ne kadarı ana para ne kadarı
+   faiz, bunu banka belirliyor; taksit tutarını ana paradan düşmek
+   yanlış sonuç verirdi. Ödeme penceresinde isteğe bağlı "ödeme
+   sonrası kalan ana para" alanı var; doldurulursa kredi kartı
+   güncellenir.
+   ---------------------------------------------------------------- */
+const KREDI_DURUM=['Aktif','Kapandı'];
+/* iso tarihine n ay ekler. Date nesnesi 31 Ocak + 1 ay = 3 Mart
+   yapıyor; ayın karşılığı olmayan günleri ayın son gününe çekiyoruz. */
+function ayEkle(iso,n){
+  const parca=String(iso||'').split('-'),y=+parca[0],m=+parca[1],g=+parca[2];
+  if(!y||!m||!g)return '';
+  const top=(m-1)+(+n||0),yy=y+Math.floor(top/12),mm=((top%12)+12)%12;
+  const sonGun=new Date(Date.UTC(yy,mm+1,0)).getUTCDate();
+  return yy+'-'+String(mm+1).padStart(2,'0')+'-'+String(Math.min(g,sonGun)).padStart(2,'0');
+}
+const topla=(l,f)=>l.reduce((t,x)=>t+(+f(x)||0),0);
+const kredi=id=>byId(db.krediler,id);
+const krediBaslik=k=>k?k.banka+(k.ad?' — '+k.ad:''):'';
+const krediOdemeleri=kid=>db.krediOdemeler.filter(o=>o.krediId===kid)
+  .sort((a,b)=>a.tarih<b.tarih?-1:a.tarih>b.tarih?1:(a.taksitNo||0)-(b.taksitNo||0));
+const taksitOdemesi=(kid,no)=>db.krediOdemeler.find(o=>o.krediId===kid&&o.taksitNo===no);
+const aktifKrediler=()=>db.krediler.filter(k=>k.durum==='Aktif');
+/* Taksit planı: vade, tutar ve varsa ödemesi */
+function krediPlan(k){
+  const out=[];
+  for(let n=1;n<=k.taksitSayisi;n++)
+    out.push({no:n,vade:ayEkle(k.ilkOdeme,n-1),tutar:k.taksitTutari,
+              odeme:taksitOdemesi(k.id,n)||null});
+  return out;
+}
+const odenenTaksit=k=>krediPlan(k).filter(t=>t.odeme).length;
+const kalanTaksit =k=>Math.max(0,k.taksitSayisi-odenenTaksit(k));
+const siradakiTaksit=k=>krediPlan(k).find(t=>!t.odeme)||null;
+/* Vadesi geçmiş ve hâlâ ödenmemiş taksitler */
+function gecikmisTaksitler(){
+  const out=[];
+  aktifKrediler().forEach(k=>krediPlan(k).forEach(t=>{
+    if(!t.odeme&&t.vade&&t.vade<TODAY)out.push({k:k,t:t});}));
+  return out.sort((a,b)=>a.t.vade<b.t.vade?-1:1);
+}
+/* Ara ödemeler: taksit numarası verilmeden girilenler */
+const araOdemeler=kid=>db.krediOdemeler.filter(o=>o.krediId===kid&&o.taksitNo==null);
+const krediOdenenToplam=kid=>topla(db.krediOdemeler.filter(o=>o.krediId===kid),o=>o.tutar);
+
+/* Aylık taksit yükü. kapsam='gelecek' -> bu ay ve sonraki 11 ay,
+   'hepsi' -> planın tamamı. Ödenen sütunu ödemenin TARİHİNE göre
+   toplanır; taksidi geç ödediyseniz ödendiği ayda görünür. */
+function krediAyTablosu(kapsam){
+  const m={};
+  const al=ay=>m[ay]||(m[ay]={ay:ay,adet:0,plan:0,odenen:0,odenenAdet:0,gecikmis:0});
+  db.krediler.forEach(k=>krediPlan(k).forEach(t=>{
+    if(!t.vade)return;
+    const g=al(t.vade.slice(0,7));
+    g.adet++;g.plan+=t.tutar;
+    if(!t.odeme&&t.vade<TODAY&&k.durum==='Aktif')g.gecikmis+=t.tutar;
+  }));
+  db.krediOdemeler.forEach(o=>{
+    if(!o.tarih)return;
+    const g=al(o.tarih.slice(0,7));
+    g.odenen+=o.tutar;g.odenenAdet++;
+  });
+  let rows=Object.keys(m).sort().map(a=>m[a]);
+  if(kapsam!=='hepsi'){
+    const bas=TODAY.slice(0,7),son=ayEkle(bas+'-01',11).slice(0,7);
+    rows=rows.filter(r=>r.ay>=bas&&r.ay<=son);
+  }
+  return rows;
+}
+function krediOzet(){
+  const akt=aktifKrediler(),buAy=TODAY.slice(0,7);
+  const gec=gecikmisTaksitler();
+  const buAyPlan=topla(akt,k=>topla(krediPlan(k).filter(t=>t.vade.slice(0,7)===buAy),t=>t.tutar));
+  return {
+    adet       :akt.length,
+    aylik      :topla(akt,k=>siradakiTaksit(k)?k.taksitTutari:0),
+    buAyPlan   :buAyPlan,
+    buAyOdenen :topla(db.krediOdemeler.filter(o=>o.tarih.slice(0,7)===buAy),o=>o.tutar),
+    kalanAnapara:topla(akt,k=>k.kalanAnapara),
+    kalanBorc  :topla(akt,k=>kalanTaksit(k)*k.taksitTutari),
+    gecikmis   :topla(gec,x=>x.t.tutar),
+    gecikmisAdet:gec.length
+  };
+}
+
+function krediAyPaneli(){
+  const f=state.kredi,rows=krediAyTablosu(f.kapsam);
+  const seg='<div class="seg" role="group" aria-label="Kapsam">'+
+    [['gelecek','Bu ay ve sonraki 11 ay'],['hepsi','Planın tamamı']].map(([v,l])=>
+      '<button data-act="kredi-kapsam" data-v="'+v+'" aria-pressed="'+(f.kapsam===v)+'">'+l+'</button>').join('')+'</div>';
+  const t={adet:0,plan:0,odenen:0,gecikmis:0};
+  rows.forEach(r=>{t.adet+=r.adet;t.plan+=r.plan;t.odenen+=r.odenen;t.gecikmis+=r.gecikmis;});
+  const gecList=gecikmisTaksitler().filter(x=>!rows.some(r=>r.ay===x.t.vade.slice(0,7)));
+  const gec={adet:gecList.length,tutar:topla(gecList,x=>x.t.tutar)};
+  return '<section class="panel"><div class="panel-h"><div><h2>Aylık taksit yükü</h2>'+
+    '<p class="muted sm">Her ay ödenecek toplam taksit ve o ay fiilen ödenen</p></div>'+seg+'</div>'+
+    (rows.length?
+      '<div class="scroll"><table><thead><tr><th>Ay</th><th class="num">Taksit adedi</th>'+
+      '<th class="num">Ödenecek toplam</th><th class="num">Ödenen</th><th class="num">Fark</th>'+
+      '<th class="num">Gecikmiş</th></tr></thead><tbody>'+
+      rows.map(r=>{
+        const fark=r.plan-r.odenen,buAy=r.ay===TODAY.slice(0,7);
+        return '<tr'+(buAy?' class="vurgu"':'')+'><td class="nowrap"><b>'+monthLabel(r.ay)+'</b>'+
+          (buAy?' <span class="badge">bu ay</span>':'')+'</td>'+
+          '<td class="num">'+r.adet+'</td>'+
+          '<td class="num"><b>'+money(r.plan)+'</b></td>'+
+          '<td class="num'+(r.odenen?'':' muted')+'">'+(r.odenen?money(r.odenen):'—')+'</td>'+
+          '<td class="num'+(fark>0?' out':fark<0?' in':' muted')+'">'+(fark?money(fark):'—')+'</td>'+
+          '<td class="num'+(r.gecikmis?' out':' muted')+'">'+(r.gecikmis?'<b>'+money(r.gecikmis)+'</b>':'—')+'</td></tr>';
+      }).join('')+
+      '<tr class="total"><td><b>Toplam</b></td><td class="num"><b>'+t.adet+'</b></td>'+
+      '<td class="num"><b>'+money(t.plan)+'</b></td><td class="num"><b>'+money(t.odenen)+'</b></td>'+
+      '<td class="num"><b>'+money(t.plan-t.odenen)+'</b></td>'+
+      '<td class="num'+(t.gecikmis?' out':'')+'"><b>'+(t.gecikmis?money(t.gecikmis):'—')+'</b></td></tr>'+
+      '</tbody></table></div>'
+     :'<div class="empty">Bu aralıkta taksit yok.</div>')+
+    '<div class="panel-b">'+
+    /* Gecikmiş taksitler geçmiş aylarda duruyor; dar kapsamda tablo
+       boş "—" gösterirken üstteki kutu tutar yazıyordu, kafa
+       karıştırıyordu. Aralığın dışında kalanı burada söylüyoruz. */
+    (f.kapsam!=='hepsi'&&gec.adet
+      ?'<p class="hint"><b>Vadesi geçmiş '+gec.adet+' taksit ('+money(gec.tutar)+')</b> bu aralığın dışındaki aylarda duruyor. “Planın tamamı”na geçerek görebilirsiniz.</p>':'')+
+    '<p class="hint"><b>Ödenen</b> sütunu ödemenin yapıldığı aya yazılır; geciken bir taksit, vadesinin olduğu ayda değil ödendiği ayda görünür. <b>Fark</b> o ayda ödenmeyi bekleyen tutardır.</p></div></section>';
+}
+
+function krediTablosu(){
+  const rows=db.krediler.slice().sort((a,b)=>
+    (a.durum===b.durum?0:a.durum==='Aktif'?-1:1)||
+    (a.banka+a.ad).localeCompare(b.banka+b.ad,'tr'));
+  return '<div class="scroll"><table><thead><tr><th>Banka / kredi</th><th>Şirket</th>'+
+    '<th class="num">Taksit</th><th class="num">Taksit tutarı</th><th class="num">Faiz</th>'+
+    '<th class="num">Kalan ana para</th><th class="num">Kalan borç</th>'+
+    '<th>Sonraki vade</th><th></th></tr></thead><tbody>'+
+    rows.map(k=>{
+      const odenen=odenenTaksit(k),kalan=kalanTaksit(k),sira=siradakiTaksit(k);
+      const gecikti=sira&&sira.vade<TODAY&&k.durum==='Aktif';
+      return '<tr class="click" tabindex="0" data-act="kredi-detay" data-id="'+k.id+'">'+
+        '<td><b>'+esc(k.banka)+'</b>'+(k.ad?'<div class="muted sm">'+esc(k.ad)+'</div>':'')+
+          (k.durum!=='Aktif'?' <span class="badge">Kapandı</span>':'')+'</td>'+
+        '<td class="muted sm">'+esc(coShort(k.companyId))+'</td>'+
+        '<td class="num">'+odenen+' / '+k.taksitSayisi+'<div class="muted sm">'+kalan+' kaldı</div></td>'+
+        '<td class="num"><b>'+money(k.taksitTutari)+'</b></td>'+
+        '<td class="num">'+(k.faiz?'%'+nf.format(k.faiz):'—')+'</td>'+
+        '<td class="num">'+(k.kalanAnapara?money(k.kalanAnapara):'—')+'</td>'+
+        /* Kapanmış kredide kalan borç canlı borç gibi okunmasın */
+        '<td class="num'+(k.durum==='Aktif'?'':' muted')+'">'+money(kalan*k.taksitTutari)+'</td>'+
+        '<td class="nowrap">'+(k.durum!=='Aktif'?'<span class="muted">Kapandı</span>'
+          :sira?fmtDate(sira.vade)+(gecikti?' <span class="badge bad">gecikti</span>':'')
+          :'<span class="badge ok">Tamamlandı</span>')+'</td>'+
+        '<td class="num"><button class="btn sm" data-act="kredi-detay" data-id="'+k.id+'">Detay</button></td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
+function krediOdemePaneli(){
+  const p=state.period;
+  const list=db.krediOdemeler
+    .filter(o=>p==='all'||String(o.tarih).slice(0,7)===p)
+    .sort((a,b)=>a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
+  const toplam=topla(list,o=>o.tutar);
+  return '<section class="panel"><div class="panel-h"><div><h2>Yapılan ödemeler</h2>'+
+    '<p class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+' · '+list.length+' ödeme · '+money(toplam)+'</p></div>'+
+    '<div class="tools">'+periodSel()+'</div></div>'+
+    (list.length?
+      '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Banka / kredi</th><th>Taksit</th>'+
+      '<th>Hesap</th><th>Açıklama</th><th class="num">Tutar</th><th></th></tr></thead><tbody>'+
+      list.map(o=>{
+        const k=kredi(o.krediId),a=o.accountId?acct(o.accountId):null;
+        return '<tr><td class="nowrap">'+fmtDate(o.tarih)+'</td>'+
+          '<td>'+esc(krediBaslik(k))+'</td>'+
+          '<td>'+(o.taksitNo?o.taksitNo+'. taksit':'<span class="muted">Ara ödeme</span>')+'</td>'+
+          '<td class="muted sm">'+(a?esc(a.name):'Kasaya işlenmedi')+'</td>'+
+          '<td class="muted sm">'+esc(o.descr||'')+'</td>'+
+          '<td class="num out"><b>'+money(o.tutar)+'</b></td>'+
+          '<td class="num"><button class="btn sm" data-act="del-kredi-odeme" data-id="'+o.id+'">Sil</button></td></tr>';
+      }).join('')+
+      '<tr class="total"><td colspan="5"><b>Toplam</b></td><td class="num out"><b>'+money(toplam)+'</b></td><td></td></tr>'+
+      '</tbody></table></div>'
+     :'<div class="empty">Bu dönemde kredi ödemesi kaydedilmemiş.</div>')+'</section>';
+}
+
+function viewKredi(){
+  const tools='<button class="btn primary" data-act="open-kredi">Kredi ekle</button>';
+  const alt='Banka kredileri, taksit planı ve yapılan ödemeler. Bu ekranı yalnızca master görür.';
+  if(!db.krediler.length)
+    return head('Krediler',alt,tools)+
+      '<div class="panel"><div class="empty">Henüz kredi kaydı yok. “Kredi ekle” ile bankayı, taksit sayısını, taksit tutarını ve ilk ödeme tarihini girin; ödeme planı kendiliğinden oluşur.</div></div>';
+  const o=krediOzet();
+  return head('Krediler',alt,tools)+
+    '<div class="kpis">'+
+    '<div class="kpi"><span>Aktif kredi</span><b>'+o.adet+'</b></div>'+
+    '<div class="kpi"><span>Aylık taksit toplamı</span><b>'+money(o.aylik)+'</b>'+
+      '<span class="muted sm">ödenmeyi bekleyen taksidi olan krediler</span></div>'+
+    '<div class="kpi"><span>'+monthLabel(TODAY.slice(0,7))+' ödenecek</span><b>'+money(o.buAyPlan)+'</b>'+
+      '<span class="muted sm">bu ay ödenen '+money(o.buAyOdenen)+'</span></div>'+
+    '<div class="kpi"><span>Toplam kalan ana para</span><b>'+money(o.kalanAnapara)+'</b></div>'+
+    '<div class="kpi"><span>Kalan toplam borç</span><b>'+money(o.kalanBorc)+'</b>'+
+      '<span class="muted sm">ödenmemiş taksitlerin toplamı</span></div>'+
+    (o.gecikmisAdet?'<div class="kpi"><span>Gecikmiş taksit</span><b class="out">'+money(o.gecikmis)+'</b>'+
+      '<span class="muted sm">'+o.gecikmisAdet+' taksit</span></div>':'')+
+    '</div>'+
+    krediAyPaneli()+
+    '<section class="panel"><div class="panel-h"><div><h2>Krediler</h2>'+
+    '<p class="muted sm">Satıra tıklayın, taksit planı ve ödemeleri açılsın</p></div></div>'+
+    krediTablosu()+'</section>'+
+    krediOdemePaneli();
+}
+
+/* ---------------- Kredi kartı (ekleme ve düzenleme) ---------------- */
+function openKredi(id){
+  if(!db.companies.length)return needDlg('Kredi ekle','Önce bir şirket tanımlayın.');
+  const k=id?kredi(id):null;
+  dlgState={kind:'kredi',id:id||null};
+  const v=k||{companyId:db.companies[0].id,banka:'',ad:'',cekilen:0,taksitSayisi:12,
+    taksitTutari:0,ilkOdeme:TODAY,kalanAnapara:0,faiz:0,durum:'Aktif',descr:''};
+  const odemeli=k?krediOdemeleri(k.id).length:0;
+  openDlg(dlgHtml(k?'Krediyi düzenle':'Kredi ekle','<div class="fields">'+
+    '<div class="field"><label for="kr-banka">Banka</label><input id="kr-banka" type="text" value="'+esc(v.banka)+'" placeholder="Örn. Ziraat Bankası"></div>'+
+    '<div class="field"><label for="kr-ad">Kredi adı</label><input id="kr-ad" type="text" value="'+esc(v.ad)+'" placeholder="Örn. Taşıt kredisi"></div>'+
+    '<div class="field"><label for="kr-co">Şirket</label><select id="kr-co">'+companyOptions(v.companyId,'Şirket seçin')+'</select></div>'+
+    '<div class="field"><label for="kr-cek">Çekilen tutar (₺)</label><input id="kr-cek" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.cekilen||'')+'"></div>'+
+    '<div class="field"><label for="kr-adet">Taksit sayısı</label><input id="kr-adet" type="number" min="1" max="600" step="1" inputmode="numeric" value="'+(v.taksitSayisi||'')+'"></div>'+
+    '<div class="field"><label for="kr-tak">Taksit tutarı (₺)</label><input id="kr-tak" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.taksitTutari||'')+'"></div>'+
+    '<div class="field"><label for="kr-ilk">İlk taksidin ödeme tarihi</label><input id="kr-ilk" type="date" value="'+esc(v.ilkOdeme)+'"></div>'+
+    '<div class="field"><label for="kr-kalan">Kalan ana para (₺)</label><input id="kr-kalan" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.kalanAnapara||'')+'"></div>'+
+    '<div class="field"><label for="kr-faiz">Aylık faiz oranı (%)</label><input id="kr-faiz" type="number" min="0" step="0.0001" inputmode="decimal" value="'+(v.faiz||'')+'"></div>'+
+    '<div class="field"><label for="kr-durum">Durum</label><select id="kr-durum">'+opt(KREDI_DURUM.map(d=>[d,d]),v.durum)+'</select></div>'+
+    '<div class="field full"><label for="kr-not">Açıklama</label><input id="kr-not" type="text" value="'+esc(v.descr)+'" placeholder="Sözleşme no, teminat vb."></div></div>'+
+    '<p class="hint">Ödeme planı bu bilgilerden türetilir: <b>n. taksidin vadesi = ilk ödeme tarihi + (n-1) ay</b>. Ayın 31’i gibi karşılığı olmayan günler ayın son gününe çekilir. <b>Kalan ana para</b> elle tutulur; taksidin ne kadarının ana para olduğunu banka belirlediği için otomatik düşülmez.</p>'+
+    (odemeli?'<p class="hint">Bu kredide <b>'+odemeli+' ödeme</b> kayıtlı. Taksit sayısını veya ilk ödeme tarihini değiştirirseniz plan kayar; ödemeler taksit numarasına bağlı kaldığı için eşleşmeleri kontrol edin.</p>':'')+
+    '<p class="err" id="kr-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    (k?'<button class="btn danger" data-act="del-kredi" data-id="'+k.id+'">Krediyi sil</button>':'')+
+    '<button class="btn primary" data-act="save-kredi">Kaydet</button>'));
+}
+function saveKredi(){
+  const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
+  const sayi=id=>parseFloat(String(g(id)).replace(',','.'))||0;
+  const err=m=>{$('#kr-err').textContent=m;};
+  const banka=g('kr-banka'),adet=Math.round(sayi('kr-adet')),taksit=sayi('kr-tak'),ilk=g('kr-ilk');
+  if(!banka)return err('Banka adını girin.');
+  if(!(adet>=1&&adet<=600))return err('Taksit sayısını 1 ile 600 arasında girin.');
+  if(!(taksit>0))return err('Taksit tutarını 0’dan büyük girin.');
+  if(!ilk)return err('İlk taksidin ödeme tarihini seçin.');
+  if(!g('kr-co'))return err('Şirket seçin.');
+  const row={company_id:nz(g('kr-co')),banka:banka,name:g('kr-ad'),
+    cekilen:sayi('kr-cek'),taksit_sayisi:adet,taksit_tutari:taksit,ilk_odeme:ilk,
+    kalan_anapara:sayi('kr-kalan'),faiz:sayi('kr-faiz'),durum:g('kr-durum')||'Aktif',
+    descr:g('kr-not')};
+  const id=dlgState.id;
+  run('kr-err',()=>id?upd('krediler',id,row):ins('krediler',row),
+    id?'Kredi güncellendi':'Kredi eklendi');
+}
+
+/* ---------------- Kredi detayı: plan ve ödemeler ---------------- */
+function openKrediDetay(id){
+  const k=kredi(id);if(!k)return;
+  dlgState={kind:'krediDetay',id:id};
+  const plan=krediPlan(k),ara=araOdemeler(k.id);
+  const odenen=odenenTaksit(k),kalan=kalanTaksit(k);
+  const sira=siradakiTaksit(k);
+  const satir=t=>{
+    const o=t.odeme,gec=!o&&t.vade<TODAY&&k.durum==='Aktif';
+    return '<tr'+(sira&&t.no===sira.no?' class="vurgu"':'')+'><td class="num">'+t.no+'</td>'+
+      '<td class="nowrap">'+fmtDate(t.vade)+'</td>'+
+      '<td class="num">'+money(t.tutar)+'</td>'+
+      '<td>'+(o?'<span class="badge ok">Ödendi</span> <span class="muted sm">'+fmtDate(o.tarih)+
+            (o.tutar!==t.tutar?' · '+money(o.tutar):'')+'</span>'
+           :gec?'<span class="badge bad">Gecikti</span>':'<span class="muted">Bekliyor</span>')+'</td>'+
+      '<td class="num">'+(o
+        ?'<button class="btn sm" data-act="del-kredi-odeme" data-id="'+o.id+'">Sil</button>'
+        :'<button class="btn sm primary" data-act="kredi-odeme" data-id="'+k.id+'" data-no="'+t.no+'">Öde</button>')+
+      '</td></tr>';
+  };
+  openDlg(dlgHtml(krediBaslik(k),
+    '<div class="kpis">'+
+    '<div class="kpi"><span>Taksit</span><b>'+odenen+' / '+k.taksitSayisi+'</b><span class="muted sm">'+kalan+' taksit kaldı</span></div>'+
+    '<div class="kpi"><span>Taksit tutarı</span><b>'+money(k.taksitTutari)+'</b></div>'+
+    '<div class="kpi"><span>Kalan ana para</span><b>'+money(k.kalanAnapara)+'</b></div>'+
+    '<div class="kpi"><span>Kalan borç</span><b>'+money(kalan*k.taksitTutari)+'</b></div>'+
+    '</div>'+
+    '<p class="muted sm">'+esc(coShort(k.companyId))+
+      (k.faiz?' · aylık faiz %'+nf.format(k.faiz):'')+
+      (k.cekilen?' · çekilen '+money(k.cekilen):'')+
+      ' · toplam ödenen '+money(krediOdenenToplam(k.id))+
+      (k.descr?' · '+esc(k.descr):'')+'</p>'+
+    (ara.length?'<p class="hint"><b>Ara ödemeler:</b> '+
+      ara.map(o=>fmtDate(o.tarih)+' '+money(o.tutar)+
+        ' <button class="btn sm" data-act="del-kredi-odeme" data-id="'+o.id+'">Sil</button>').join(' · ')+'</p>':'')+
+    '<div class="scroll" style="max-height:46vh"><table><thead><tr><th class="num">#</th><th>Vade</th>'+
+    '<th class="num">Tutar</th><th>Durum</th><th></th></tr></thead><tbody>'+
+    plan.map(satir).join('')+'</tbody></table></div>'+
+    '<p class="err" id="krd-err"></p>',
+    '<button class="btn" data-act="close">Kapat</button>'+
+    '<button class="btn" data-act="kredi-odeme" data-id="'+k.id+'">Ara ödeme ekle</button>'+
+    '<button class="btn" data-act="open-kredi" data-id="'+k.id+'">Krediyi düzenle</button>'+
+    (sira?'<button class="btn primary" data-act="kredi-odeme" data-id="'+k.id+'" data-no="'+sira.no+'">'+sira.no+'. taksidi öde</button>':'')));
+}
+
+/* ---------------- Taksit ödemesi ---------------- */
+function openKrediOdeme(kid,no){
+  const k=kredi(kid);if(!k)return;
+  const n=no?+no:null;
+  if(n&&taksitOdemesi(kid,n))return needDlg('Taksit ödemesi',n+'. taksit zaten ödenmiş görünüyor.');
+  const plan=n?krediPlan(k).find(t=>t.no===n):null;
+  dlgState={kind:'krediOdeme',id:kid,no:n};
+  openDlg(dlgHtml(krediBaslik(k)+' — '+(n?n+'. taksit':'ara ödeme'),'<div class="fields">'+
+    '<div class="field"><label for="ko-tarih">Ödeme tarihi</label><input id="ko-tarih" type="date" value="'+(plan&&plan.vade<TODAY?TODAY:(plan?plan.vade:TODAY))+'"></div>'+
+    '<div class="field"><label for="ko-tutar">Tutar (₺)</label><input id="ko-tutar" type="number" min="0" step="0.01" inputmode="decimal" value="'+(plan?plan.tutar:'')+'"></div>'+
+    '<div class="field"><label for="ko-acc">Kasa / banka hesabı</label><select id="ko-acc">'+
+      opt(db.accounts.map(a=>[a.id,a.name]),'','Kasaya işlenmesin')+'</select></div>'+
+    '<div class="field"><label for="ko-kalan">Ödeme sonrası kalan ana para (₺)</label><input id="ko-kalan" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Değişmesin diye boş bırakın"></div>'+
+    '<div class="field full"><label for="ko-not">Açıklama</label><input id="ko-not" type="text" placeholder="Örn. EFT dekont no"></div></div>'+
+    '<p class="hint">Hesap seçerseniz ödeme <b>Kasa ve banka</b> ekranına da “'+CAT_KREDI+'” gideri olarak yazılır ve hesap bakiyesinden düşer. Hesap seçmezseniz yalnızca bu kredi kartında durur. <b>Kalan ana para</b> alanını yalnızca banka ekstresindeki yeni bakiyeyi girmek için doldurun.</p>'+
+    '<p class="err" id="ko-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-kredi-odeme">Ödemeyi kaydet</button>'));
+}
+function saveKrediOdeme(){
+  if(dlgState.kind!=='krediOdeme')return;
+  const k=kredi(dlgState.id);if(!k)return;
+  const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
+  const err=m=>{$('#ko-err').textContent=m;};
+  const tarih=g('ko-tarih'),tutar=parseFloat(String(g('ko-tutar')).replace(',','.'));
+  const accId=g('ko-acc'),kalanStr=g('ko-kalan'),not=g('ko-not'),no=dlgState.no;
+  if(!tarih)return err('Ödeme tarihini seçin.');
+  if(!(tutar>0))return err('Tutarı 0’dan büyük girin.');
+  if(no&&taksitOdemesi(k.id,no))return err('Bu taksit zaten ödenmiş.');
+  const baslik=krediBaslik(k)+(no?' — '+no+'. taksit':' — ara ödeme');
+  run('ko-err',async()=>{
+    let tx=null;
+    if(accId){
+      tx=await ins('transactions',{date:tarih,dir:'out',account_id:accId,category:CAT_KREDI,
+        amount:tutar,company_id:nz(k.companyId||acct(accId).companyId),
+        descr:baslik+(not?' · '+not:''),source:'kredi'});
+    }
+    try{
+      await ins('kredi_odemeler',{kredi_id:k.id,taksit_no:no||null,tarih:tarih,amount:tutar,
+        account_id:nz(accId),tx_id:tx?tx.id:null,descr:not});
+    }catch(e){
+      /* Kasa hareketi yazıldı ama ödeme yazılamadıysa geri al;
+         yoksa kasada karşılığı olmayan bir gider kalırdı. */
+      if(tx){try{await del('transactions',tx.id);}catch(_){}}
+      throw e;
+    }
+    if(kalanStr!==''){
+      const yeni=parseFloat(String(kalanStr).replace(',','.'));
+      if(yeni>=0)await upd('krediler',k.id,{kalan_anapara:yeni});
+    }
+  },'Ödeme kaydedildi');
+}
+function delKrediOdeme(id){
+  const o=byId(db.krediOdemeler,id);if(!o)return;
+  run(null,async()=>{
+    await del('kredi_odemeler',id);
+    /* Kasaya işlenmişse oradaki gider de kalkar */
+    if(o.txId){try{await del('transactions',o.txId);}catch(_){}}
+  },'Ödeme silindi');
+}
+
+const VIEWS={anasayfa:viewAnasayfa,ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,harita:viewHarita,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim,kredi:viewKredi};
 const NAV=[
   {g:'',items:[['anasayfa','Ana sayfa'],['ozet','Genel bakış']]},
   {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular']]},
   {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
   {g:'Saha',items:[['arac','Araç takip'],['harita','Harita']]},
   {g:'Envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
-  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve ödemeler']]},
+  {g:'Finans',items:[['kasa','Kasa ve banka'],['maas','Maaş ve ödemeler'],['kredi','Krediler']]},
   {g:'Organizasyon',items:[['personel','Personel'],['org','Şirket ve birimler'],['kullanici','Kullanıcılar']]},
   {g:'Analiz',items:[['rapor','Raporlar'],['denetim','Hareket kaydı']]}
 ];
@@ -7097,6 +7485,8 @@ const EKRAN_YETKI={
   personel :()=>isFinans(),
   org      :()=>isFinans()||isUst(),
   kullanici:()=>isMaster(),
+  /* Krediler yalnızca master'da; yetki sunucuda da kapalı (68-krediler.sql) */
+  kredi    :()=>isMaster(),
   rapor    :()=>raporcu(),
   denetim  :()=>isMaster(),
   satis    :()=>true,
@@ -7488,6 +7878,20 @@ const actions={
   'save-cikis'(el){saveCikis(el.dataset.id);},
   'emp-geri'(el){geriAl(el.dataset.id);},
   'per-ayrilan'(){state.perAyrilan=!state.perAyrilan;render();},
+  'open-kredi'(el){openKredi(el.dataset.id||null);},
+  'save-kredi'(){saveKredi();},
+  'kredi-detay'(el){openKrediDetay(el.dataset.id);},
+  'kredi-odeme'(el){openKrediOdeme(el.dataset.id,el.dataset.no||null);},
+  'save-kredi-odeme'(){saveKrediOdeme();},
+  'kredi-kapsam'(el){state.kredi.kapsam=el.dataset.v;render();},
+  'del-kredi'(el){confirmDlg('Krediyi sil',
+    'Kredi ve ona kayıtlı bütün taksit ödemeleri silinir. Kasaya işlenmiş gider hareketleri silinmez, Kasa ve banka ekranında kalır.',
+    'confirm-del-kredi',el.dataset.id,'Krediyi sil');},
+  'confirm-del-kredi'(el){run(null,()=>del('krediler',el.dataset.id),'Kredi silindi');},
+  'del-kredi-odeme'(el){confirmDlg('Ödemeyi sil',
+    'Bu taksit ödemesi silinecek; kasaya işlendiyse oradaki gider hareketi de kalkar.',
+    'confirm-del-kredi-odeme',el.dataset.id,'Ödemeyi sil');},
+  'confirm-del-kredi-odeme'(el){delKrediOdeme(el.dataset.id);},
   'open-acct'(el){openAccount(el.dataset.id||null);},
   'save-acct'(){saveAccount();},
   'del-acct'(el){confirmDlg('Hesabı sil','Bu hesap listeden silinecek. Hesaba bağlı hareket varsa silinemez.','confirm-del-acct',el.dataset.id,'Hesabı sil');},
@@ -7543,7 +7947,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),kredi:{kapsam:'gelecek'},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
