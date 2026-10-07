@@ -411,7 +411,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='07.10.2026-c';
+const SURUM='07.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3514,6 +3514,47 @@ function atamaDagilimi(period){
     return g;
   }).sort((a,b)=>b.acik-a.acik||b.toplam-a.toplam);
 }
+/* ---------- Bugün alınan randevular: kim kaç tane aldı ----------
+   "Bugün alınan randevu" kutusuna basıldığında, listenin üstünde
+   personel bazlı kırılım çıkar. Yöneticiler günün akışını tek bakışta
+   görsün diye; kutuyu kapatınca panel de kalkar.
+
+   Sayım RANDEVUYU ALANA göredir, atanana değil: kutunun kendisi de
+   öyle sayıyor, iki rakam birbirini tutsun. */
+const kirilimGorur=()=>isUst()||isBirim()||isTLider();
+function bugunAlanPaneli(){
+  if(!kirilimGorur()||state.rand.odak!=='bugun')return '';
+  const liste=bugunAlinan();
+  const m={};
+  liste.forEach(a=>{
+    const id=alanOf(a),e=emp(id);
+    const k=id||'yok';
+    const g=m[k]||(m[k]={ad:e?e.name:'Belirsiz',alt:e?((dept(e.departmentId)||{}).name||''):'',
+      adet:0,hat:0,metro:0});
+    g.adet++;
+    if(metroRnd(a))g.metro++;
+    const c=apptCustomer(a);
+    if(c&&c.operator&&c.operator!=='Hattı yok')g.hat+=num(c.mobilAdet);
+  });
+  const rows=Object.values(m).sort((a,b)=>b.adet-a.adet||a.ad.localeCompare(b.ad,'tr',SAYISAL));
+  if(!rows.length)return '';
+  const t=rows.reduce((o,r)=>({adet:o.adet+r.adet,hat:o.hat+r.hat,metro:o.metro+r.metro}),
+    {adet:0,hat:0,metro:0});
+  return '<section class="panel"><div class="panel-h"><div><h2>Bugün alınan randevular</h2>'+
+    '<p class="muted sm">'+fmtDate(TODAY)+' · randevuyu alan personele göre</p></div>'+
+    '<span class="muted sm">'+t.adet+' randevu</span></div>'+
+    '<div class="scroll"><table><thead><tr><th>Randevuyu alan</th>'+
+      '<th class="num">Randevu</th><th class="num">Hat adedi</th>'+
+      (t.metro?'<th class="num">Metro</th>':'')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><div>'+esc(r.ad)+'</div>'+
+      (r.alt?'<div class="muted sm">'+esc(r.alt)+'</div>':'')+'</td>'+
+      '<td class="num"><b>'+r.adet+'</b></td>'+
+      '<td class="num'+(r.hat?'':' muted')+'">'+(r.hat||'-')+'</td>'+
+      (t.metro?'<td class="num'+(r.metro?'':' muted')+'">'+(r.metro||'-')+'</td>':'')+'</tr>').join('')+
+    '<tr class="total"><td>Toplam</td><td class="num">'+t.adet+'</td>'+
+      '<td class="num">'+t.hat+'</td>'+(t.metro?'<td class="num">'+t.metro+'</td>':'')+
+    '</tr></tbody></table></div></section>';
+}
 function atamaBolumu(){
   if(!isMudur())return '';
   const rows=atamaDagilimi(state.period);
@@ -3619,7 +3660,7 @@ function viewRandevu(){
       kutu('beyan','Satış beyanı, kaydı yok',beyan,beyan?'out':'')+
       kutu('iptal','İptal edilen',iptalSayi)+
     '</div>';})()+
-  '<div class="stack">'+ekipTabloBolumu()+atamaBolumu()+
+  '<div class="stack">'+bugunAlanPaneli()+ekipTabloBolumu()+atamaBolumu()+
   /* Dönüşüm tablosu randevuyu ALANLARIN performansıdır; saha
      personelinin ekranında başkalarının rakamları duruyordu. */
   ((rows.length&&!isSaha())?'<section class="panel"><div class="panel-h"><h2>Randevuyu alana göre dönüşüm</h2><span class="muted sm">'+(state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</span></div><div class="scroll"><table><thead><tr><th>Randevuyu alan</th><th class="num">Randevu</th><th class="num">Kapanan</th><th class="num">İptal</th><th class="num">Satışa dönen</th><th class="num">Dönüşüm oranı</th></tr></thead><tbody>'+
