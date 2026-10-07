@@ -411,7 +411,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='06.10.2026-j';
+const SURUM='07.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -726,6 +726,11 @@ function save(){}
 /* ---------- Ortak satır eşleyicileri ----------
    Hem ilk yükleme hem de canlı tazeleme aynı işlevleri kullanır;
    ikisi zamanla birbirinden ayrışmasın. */
+const mapLead=r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
+  il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',kaynakTip:r.kaynak_tip||'elle',
+  birimId:r.birim_id||null,sahaId:r.saha_id||null,durum:r.durum||'Yeni',
+  atananId:r.atanan_id||null,sonArama:r.son_arama||'',deneme:r.deneme||0,note:r.note||'',
+  customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null});
 const mapMusteri=r=>({id:r.id,createdBy:r.created_by||null,createdAt:r.created_at||null,
   birimId:r.birim_id||null,sahaId:r.saha_id||null,onay:r.onay_durumu||'onayli',onaylayan:r.onaylayan||null,onayTarihi:r.onay_tarihi||null,
   unvan:r.unvan,yetkili:r.yetkili,telefon:r.telefon,vkn:r.vkn||'',
@@ -853,11 +858,7 @@ async function loadAll(zorla){
     customers:customers.map(mapMusteri),
     appointments:appointments.map(r=>mapRandevu(r,pLog[r.id]||[])),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
-    leads:leads.map(r=>({id:r.id,unvan:r.unvan,yetkili:r.yetkili||'',telefon:r.telefon||'',vkn:r.vkn||'',
-      il:r.il||'',ilce:r.ilce||'',adres:r.adres||'',kaynak:r.kaynak||'',kaynakTip:r.kaynak_tip||'elle',
-      birimId:r.birim_id||null,sahaId:r.saha_id||null,durum:r.durum||'Yeni',
-      atananId:r.atanan_id||null,sonArama:r.son_arama||'',deneme:r.deneme||0,note:r.note||'',
-      customerId:r.customer_id||null,createdBy:r.created_by||null,createdAt:r.created_at||null})),
+    leads:leads.map(mapLead),
     havuz:havuz
   };
 }
@@ -5649,6 +5650,106 @@ async function canliVeriTazele(){
   }catch(e){return false;}
   finally{_canliCalisiyor=false;}
 }
+/* ---------- Ekran değişiminde veri tazeleme ----------
+   Veri girişte bir kez iniyor ve yalnızca KENDİ yazdığımız kayıttan
+   sonra yenileniyordu. Başka birinin girdiği randevu, sayfa elle
+   yenilenene kadar görünmüyordu. Artık her ekran geçişinde o ekranın
+   ihtiyaç duyduğu tablolar arka planda tazeleniyor.
+
+   Üç kural:
+     · yalnızca o ekranın tabloları çekilir, otuz tablonun hepsi değil,
+     · aynı grup TAZE_SURE içinde ikinci kez çekilmez (menüler arasında
+       hızlı gidip gelmek sunucuyu yormasın),
+     · açık pencere, süren bir yazma veya kullanıcı bir alana yazarken
+       hiç dokunulmaz — yazdığı şey kaybolmasın.
+
+   Gruplar tablo tablo değil, birlikte anlam taşıyan kümeler hâlinde:
+   satış satırı abone numarası ve seri numarasıyla birlikte kurulduğu
+   için üçü beraber çekilir. */
+const TAZE_SURE=25000;
+const TAZE_GRUP={
+  randevu   :['appointments'],
+  musteri   :['customers'],
+  satis     :['sales','sale_items','sale_subscriptions'],
+  potansiyel:['leads'],
+  arac      :['arac_konum'],
+  kasa      :['transactions'],
+  maas      :['payrolls']
+};
+/* Hangi ekran hangi grupları ister */
+const EKRAN_GRUP={
+  anasayfa  :['randevu','musteri','satis','potansiyel'],
+  ozet      :['randevu','musteri','satis'],
+  randevu   :['randevu','musteri'],
+  musteri   :['musteri','randevu'],
+  potansiyel:['potansiyel'],
+  satis     :['satis','musteri'],
+  hedef     :['satis','randevu'],
+  harita    :['randevu','musteri','arac'],
+  arac      :['arac'],
+  rapor     :['satis','randevu'],
+  kasa      :['kasa'],
+  maas      :['kasa','maas']
+};
+let _tazeAn={},_tazeCalisiyor=false;
+function tazeSifirla(){const t=Date.now();Object.keys(TAZE_GRUP).forEach(g=>{_tazeAn[g]=t;});}
+/* Bir grubun tablolarını çekip db'ye uygular */
+async function grupCek(g){
+  if(g==='randevu'){
+    const r=await q('appointments');
+    const eski={};db.appointments.forEach(a=>{eski[a.id]=a.log||[];});
+    db.appointments=r.map(x=>mapRandevu(x,eski[x.id]));return;
+  }
+  if(g==='musteri'){db.customers=(await q('customers')).map(mapMusteri);return;}
+  if(g==='potansiyel'){db.leads=(await leadsGetir(true)).map(mapLead);return;}
+  if(g==='arac'){db.aracKonum=(await q('arac_konum')).map(mapAracKonum);return;}
+  if(g==='maas'){
+    db.payrolls=(await q('payrolls')).map(r=>({id:r.id,employeeId:r.employee_id,month:r.month,
+      salary:num(r.salary),advanceDeducted:num(r.advance_deducted),paid:num(r.paid),
+      date:r.date,txId:r.tx_id,accountId:r.account_id}));return;
+  }
+  if(g==='kasa'){
+    db.transactions=(await q('transactions')).map(r=>({id:r.id,date:r.date,dir:r.dir,accountId:r.account_id,
+      category:r.category,amount:num(r.amount),companyId:r.company_id,departmentId:r.department_id,
+      employeeId:r.employee_id,desc:r.descr||'',source:r.source,refId:r.ref_id}));return;
+  }
+  if(g==='satis'){
+    const [sat,kal,sub]=await Promise.all([q('sales'),q('sale_items'),q('sale_subscriptions')]);
+    const items={};kal.forEach(r=>{(items[r.sale_id]=items[r.sale_id]||[]).push(
+      {unitId:r.unit_id,fromWh:r.from_wh,fromHolder:r.from_holder});});
+    const abone={};sub.forEach(r=>{(abone[r.sale_id]=abone[r.sale_id]||[]).push(r.abone_no);});
+    db.sales=sat.map(r=>({id:r.id,date:r.date,employeeId:r.employee_id,departmentId:r.department_id,
+      companyId:r.company_id,customerId:r.customer_id,customer:r.customer,productId:r.product_id,
+      qty:r.qty,amount:num(r.amount),calcType:r.calc_type,hedefKat:r.hedef_kat||'',hedefKat2:r.hedef_kat2||'',
+      unitPrim:num(r.unit_prim),unitPuan:num(r.unit_puan),prim:num(r.prim),puan:num(r.puan),
+      gbProductId:r.gb_product_id||null,hatTip:r.hat_tip||'',
+      gelir:num(r.gelir),gelirAlanId:r.gelir_alan_id||null,gelirPay:num(r.gelir_pay),
+      upcellEski:r.upcell_eski||null,upcellYeni:r.upcell_yeni||null,
+      batchId:r.batch_id||null,abone:abone[r.id]||[],items:items[r.id]||[]}));
+  }
+}
+/* Ekrana girildiğinde çağrılır. Hiçbir şey beklemez, bitince çizer. */
+async function ekranTazele(zorla){
+  if(!me||!db||busy||dlgState.kind||_tazeCalisiyor)return;
+  if(yaziyorMu())return;
+  const ekran=state&&state.view;
+  const gruplar=(EKRAN_GRUP[ekran]||[]).filter(g=>
+    zorla||!_tazeAn[g]||(Date.now()-_tazeAn[g])>TAZE_SURE);
+  if(!gruplar.length)return;
+  _tazeCalisiyor=true;
+  try{
+    await Promise.all(gruplar.map(g=>grupCek(g).then(
+      ()=>{_tazeAn[g]=Date.now();},
+      ()=>{/* bir grup düşerse diğerleri yine de uygulansın */})));
+    /* Ekran değişmediyse ve kullanıcı bir şeye dokunmadıysa yeniden çiz */
+    if(state&&state.view===ekran&&!dlgState.kind&&!yaziyorMu()){
+      const y=window.scrollY;
+      _sonTazeleme=new Date();
+      render();
+      window.scrollTo(0,y);
+    }
+  }finally{_tazeCalisiyor=false;}
+}
 function tazelemeDamgasi(){
   const el=$('#canli-damga');if(!el)return;
   el.textContent=_sonTazeleme
@@ -5661,7 +5762,9 @@ function yaziyorMu(){
 }
 async function canliTik(){
   const ekran=state&&state.view;
-  if(ekran!=='harita'&&ekran!=='arac')return;
+  /* Harita ve araç dışındaki ekranlar da açık kaldıkça tazelensin;
+     orada ekranTazele yalnızca o ekranın tablolarını çeker. */
+  if(ekran!=='harita'&&ekran!=='arac'){ekranTazele();return;}
   if(yaziyorMu())return;            /* kullanıcı bir alanla uğraşıyorsa bekle */
   const oldu=await canliVeriTazele();
   if(!oldu||!state||state.view!==ekran)return;
@@ -5678,15 +5781,21 @@ async function canliTik(){
   }
 }
 function canliSayacAyarla(){
-  const ekran=(me&&state&&(state.view==='harita'||state.view==='arac'))?state.view:'';
+  const ekran=(me&&state)?state.view:'';
   if(ekran===_canliEkran){tazelemeDamgasi();return;}
   _canliEkran=ekran;
   if(_canliSayac){clearInterval(_canliSayac);_canliSayac=null;}
   tazelemeDamgasi();
   if(!ekran)return;
-  canliTik();                                   /* ekrana girer girmez bir kez */
-  _canliSayac=setInterval(()=>{if(!document.hidden)canliTik();},CANLI_ARALIK);
+  /* Harita ve araç dakikada bir; diğer ekranlar daha seyrek, çünkü
+     oralarda kayıt akışı yavaş ve her tur sunucuya sorgu demek. */
+  const canli=(ekran==='harita'||ekran==='arac');
+  if(canli)canliTik();
+  _canliSayac=setInterval(()=>{if(!document.hidden)canliTik();},
+    canli?CANLI_ARALIK:CANLI_ARALIK*3);
 }
+/* Sekmeye geri dönüldüğünde beklemeden tazele: telefonu cebinden
+   çıkaran personel güncel rakamı görsün. */
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)canliTik();});
 
 function render(){
@@ -6718,6 +6827,7 @@ async function run(errId,work,okMsg,after){
     setErr('');
     await work();
     await loadAll();
+    tazeSifirla();            /* hepsi yeni indi, hemen tekrar çekme */
     closeDlg();
     if(okMsg)toast(okMsg);
     render();
@@ -6932,6 +7042,7 @@ async function afterLogin(){
     if(pr.error)return renderLogin('Profil okunamadı: '+pr.error.message);
     me={userId:user.id,email:user.email,role:pr.data?pr.data.role:'saha',employeeId:pr.data?pr.data.employee_id:null};
     await loadAll(true);
+    tazeSifirla();            /* her şey yeni indi; ilk geçişte tekrar çekme */
     state=defaultState();
     render();
   }catch(e){
@@ -6940,7 +7051,7 @@ async function afterLogin(){
 }
 
 async function reloadData(){
-  try{await loadAll(true);render();toast('Veriler yenilendi');}
+  try{await loadAll(true);tazeSifirla();render();toast('Veriler yenilendi');}
   catch(e){toast('Yenilenemedi: '+(e&&e.message?e.message:e));}
 }
 
@@ -6954,7 +7065,8 @@ async function boot(){
 
 /* ---------- Eylemler ---------- */
 const actions={
-  nav(el){state.view=el.dataset.v;state.menuAcik=false;state.navAcik='';render();window.scrollTo(0,0);},
+  nav(el){state.view=el.dataset.v;state.menuAcik=false;state.navAcik='';render();window.scrollTo(0,0);
+    ekranTazele();},                 /* ekranın verisi bayatsa arka planda tazelensin */
   'nav-grup'(el){const g=el.dataset.v;state.navAcik=state.navAcik===g?'':g;render();},
   menu(){state.menuAcik=!state.menuAcik;render();},
   'hrt-sekme'(el){state.hrt.sekme=el.dataset.v;render();},
