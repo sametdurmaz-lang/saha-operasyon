@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='09.10.2026-b';
+const SURUM='09.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2050,17 +2050,64 @@ function satGroups(list,group){
   });
   return [...m.values()].sort((a,b)=>b.puan-a.puan||b.prim-a.prim);
 }
-function satTable(){
+/* Kategori ve ürün kutuları SATIŞI OLAN kalemlerden kuruluyor;
+   hiç satılmamış ürünler listeyi şişirmesin. Ürün kutusu, kategori
+   seçiliyse o kategoriye daralır. */
+function satFiltreKaynak(){
+  const kat={},urun={};
+  db.sales.forEach(s=>{
+    const p=byId(db.products,s.productId);if(!p)return;
+    if(p.category)kat[p.category]=1;
+    urun[p.id]=p;
+  });
+  return {
+    katlar:Object.keys(kat).sort((a,b)=>a.localeCompare(b,'tr',SAYISAL)),
+    urunler:Object.keys(urun).map(k=>urun[k])
+      .filter(p=>!state.sat.cat||p.category===state.sat.cat)
+      .sort((a,b)=>prodLabel(a).localeCompare(prodLabel(b),'tr',SAYISAL))
+  };
+}
+const satAralikli=()=>!!(state.sat.bas||state.sat.bit);
+/* Listenin filtresi. Tarih aralığı verilmişse dönem seçimi
+   uygulanmaz; iki tarih filtresi birbirini boşa çıkarmasın. */
+function satFiltreli(){
   const st=state.sat,q=st.q.trim().toLocaleLowerCase('tr');
-  let list=salesIn(state.period);
+  let list=satAralikli()?db.sales.slice():salesIn(state.period);
+  if(st.bas)list=list.filter(s=>s.date>=st.bas);
+  if(st.bit)list=list.filter(s=>s.date<=st.bit);
   if(st.emp)list=list.filter(s=>s.employeeId===st.emp);
+  if(st.cat)list=list.filter(s=>{const p=byId(db.products,s.productId);return !!p&&p.category===st.cat;});
+  if(st.prod)list=list.filter(s=>s.productId===st.prod);
   if(q)list=list.filter(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
     return [s.customer,prodLabel(p),p?p.category:'',e?e.name:'',(s.abone||[]).join(' ')]
       .join(' ').toLocaleLowerCase('tr').includes(q);});
   list.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(a.id<b.id?1:-1));
+  return list;
+}
+const satFiltreVar=()=>{const st=state.sat;
+  return !!(st.emp||st.cat||st.prod||st.bas||st.bit||st.q.trim());};
+/* Filtrelenen kümenin kendi toplamı. Üstteki kutular dönemin
+   tamamını gösterdiği için, filtreli sonucun toplamı burada. */
+function satFiltreOzeti(list){
+  const adet=list.reduce((a,x)=>a+x.qty,0);
+  const tutar=list.reduce((a,x)=>a+(+x.amount||0),0);
+  const puan=list.reduce((a,x)=>a+x.puan,0);
+  const prim=list.reduce((a,x)=>a+x.prim,0);
+  return '<div class="panel-b"><div class="tools muted sm">'+
+    '<span><b>'+list.length+'</b> satış</span><span>·</span>'+
+    '<span><b>'+adet+'</b> adet</span><span>·</span>'+
+    '<span>tutar <b>'+money(tutar)+'</b></span><span>·</span>'+
+    '<span>puan <b>'+nf.format(puan)+'</b></span>'+
+    (primGor()?'<span>·</span><span>prim <b>'+money(prim)+'</b></span>':'')+
+    '</div></div>';
+}
+function satTable(){
+  const list=satFiltreli();
   if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
   const shown=list.slice(0,100);
-  return '<div class="panel-b muted sm">'+list.length+' satış'+(list.length>shown.length?', ilk 100 tanesi gösteriliyor. Aramayı daraltın.':'.')+'</div><div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'<th></th></tr></thead><tbody>'+
+  return satFiltreOzeti(list)+
+    (list.length>shown.length?'<div class="panel-b muted sm">İlk 100 satış gösteriliyor; daraltmak için filtreleri kullanın.</div>':'')+
+    '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'<th></th></tr></thead><tbody>'+
   shown.map(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
     return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+
       (s.upcellYeni?' · '+esc((byId(db.products,s.upcellEski)||{}).name||'')+' → '+esc((byId(db.products,s.upcellYeni)||{}).name||''):'')+
@@ -2100,7 +2147,24 @@ function viewSatis(){
   '<section class="panel"><div class="panel-h"><input id="slq" type="search" placeholder="'+(isSaha()?'Müşteri, ürün veya abone no ara':'Müşteri, ürün, personel veya abone no ara')+'" value="'+esc(st.q)+'" style="max-width:320px" aria-label="Ara">'+
     /* Saha personeli zaten yalnızca kendi satışlarını görüyor */
     (isSaha()?'':'<div class="tools"><select data-set="sat.emp" aria-label="Personel">'+empSecim(st.emp,'Tüm personel')+'</select></div>')+
-    '</div><div id="satlist">'+satTable()+'</div></section></div>';
+    '</div>'+satFiltreSeridi()+
+    '<div id="satlist">'+satTable()+'</div></section></div>';
+}
+function satFiltreSeridi(){
+  const st=state.sat,kaynak=satFiltreKaynak();
+  return '<div class="panel-h"><div class="tools">'+
+    '<select data-set="sat.cat" aria-label="Kategori">'+
+      opt(kaynak.katlar.map(c=>[c,c]),st.cat,'Tüm kategoriler')+'</select>'+
+    '<select data-set="sat.prod" aria-label="Ürün">'+
+      opt(kaynak.urunler.map(p=>[p.id,prodLabel(p)]),st.prod,'Tüm ürünler')+'</select>'+
+    '<label class="muted sm">Başlangıç <input type="date" data-set="sat.bas" value="'+esc(st.bas)+'"></label>'+
+    '<label class="muted sm">Bitiş <input type="date" data-set="sat.bit" value="'+esc(st.bit)+'"></label>'+
+    (satFiltreVar()?'<button class="btn sm" data-act="sat-temizle">Filtreleri temizle</button>':'')+
+    '</div>'+
+    (satAralikli()
+      ?'<span class="badge warn">Tarih aralığı seçili — dönem filtresi uygulanmıyor</span>'
+      :'')+
+    '</div>';
 }
 /* ---------------------------------------------------------------
    MOBİL HAT
@@ -7463,6 +7527,16 @@ function setPath(path,val){const parts=path.split('.');let o=state;for(let i=0;i
 function afterSet(path){
   const r=state.rep;
   if(path==='pot.durum'||path==='pot.emp')state.pot.page=0;
+  /* Kategori değişti, seçili ürün o kategoride değilse seçimi bırak */
+  if(path==='sat.cat'&&state.sat.prod){
+    const p=byId(db.products,state.sat.prod);
+    if(state.sat.cat&&(!p||p.category!==state.sat.cat))state.sat.prod='';
+  }
+  /* Ürün seçildiyse kategorisini de kutuya yansıt */
+  if(path==='sat.prod'&&state.sat.prod){
+    const p=byId(db.products,state.sat.prod);
+    if(p&&p.category)state.sat.cat=p.category;
+  }
   if(path.indexOf('den.')===0){state.den.yuklendi=false;denetimYukle();}
   if(path==='rep.company'){
     if(r.dept&&r.dept!=='__none'&&r.company&&dept(r.dept).companyId!==r.company)r.dept='';
@@ -8016,6 +8090,8 @@ const actions={
     },'Satış iptal edildi');
   },
   satgroup(el){state.sat.group=el.dataset.v;render();},
+  'sat-temizle'(){state.sat.q='';state.sat.emp='';state.sat.cat='';
+    state.sat.prod='';state.sat.bas='';state.sat.bit='';render();},
   'gp-kirilim'(el){state.gpKirilim=el.dataset.v;render();},
   'rand-odak-git'(el){
     state.rand={status:'',emp:'',q:'',odak:el.dataset.v||''};
@@ -8128,7 +8204,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),kredi:{kapsam:'gelecek'},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:'',cat:'',prod:'',bas:'',bit:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),kredi:{kapsam:'gelecek'},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
