@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='07.10.2026-f';
+const SURUM='09.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -5767,13 +5767,78 @@ const krediOdemeleri=kid=>db.krediOdemeler.filter(o=>o.krediId===kid)
   .sort((a,b)=>a.tarih<b.tarih?-1:a.tarih>b.tarih?1:(a.taksitNo||0)-(b.taksitNo||0));
 const taksitOdemesi=(kid,no)=>db.krediOdemeler.find(o=>o.krediId===kid&&o.taksitNo===no);
 const aktifKrediler=()=>db.krediler.filter(k=>k.durum==='Aktif');
-/* Taksit planı: vade, tutar ve varsa ödemesi */
+const kurus=n=>Math.round((+n||0)*100)/100;
+/* Planın başladığı ana para. Eski kayıtlarda çekilen tutar girilmemiş
+   olabilir; o zaman elle yazılmış kalan ana paradan başlıyoruz. */
+const krediAnapara=k=>k.cekilen>0?k.cekilen:k.kalanAnapara;
+/* Eşit taksitli (anüite) kredide olması gereken taksit tutarı.
+   Girilen taksit buna uymuyorsa plan vadesinde kapanmaz; kullanıcıyı
+   uyarmak için kullanıyoruz. */
+function anuiteTaksit(anapara,oranYuzde,adet){
+  const i=(+oranYuzde||0)/100;
+  if(!adet)return 0;
+  if(!i)return kurus(anapara/adet);
+  return kurus(anapara*i/(1-Math.pow(1+i,-adet)));
+}
+/* Taksit planı — AZALAN BAKİYE.
+   Her taksitte:
+     faiz     = önceki ayın kalan ana parası × aylık faiz oranı
+     ana para = taksit tutarı − faiz
+     yeni bakiye = önceki bakiye − ana para
+   Bir sonraki ayın faizi bu yeni bakiye üzerinden hesaplanır.
+   Ana para bakiyeyi aşamaz; son takside yuvarlama farkı kapanır. */
 function krediPlan(k){
+  const oran=(+k.faiz||0)/100;
+  let bakiye=kurus(krediAnapara(k));
   const out=[];
-  for(let n=1;n<=k.taksitSayisi;n++)
+  for(let n=1;n<=k.taksitSayisi;n++){
+    const acilis=bakiye;
+    const faiz=kurus(acilis*oran);
+    let anapara=kurus(k.taksitTutari-faiz);
+    if(anapara>acilis)anapara=acilis;     /* borçtan fazlası düşülmez */
+    bakiye=kurus(acilis-anapara);
     out.push({no:n,vade:ayEkle(k.ilkOdeme,n-1),tutar:k.taksitTutari,
+              acilis:acilis,faiz:faiz,anapara:anapara,kalan:bakiye,
               odeme:taksitOdemesi(k.id,n)||null});
+  }
   return out;
+}
+/* Bugünkü kalan ana para: EN YÜKSEK numaralı ödenmiş taksidin kapanış
+   bakiyesi. Krediyi ortasından sisteme girenler yalnızca o taksidi
+   işaretliyor; öncekileri de ödenmiş sayıyoruz. Hiç ödeme yoksa
+   başlangıç ana parası. */
+function kalanAnaparaHesap(k){
+  const plan=krediPlan(k);
+  let son=null;
+  plan.forEach(t=>{if(t.odeme)son=t;});
+  return son?son.kalan:kurus(krediAnapara(k));
+}
+/* Kalan taksitlerin faiz toplamı (ödenmemiş satırlar) */
+const kalanFaiz=k=>topla(krediPlan(k).filter(t=>!t.odeme),t=>t.faiz);
+/* Planın sağlığı: vadesinde kapanıyor mu, erken mi bitiyor,
+   taksit faizi karşılamıyor mu? */
+function krediPlanDurum(k){
+  const plan=krediPlan(k),son=plan[plan.length-1];
+  const anapara=krediAnapara(k);
+  const dogruTaksit=anuiteTaksit(anapara,k.faiz,k.taksitSayisi);
+  if(!anapara)return {tip:'anaparayok',dogruTaksit:0};
+  if(plan[0]&&plan[0].anapara<=0)return {tip:'faizikarsilamiyor',dogruTaksit:dogruTaksit,faiz:plan[0].faiz};
+  if(son&&son.kalan>1)return {tip:'kapanmiyor',artan:son.kalan,dogruTaksit:dogruTaksit};
+  const erken=plan.find(t=>t.kalan<=0);
+  if(erken&&erken.no<k.taksitSayisi)return {tip:'erken',no:erken.no,dogruTaksit:dogruTaksit};
+  return {tip:'tamam',dogruTaksit:dogruTaksit};
+}
+function krediPlanUyari(k){
+  const d=krediPlanDurum(k);
+  if(d.tip==='anaparayok')
+    return '<p class="hint"><b>Çekilen tutar girilmemiş.</b> Faiz ve ana para dağılımı bu tutardan hesaplandığı için plan boş kalıyor; krediyi düzenleyip çekilen ana parayı yazın.</p>';
+  if(d.tip==='faizikarsilamiyor')
+    return '<p class="hint"><b>Taksit, ilk ayın faizini (' +money(d.faiz)+ ') karşılamıyor.</b> Bu haliyle borç her ay büyür. Taksit tutarını ya da faiz oranını kontrol edin; bu ana para ve vadede taksit <b>'+money(d.dogruTaksit)+'</b> olmalı.</p>';
+  if(d.tip==='kapanmiyor')
+    return '<p class="hint"><b>Plan vadesinde kapanmıyor:</b> son taksitten sonra '+money(d.artan)+' ana para kalıyor. Bu ana para, vade ve faizle taksit <b>'+money(d.dogruTaksit)+'</b> olmalı — girdiğiniz tutarı veya faiz oranını kontrol edin.</p>';
+  if(d.tip==='erken')
+    return '<p class="hint"><b>Plan '+d.no+'. taksitte kapanıyor,</b> sonraki satırlar boş. Taksit tutarı bu vade için yüksek; doğrusu <b>'+money(d.dogruTaksit)+'</b> görünüyor.</p>';
+  return '';
 }
 const odenenTaksit=k=>krediPlan(k).filter(t=>t.odeme).length;
 const kalanTaksit =k=>Math.max(0,k.taksitSayisi-odenenTaksit(k));
@@ -5794,11 +5859,11 @@ const krediOdenenToplam=kid=>topla(db.krediOdemeler.filter(o=>o.krediId===kid),o
    toplanır; taksidi geç ödediyseniz ödendiği ayda görünür. */
 function krediAyTablosu(kapsam){
   const m={};
-  const al=ay=>m[ay]||(m[ay]={ay:ay,adet:0,plan:0,odenen:0,odenenAdet:0,gecikmis:0});
+  const al=ay=>m[ay]||(m[ay]={ay:ay,adet:0,plan:0,faiz:0,anapara:0,odenen:0,odenenAdet:0,gecikmis:0});
   db.krediler.forEach(k=>krediPlan(k).forEach(t=>{
     if(!t.vade)return;
     const g=al(t.vade.slice(0,7));
-    g.adet++;g.plan+=t.tutar;
+    g.adet++;g.plan+=t.tutar;g.faiz+=t.faiz;g.anapara+=t.anapara;
     if(!t.odeme&&t.vade<TODAY&&k.durum==='Aktif')g.gecikmis+=t.tutar;
   }));
   db.krediOdemeler.forEach(o=>{
@@ -5822,7 +5887,8 @@ function krediOzet(){
     aylik      :topla(akt,k=>siradakiTaksit(k)?k.taksitTutari:0),
     buAyPlan   :buAyPlan,
     buAyOdenen :topla(db.krediOdemeler.filter(o=>o.tarih.slice(0,7)===buAy),o=>o.tutar),
-    kalanAnapara:topla(akt,k=>k.kalanAnapara),
+    kalanAnapara:topla(akt,k=>kalanAnaparaHesap(k)),
+    kalanFaiz  :topla(akt,k=>kalanFaiz(k)),
     kalanBorc  :topla(akt,k=>kalanTaksit(k)*k.taksitTutari),
     gecikmis   :topla(gec,x=>x.t.tutar),
     gecikmisAdet:gec.length
@@ -5834,15 +5900,17 @@ function krediAyPaneli(){
   const seg='<div class="seg" role="group" aria-label="Kapsam">'+
     [['gelecek','Bu ay ve sonraki 11 ay'],['hepsi','Planın tamamı']].map(([v,l])=>
       '<button data-act="kredi-kapsam" data-v="'+v+'" aria-pressed="'+(f.kapsam===v)+'">'+l+'</button>').join('')+'</div>';
-  const t={adet:0,plan:0,odenen:0,gecikmis:0};
-  rows.forEach(r=>{t.adet+=r.adet;t.plan+=r.plan;t.odenen+=r.odenen;t.gecikmis+=r.gecikmis;});
+  const t={adet:0,plan:0,faiz:0,anapara:0,odenen:0,gecikmis:0};
+  rows.forEach(r=>{t.adet+=r.adet;t.plan+=r.plan;t.faiz+=r.faiz;t.anapara+=r.anapara;
+    t.odenen+=r.odenen;t.gecikmis+=r.gecikmis;});
   const gecList=gecikmisTaksitler().filter(x=>!rows.some(r=>r.ay===x.t.vade.slice(0,7)));
   const gec={adet:gecList.length,tutar:topla(gecList,x=>x.t.tutar)};
   return '<section class="panel"><div class="panel-h"><div><h2>Aylık taksit yükü</h2>'+
     '<p class="muted sm">Her ay ödenecek toplam taksit ve o ay fiilen ödenen</p></div>'+seg+'</div>'+
     (rows.length?
       '<div class="scroll"><table><thead><tr><th>Ay</th><th class="num">Taksit adedi</th>'+
-      '<th class="num">Ödenecek toplam</th><th class="num">Ödenen</th><th class="num">Fark</th>'+
+      '<th class="num">Ödenecek toplam</th><th class="num">Faiz</th><th class="num">Ana para</th>'+
+      '<th class="num">Ödenen</th><th class="num">Fark</th>'+
       '<th class="num">Gecikmiş</th></tr></thead><tbody>'+
       rows.map(r=>{
         const fark=r.plan-r.odenen,buAy=r.ay===TODAY.slice(0,7);
@@ -5850,12 +5918,16 @@ function krediAyPaneli(){
           (buAy?' <span class="badge">bu ay</span>':'')+'</td>'+
           '<td class="num">'+r.adet+'</td>'+
           '<td class="num"><b>'+money(r.plan)+'</b></td>'+
+          '<td class="num muted">'+money(r.faiz)+'</td>'+
+          '<td class="num muted">'+money(r.anapara)+'</td>'+
           '<td class="num'+(r.odenen?'':' muted')+'">'+(r.odenen?money(r.odenen):'—')+'</td>'+
           '<td class="num'+(fark>0?' out':fark<0?' in':' muted')+'">'+(fark?money(fark):'—')+'</td>'+
           '<td class="num'+(r.gecikmis?' out':' muted')+'">'+(r.gecikmis?'<b>'+money(r.gecikmis)+'</b>':'—')+'</td></tr>';
       }).join('')+
       '<tr class="total"><td><b>Toplam</b></td><td class="num"><b>'+t.adet+'</b></td>'+
-      '<td class="num"><b>'+money(t.plan)+'</b></td><td class="num"><b>'+money(t.odenen)+'</b></td>'+
+      '<td class="num"><b>'+money(t.plan)+'</b></td>'+
+      '<td class="num"><b>'+money(t.faiz)+'</b></td><td class="num"><b>'+money(t.anapara)+'</b></td>'+
+      '<td class="num"><b>'+money(t.odenen)+'</b></td>'+
       '<td class="num"><b>'+money(t.plan-t.odenen)+'</b></td>'+
       '<td class="num'+(t.gecikmis?' out':'')+'"><b>'+(t.gecikmis?money(t.gecikmis):'—')+'</b></td></tr>'+
       '</tbody></table></div>'
@@ -5866,7 +5938,7 @@ function krediAyPaneli(){
        karıştırıyordu. Aralığın dışında kalanı burada söylüyoruz. */
     (f.kapsam!=='hepsi'&&gec.adet
       ?'<p class="hint"><b>Vadesi geçmiş '+gec.adet+' taksit ('+money(gec.tutar)+')</b> bu aralığın dışındaki aylarda duruyor. “Planın tamamı”na geçerek görebilirsiniz.</p>':'')+
-    '<p class="hint"><b>Ödenen</b> sütunu ödemenin yapıldığı aya yazılır; geciken bir taksit, vadesinin olduğu ayda değil ödendiği ayda görünür. <b>Fark</b> o ayda ödenmeyi bekleyen tutardır.</p></div></section>';
+    '<p class="hint"><b>Faiz</b> ve <b>Ana para</b> sütunları taksidin dağılımıdır: her ayın faizi o aya girerkenki kalan ana para üzerinden işler, kalanı ana paradan düşer ve bir sonraki ay yeni bakiyeyle devam eder. <b>Ödenen</b> sütunu ödemenin yapıldığı aya yazılır; geciken bir taksit, vadesinin olduğu ayda değil ödendiği ayda görünür. <b>Fark</b> o ayda ödenmeyi bekleyen tutardır.</p></div></section>';
 }
 
 function krediTablosu(){
@@ -5887,7 +5959,7 @@ function krediTablosu(){
         '<td class="num">'+odenen+' / '+k.taksitSayisi+'<div class="muted sm">'+kalan+' kaldı</div></td>'+
         '<td class="num"><b>'+money(k.taksitTutari)+'</b></td>'+
         '<td class="num">'+(k.faiz?'%'+nf.format(k.faiz):'—')+'</td>'+
-        '<td class="num">'+(k.kalanAnapara?money(k.kalanAnapara):'—')+'</td>'+
+        '<td class="num">'+money(kalanAnaparaHesap(k))+'</td>'+
         /* Kapanmış kredide kalan borç canlı borç gibi okunmasın */
         '<td class="num'+(k.durum==='Aktif'?'':' muted')+'">'+money(kalan*k.taksitTutari)+'</td>'+
         '<td class="nowrap">'+(k.durum!=='Aktif'?'<span class="muted">Kapandı</span>'
@@ -5938,9 +6010,10 @@ function viewKredi(){
       '<span class="muted sm">ödenmeyi bekleyen taksidi olan krediler</span></div>'+
     '<div class="kpi"><span>'+monthLabel(TODAY.slice(0,7))+' ödenecek</span><b>'+money(o.buAyPlan)+'</b>'+
       '<span class="muted sm">bu ay ödenen '+money(o.buAyOdenen)+'</span></div>'+
-    '<div class="kpi"><span>Toplam kalan ana para</span><b>'+money(o.kalanAnapara)+'</b></div>'+
+    '<div class="kpi"><span>Toplam kalan ana para</span><b>'+money(o.kalanAnapara)+'</b>'+
+      '<span class="muted sm">son ödenen taksitten sonraki bakiye</span></div>'+
     '<div class="kpi"><span>Kalan toplam borç</span><b>'+money(o.kalanBorc)+'</b>'+
-      '<span class="muted sm">ödenmemiş taksitlerin toplamı</span></div>'+
+      '<span class="muted sm">'+money(o.kalanFaiz)+' faiz dahil</span></div>'+
     (o.gecikmisAdet?'<div class="kpi"><span>Gecikmiş taksit</span><b class="out">'+money(o.gecikmis)+'</b>'+
       '<span class="muted sm">'+o.gecikmisAdet+' taksit</span></div>':'')+
     '</div>'+
@@ -5963,20 +6036,50 @@ function openKredi(id){
     '<div class="field"><label for="kr-banka">Banka</label><input id="kr-banka" type="text" value="'+esc(v.banka)+'" placeholder="Örn. Ziraat Bankası"></div>'+
     '<div class="field"><label for="kr-ad">Kredi adı</label><input id="kr-ad" type="text" value="'+esc(v.ad)+'" placeholder="Örn. Taşıt kredisi"></div>'+
     '<div class="field"><label for="kr-co">Şirket</label><select id="kr-co">'+companyOptions(v.companyId,'Şirket seçin')+'</select></div>'+
-    '<div class="field"><label for="kr-cek">Çekilen tutar (₺)</label><input id="kr-cek" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.cekilen||'')+'"></div>'+
+    '<div class="field"><label for="kr-cek">Çekilen ana para (₺)</label><input id="kr-cek" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.cekilen||v.kalanAnapara||'')+'"></div>'+
     '<div class="field"><label for="kr-adet">Taksit sayısı</label><input id="kr-adet" type="number" min="1" max="600" step="1" inputmode="numeric" value="'+(v.taksitSayisi||'')+'"></div>'+
     '<div class="field"><label for="kr-tak">Taksit tutarı (₺)</label><input id="kr-tak" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.taksitTutari||'')+'"></div>'+
     '<div class="field"><label for="kr-ilk">İlk taksidin ödeme tarihi</label><input id="kr-ilk" type="date" value="'+esc(v.ilkOdeme)+'"></div>'+
-    '<div class="field"><label for="kr-kalan">Kalan ana para (₺)</label><input id="kr-kalan" type="number" min="0" step="0.01" inputmode="decimal" value="'+(v.kalanAnapara||'')+'"></div>'+
     '<div class="field"><label for="kr-faiz">Aylık faiz oranı (%)</label><input id="kr-faiz" type="number" min="0" step="0.0001" inputmode="decimal" value="'+(v.faiz||'')+'"></div>'+
     '<div class="field"><label for="kr-durum">Durum</label><select id="kr-durum">'+opt(KREDI_DURUM.map(d=>[d,d]),v.durum)+'</select></div>'+
     '<div class="field full"><label for="kr-not">Açıklama</label><input id="kr-not" type="text" value="'+esc(v.descr)+'" placeholder="Sözleşme no, teminat vb."></div></div>'+
-    '<p class="hint">Ödeme planı bu bilgilerden türetilir: <b>n. taksidin vadesi = ilk ödeme tarihi + (n-1) ay</b>. Ayın 31’i gibi karşılığı olmayan günler ayın son gününe çekilir. <b>Kalan ana para</b> elle tutulur; taksidin ne kadarının ana para olduğunu banka belirlediği için otomatik düşülmez.</p>'+
+    '<div id="kr-onizleme">'+krediOnizleme(v)+'</div>'+
+    '<p class="hint">Ödeme planı bu bilgilerden türetilir. <b>Vade:</b> n. taksidin vadesi = ilk ödeme tarihi + (n-1) ay; ayın 31’i gibi karşılığı olmayan günler ayın son gününe çekilir. <b>Faiz ve ana para:</b> her ayın faizi o aya girerkenki kalan ana para üzerinden işler, taksidin kalanı ana paradan düşülür ve sonraki ay yeni bakiyeyle devam eder. Kalan ana para artık elle tutulmaz, hesaplanır.</p>'+
     (odemeli?'<p class="hint">Bu kredide <b>'+odemeli+' ödeme</b> kayıtlı. Taksit sayısını veya ilk ödeme tarihini değiştirirseniz plan kayar; ödemeler taksit numarasına bağlı kaldığı için eşleşmeleri kontrol edin.</p>':'')+
     '<p class="err" id="kr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+
     (k?'<button class="btn danger" data-act="del-kredi" data-id="'+k.id+'">Krediyi sil</button>':'')+
     '<button class="btn primary" data-act="save-kredi">Kaydet</button>'));
+}
+/* Form doldurulurken ilk taksidin dağılımını ve planın kapanıp
+   kapanmadığını anında gösterir; yanlış taksit tutarı kaydedilmeden
+   fark edilsin diye. */
+function krediOnizleme(v){
+  /* Pencere ilk çizilirken kutular henüz yok; o anda kredinin kendi
+     değerleriyle gösteriyoruz, sonra kutulardan okuyoruz. */
+  const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
+  const sayi=id=>parseFloat(String(g(id)).replace(',','.'))||0;
+  const yok=!$('#kr-cek');
+  const gecici=yok&&v
+    ?{id:dlgState.id||'__yeni',cekilen:v.cekilen||v.kalanAnapara||0,kalanAnapara:0,
+      taksitSayisi:v.taksitSayisi,taksitTutari:v.taksitTutari,
+      ilkOdeme:v.ilkOdeme||TODAY,faiz:v.faiz,durum:'Aktif'}
+    :{id:dlgState.id||'__yeni',cekilen:sayi('kr-cek'),kalanAnapara:0,
+      taksitSayisi:Math.round(sayi('kr-adet')),taksitTutari:sayi('kr-tak'),
+      ilkOdeme:g('kr-ilk')||TODAY,faiz:sayi('kr-faiz'),durum:'Aktif'};
+  if(!(gecici.cekilen>0)||!(gecici.taksitSayisi>=1)||!(gecici.taksitTutari>0))return '';
+  if(gecici.taksitSayisi>600)return '';
+  const plan=krediPlan(gecici),ilk=plan[0],son=plan[plan.length-1];
+  const toplamFaiz=topla(plan,t=>t.faiz);
+  return '<div class="kpis" style="margin:12px 0 0">'+
+    '<div class="kpi"><span>1. taksit faizi</span><b>'+money(ilk.faiz)+'</b>'+
+      '<span class="muted sm">ana para '+money(ilk.anapara)+'</span></div>'+
+    '<div class="kpi"><span>1. taksitten sonra kalan</span><b>'+money(ilk.kalan)+'</b></div>'+
+    '<div class="kpi"><span>Toplam faiz</span><b>'+money(toplamFaiz)+'</b>'+
+      '<span class="muted sm">toplam geri ödeme '+money(gecici.taksitSayisi*gecici.taksitTutari)+'</span></div>'+
+    '<div class="kpi"><span>Son taksitten sonra</span><b'+(son.kalan>1?' class="out"':'')+'>'+money(son.kalan)+'</b>'+
+      '<span class="muted sm">'+(son.kalan>1?'plan kapanmıyor':'plan kapanıyor')+'</span></div></div>'+
+    krediPlanUyari(gecici);
 }
 function saveKredi(){
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
@@ -5988,11 +6091,17 @@ function saveKredi(){
   if(!(taksit>0))return err('Taksit tutarını 0’dan büyük girin.');
   if(!ilk)return err('İlk taksidin ödeme tarihini seçin.');
   if(!g('kr-co'))return err('Şirket seçin.');
-  const row={company_id:nz(g('kr-co')),banka:banka,name:g('kr-ad'),
-    cekilen:sayi('kr-cek'),taksit_sayisi:adet,taksit_tutari:taksit,ilk_odeme:ilk,
-    kalan_anapara:sayi('kr-kalan'),faiz:sayi('kr-faiz'),durum:g('kr-durum')||'Aktif',
-    descr:g('kr-not')};
+  const cekilen=sayi('kr-cek');
+  if(!(cekilen>0))return err('Çekilen ana parayı girin; faiz ve ana para dağılımı bu tutardan hesaplanıyor.');
   const id=dlgState.id;
+  /* kalan_anapara artık elle girilmiyor; planın bugünkü bakiyesi
+     veritabanına da yazılıyor ki SQL'den bakanlar aynı rakamı görsün. */
+  const gecici={id:id||'__yeni',cekilen:cekilen,kalanAnapara:0,taksitSayisi:adet,
+    taksitTutari:taksit,ilkOdeme:ilk,faiz:sayi('kr-faiz'),durum:g('kr-durum')||'Aktif'};
+  const row={company_id:nz(g('kr-co')),banka:banka,name:g('kr-ad'),
+    cekilen:cekilen,taksit_sayisi:adet,taksit_tutari:taksit,ilk_odeme:ilk,
+    kalan_anapara:kalanAnaparaHesap(gecici),faiz:sayi('kr-faiz'),
+    durum:g('kr-durum')||'Aktif',descr:g('kr-not')};
   run('kr-err',()=>id?upd('krediler',id,row):ins('krediler',row),
     id?'Kredi güncellendi':'Kredi eklendi');
 }
@@ -6009,6 +6118,9 @@ function openKrediDetay(id){
     return '<tr'+(sira&&t.no===sira.no?' class="vurgu"':'')+'><td class="num">'+t.no+'</td>'+
       '<td class="nowrap">'+fmtDate(t.vade)+'</td>'+
       '<td class="num">'+money(t.tutar)+'</td>'+
+      '<td class="num muted">'+money(t.faiz)+'</td>'+
+      '<td class="num muted">'+money(t.anapara)+'</td>'+
+      '<td class="num"><b>'+money(t.kalan)+'</b></td>'+
       '<td>'+(o?'<span class="badge ok">Ödendi</span> <span class="muted sm">'+fmtDate(o.tarih)+
             (o.tutar!==t.tutar?' · '+money(o.tutar):'')+'</span>'
            :gec?'<span class="badge bad">Gecikti</span>':'<span class="muted">Bekliyor</span>')+'</td>'+
@@ -6021,9 +6133,11 @@ function openKrediDetay(id){
     '<div class="kpis">'+
     '<div class="kpi"><span>Taksit</span><b>'+odenen+' / '+k.taksitSayisi+'</b><span class="muted sm">'+kalan+' taksit kaldı</span></div>'+
     '<div class="kpi"><span>Taksit tutarı</span><b>'+money(k.taksitTutari)+'</b></div>'+
-    '<div class="kpi"><span>Kalan ana para</span><b>'+money(k.kalanAnapara)+'</b></div>'+
-    '<div class="kpi"><span>Kalan borç</span><b>'+money(kalan*k.taksitTutari)+'</b></div>'+
+    '<div class="kpi"><span>Kalan ana para</span><b>'+money(kalanAnaparaHesap(k))+'</b></div>'+
+    '<div class="kpi"><span>Kalan borç</span><b>'+money(kalan*k.taksitTutari)+'</b>'+
+      '<span class="muted sm">'+money(kalanFaiz(k))+' faiz dahil</span></div>'+
     '</div>'+
+    krediPlanUyari(k)+
     '<p class="muted sm">'+esc(coShort(k.companyId))+
       (k.faiz?' · aylık faiz %'+nf.format(k.faiz):'')+
       (k.cekilen?' · çekilen '+money(k.cekilen):'')+
@@ -6033,8 +6147,15 @@ function openKrediDetay(id){
       ara.map(o=>fmtDate(o.tarih)+' '+money(o.tutar)+
         ' <button class="btn sm" data-act="del-kredi-odeme" data-id="'+o.id+'">Sil</button>').join(' · ')+'</p>':'')+
     '<div class="scroll" style="max-height:46vh"><table><thead><tr><th class="num">#</th><th>Vade</th>'+
-    '<th class="num">Tutar</th><th>Durum</th><th></th></tr></thead><tbody>'+
-    plan.map(satir).join('')+'</tbody></table></div>'+
+    '<th class="num">Taksit</th><th class="num">Faiz</th><th class="num">Ana para</th>'+
+    '<th class="num">Kalan ana para</th><th>Durum</th><th></th></tr></thead><tbody>'+
+    plan.map(satir).join('')+
+    '<tr class="total"><td colspan="3"><b>Toplam</b></td>'+
+    '<td class="num"><b>'+money(topla(plan,t=>t.faiz))+'</b></td>'+
+    '<td class="num"><b>'+money(topla(plan,t=>t.anapara))+'</b></td>'+
+    '<td colspan="3"></td></tr>'+
+    '</tbody></table></div>'+
+    '<p class="hint">Faiz her ay, o aya girerkenki <b>kalan ana para</b> üzerinden işler; taksidin geri kalanı ana paradan düşülür ve sonraki ay yeni bakiyeyle devam eder. Ara ödemeler bu plana yansımaz — banka yeni plan verdiyse krediyi düzenleyin.</p>'+
     '<p class="err" id="krd-err"></p>',
     '<button class="btn" data-act="close">Kapat</button>'+
     '<button class="btn" data-act="kredi-odeme" data-id="'+k.id+'">Ara ödeme ekle</button>'+
@@ -6054,9 +6175,10 @@ function openKrediOdeme(kid,no){
     '<div class="field"><label for="ko-tutar">Tutar (₺)</label><input id="ko-tutar" type="number" min="0" step="0.01" inputmode="decimal" value="'+(plan?plan.tutar:'')+'"></div>'+
     '<div class="field"><label for="ko-acc">Kasa / banka hesabı</label><select id="ko-acc">'+
       opt(db.accounts.map(a=>[a.id,a.name]),'','Kasaya işlenmesin')+'</select></div>'+
-    '<div class="field"><label for="ko-kalan">Ödeme sonrası kalan ana para (₺)</label><input id="ko-kalan" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Değişmesin diye boş bırakın"></div>'+
+
     '<div class="field full"><label for="ko-not">Açıklama</label><input id="ko-not" type="text" placeholder="Örn. EFT dekont no"></div></div>'+
-    '<p class="hint">Hesap seçerseniz ödeme <b>Kasa ve banka</b> ekranına da “'+CAT_KREDI+'” gideri olarak yazılır ve hesap bakiyesinden düşer. Hesap seçmezseniz yalnızca bu kredi kartında durur. <b>Kalan ana para</b> alanını yalnızca banka ekstresindeki yeni bakiyeyi girmek için doldurun.</p>'+
+    (plan?'<p class="hint">Bu taksidin <b>'+money(plan.faiz)+'</b>’si faiz, <b>'+money(plan.anapara)+'</b>’si ana para. Ödeme sonrası kalan ana para <b>'+money(plan.kalan)+'</b> olur.</p>':'')+
+    '<p class="hint">Hesap seçerseniz ödeme <b>Kasa ve banka</b> ekranına da “'+CAT_KREDI+'” gideri olarak yazılır ve hesap bakiyesinden düşer. Hesap seçmezseniz yalnızca bu kredi kartında durur.</p>'+
     '<p class="err" id="ko-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-kredi-odeme">Ödemeyi kaydet</button>'));
 }
@@ -6066,7 +6188,7 @@ function saveKrediOdeme(){
   const g=id=>{const el=$('#'+id);return el?el.value.trim():'';};
   const err=m=>{$('#ko-err').textContent=m;};
   const tarih=g('ko-tarih'),tutar=parseFloat(String(g('ko-tutar')).replace(',','.'));
-  const accId=g('ko-acc'),kalanStr=g('ko-kalan'),not=g('ko-not'),no=dlgState.no;
+  const accId=g('ko-acc'),not=g('ko-not'),no=dlgState.no;
   if(!tarih)return err('Ödeme tarihini seçin.');
   if(!(tutar>0))return err('Tutarı 0’dan büyük girin.');
   if(no&&taksitOdemesi(k.id,no))return err('Bu taksit zaten ödenmiş.');
@@ -6087,10 +6209,9 @@ function saveKrediOdeme(){
       if(tx){try{await del('transactions',tx.id);}catch(_){}}
       throw e;
     }
-    if(kalanStr!==''){
-      const yeni=parseFloat(String(kalanStr).replace(',','.'));
-      if(yeni>=0)await upd('krediler',k.id,{kalan_anapara:yeni});
-    }
+    /* Plandaki bakiye ilerledi; veritabanındaki kopyayı da güncelle */
+    const yeni=no?(krediPlan(k).find(t=>t.no===no)||{}).kalan:null;
+    if(yeni!=null&&yeni!==k.kalanAnapara)await upd('krediler',k.id,{kalan_anapara:yeni});
   },'Ödeme kaydedildi');
 }
 function delKrediOdeme(id){
@@ -7976,12 +8097,18 @@ function init(){
     if(el.id==='mut-ay'){_mutAy=el.value;mutHesapla();render();return;}
     if(el.dataset&&el.dataset.set){setPath(el.dataset.set,el.value);afterSet(el.dataset.set);render();return;}
     if(el.id&&dlgState.kind){
+      if(dlgState.kind==='kredi'&&/^kr-(cek|adet|tak|faiz|ilk)$/.test(el.id)){
+        const kutu=$('#kr-onizleme');if(kutu)kutu.innerHTML=krediOnizleme();return;}
       if(el.id==='a-emp'){$('#a-open').textContent=money(openAdvance(el.value));return;}
       dialogChange(el);
     }
   });
   document.addEventListener('input',e=>{
     const el=e.target;
+    /* Kredi formunda taksit, faiz veya ana para değiştikçe önizleme
+       yenilensin; yanlış tutar kaydedilmeden görülsün. */
+    if(dlgState.kind==='kredi'&&/^kr-(cek|adet|tak|faiz|ilk)$/.test(el.id||'')){
+      const kutu=$('#kr-onizleme');if(kutu)kutu.innerHTML=krediOnizleme();return;}
     if(el.id==='kq'){state.kasa.q=el.value;const box=$('#txlist');if(box)box.innerHTML=txTable();}
     else if(el.id==='sq'){state.stok.q=el.value;const box=$('#stoklist');if(box)box.innerHTML=stokTable();}
     else if(el.id&&el.id.endsWith('-serials')){const c=$('#'+el.id.replace('-serials','-count'));if(c)c.textContent=parseSerials(el.value).length+' seri no okundu';}
