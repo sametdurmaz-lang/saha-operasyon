@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='09.10.2026-c';
+const SURUM='12.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1423,6 +1423,41 @@ function attention(){
   return items;
 }
 
+/* Hareket satırındaki düğmeler.
+   Master her hareketi düzenler ve siler; muhasebe yalnızca elle
+   girilmiş hareketi ve virmanı siler (eski davranış). Maaş, avans,
+   prim ve zimmet bakım hareketleri başka kayıtlara bağlı olduğu için
+   onların düzeltilmesi master'a bırakıldı. */
+function txAksiyon(t){
+  const elle=(t.source==='manuel'||t.source==='virman');
+  if(isMaster())
+    return '<button class="btn sm" data-act="edit-tx" data-id="'+t.id+'">Düzenle</button> '+
+           '<button class="btn sm danger" data-act="del-tx" data-id="'+t.id+'">Sil</button>';
+  return elle?'<button class="btn sm" data-act="del-tx" data-id="'+t.id+'">Sil</button>':'';
+}
+/* Harekete bağlı diğer kayıtlar. Silerken ve düzenlerken bunların da
+   güncellenmesi gerekiyor, yoksa maaş "ödendi" görünmeye devam eder
+   veya cihazın bakım geçmişinde karşılığı olmayan masraf kalır. */
+function txBagli(t){
+  if(!t)return {};
+  return {
+    payroll:(db.payrolls||[]).find(x=>x.txId===t.id)||null,
+    repair :(db.repairs ||[]).find(x=>x.txId===t.id)||null,
+    esId   :(t.source==='virman'&&t.refId)
+              ? (db.transactions.find(x=>x.refId===t.refId&&x.id!==t.id)||{}).id||null
+              : null
+  };
+}
+function txBagliNot(t){
+  const b=txBagli(t);
+  if(b.payroll)return 'Bu hareket '+monthLabel(b.payroll.month)+' maaş ödemesidir; maaş kaydı da birlikte güncellenir.';
+  if(b.repair){const a=asset(b.repair.assetId);
+    return 'Bu hareket '+(a?'<b>'+esc(a.model)+'</b> kaydının':'bir envanter kaydının')+' bakım masrafıdır; envanterin bakım geçmişi de birlikte güncellenir.';}
+  if(b.esId)return 'Virmanın iki ayağı birlikte güncellenir; tutar, tarih ve açıklama karşı hesapta da değişir.';
+  if(t.source==='avans')return 'Avans hareketidir; tutarı değiştirmek personelin açık avansını ve maaş mahsubunu etkiler.';
+  if(t.source==='odeme')return 'Ticket, yol parası, ek ödeme veya prim ödemesidir.';
+  return '';
+}
 function txTable(){
   const k=state.kasa,q=k.q.trim().toLocaleLowerCase('tr');
   let list=db.transactions.filter(t=>inPeriod(t,state.period));
@@ -1437,7 +1472,7 @@ function txTable(){
   const src={maas:'Maaş',avans:'Avans',tamir:'Zimmet',virman:'Virman'};
   const shown=list.slice(0,150);
   return '<div class="panel-b muted sm">'+list.length+' hareket. Gelir <b class="in">'+money(tin)+'</b>, gider <b class="out">'+money(tout)+'</b> (virmanlar hariç).</div><div class="scroll"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Hesap</th><th>Bağlı olduğu</th><th class="num">Tutar</th><th></th></tr></thead><tbody>'+
-  shown.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+(src[t.source]?' <span class="badge">'+src[t.source]+'</span>':'')+'</div></td><td>'+esc((acct(t.accountId)||{}).name)+'</td><td>'+relCell(t)+'</td><td class="num '+(t.dir==='in'?'in':'out')+'"><b>'+(t.dir==='in'?'+':'-')+money(t.amount)+'</b></td><td class="num">'+((t.source==='manuel'||t.source==='virman')?'<button class="btn sm" data-act="del-tx" data-id="'+t.id+'">Sil</button>':'')+'</td></tr>').join('')+
+  shown.map(t=>'<tr><td class="nowrap">'+fmtDate(t.date)+'</td><td><div>'+esc(t.desc||t.category)+'</div><div class="muted sm">'+esc(t.category)+(src[t.source]?' <span class="badge">'+src[t.source]+'</span>':'')+'</div></td><td>'+esc((acct(t.accountId)||{}).name)+'</td><td>'+relCell(t)+'</td><td class="num '+(t.dir==='in'?'in':'out')+'"><b>'+(t.dir==='in'?'+':'-')+money(t.amount)+'</b></td><td class="num nowrap">'+txAksiyon(t)+'</td></tr>').join('')+
   '</tbody></table></div>'+(list.length>shown.length?'<div class="panel-b muted sm">İlk 150 hareket gösteriliyor. Aramayı daraltın.</div>':'');
 }
 function viewKasa(){
@@ -4523,6 +4558,17 @@ function gelirMaliyetRows(period){
   const dog={},zim={};
   if(fin)expenses(period).forEach(t=>{
     if(!t.employeeId)return;
+    /* ÇİFT SAYMA ÖNLEMİ
+       Tek bir ay seçildiğinde maaş, ödensin ödenmesin, tahakkuk
+       olarak "Maaş" sütununa yazılıyor (e.salary). Maaş ödemesinin
+       kasa hareketi de personele bağlı bir gider olduğu için, ödeme
+       yapıldığı anda aynı maaş ikinci kez maliyete giriyordu.
+       Avans da maaşın peşin ödenen parçasıdır, ödeme sırasında maaştan
+       mahsup edilir; o da tahakkukun içinde zaten var.
+       Bu yüzden ay seçiliyken maaş ve avans hareketleri atlanıyor.
+       "Tüm dönemler"de tahakkuk hesaplanamadığı için (maas=0)
+       hareketler olduğu gibi sayılır. */
+    if(ay&&(t.source==='maas'||t.source==='avans'))return;
     const h=(t.source==='tamir'||t.category===CAT_ENV)?zim:dog;
     h[t.employeeId]=(h[t.employeeId]||0)+t.amount;
   });
@@ -4572,7 +4618,7 @@ function gelirMaliyetBolumu(){
          '<td class="num '+(t.net>=0?'in':'out')+'">'+money(t.net)+'</td>':'')+
     '</tr></tbody></table></div>'+
     '<div class="panel-b"><p class="hint">Gelir, satılan ürünlerin gelir tanımından hesaplanır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. <b>Randevu katkısı</b> sütunu, o personelin aldığı randevulardan doğan satış sayısıdır.'+
-    (fin?' <b>Zimmet bakım</b>, o personele zimmetli envanterin dönemdeki bakım ve tamir masrafıdır. <b>Dağıtılan gider</b>, kimseye bağlanmamış merkezi giderlerin kişi başı payıdır. Maliyet = Maaş + Gider + Zimmet bakım + Dağıtılan gider. Maaş yalnızca tek bir ay seçildiğinde hesaba katılır.':'')+'</p></div></section>';
+    (fin?' <b>Zimmet bakım</b>, o personele zimmetli envanterin dönemdeki bakım ve tamir masrafıdır. <b>Dağıtılan gider</b>, kimseye bağlanmamış merkezi giderlerin kişi başı payıdır. Maliyet = Maaş + Gider + Zimmet bakım + Dağıtılan gider. <b>Maaş</b> sütunu personel kartındaki net maaştır ve ay seçildiğinde ödensin ödenmesin o ayın maliyetine girer; maaş ve avans ödemelerinin kasa hareketleri <b>Gider</b> sütununda tekrar sayılmaz. “Tüm dönemler” seçiliyken maaş tahakkuku hesaplanamadığı için maaş ve avans ödemeleri Gider sütununda görünür.':'')+'</p></div></section>';
 }
 /* Merkezi giderin dağıtımını özetleyen bant. Tutarın üstüne tıklanınca
    dağıtıma giren hareketler gider raporunda açılır. */
@@ -6647,6 +6693,57 @@ function saveTx(){
       account_id:o.accountId,tx_id:t.id,employee_id:nz(o.employeeId)});
   },'Hareket kaydedildi');
 }
+/* Hareketi düzenle — yalnızca master. Kategori yalnızca elle girilmiş
+   hareketlerde değiştirilebilir; maaş, prim, avans ve zimmet bakım
+   hareketlerinin kategorisi kaynak kayıtla eşleşmek zorunda. */
+function openTxEdit(id){
+  if(!isMaster())return needDlg('Hareketi düzenle','Hareketleri yalnızca master düzenleyebilir.');
+  const t=byId(db.transactions,id);if(!t)return;
+  const b=txBagli(t),not=txBagliNot(t);
+  dlgState={kind:'txedit',id:id};
+  const elle=t.source==='manuel';
+  const katListe=elle?(t.dir==='in'?CAT_IN:CAT_OUT_MANUAL):[t.category];
+  openDlg(dlgHtml('Hareketi düzenle','<div class="fields">'+
+    '<div class="field"><label for="te-date">Tarih</label><input id="te-date" type="date" value="'+esc(t.date)+'"></div>'+
+    '<div class="field"><label for="te-acc">Hesap</label><select id="te-acc">'+acctOptions(t.accountId)+'</select></div>'+
+    '<div class="field"><label for="te-cat">Kategori</label><select id="te-cat"'+(elle?'':' disabled')+'>'+
+      opt(katListe.map(c=>[c,c]),t.category)+'</select>'+
+      (elle?'':'<div class="hint">Bu hareketin kategorisi kaynak kaydına bağlı, değiştirilemez.</div>')+'</div>'+
+    '<div class="field"><label for="te-amt">Tutar (₺)</label><input id="te-amt" type="number" min="0" step="0.01" inputmode="decimal" value="'+t.amount+'"></div>'+
+    '<div class="field"><label for="te-company">Şirket</label><select id="te-company">'+companyOptions(t.companyId,'Şirket seçin')+'</select></div>'+
+    '<div class="field"><label for="te-dept">Departman</label><select id="te-dept">'+deptOptions(t.companyId,t.departmentId,'Departman seçilmedi')+'</select></div>'+
+    '<div class="field"><label for="te-emp">Personel</label><select id="te-emp">'+empSecim(t.employeeId||'','Personel seçilmedi')+'</select></div>'+
+    '<div class="field full"><label for="te-desc">Açıklama</label><input id="te-desc" type="text" value="'+esc(t.desc)+'"></div></div>'+
+    '<p class="hint">Tür (gelir / gider) değiştirilemez. Yanlış türde girilmiş bir hareketi silip yeniden girin.'+
+      (not?' '+not:'')+'</p>'+
+    '<p class="err" id="te-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn danger" data-act="del-tx" data-id="'+id+'">Hareketi sil</button>'+
+    '<button class="btn primary" data-act="save-txedit">Kaydet</button>'));
+}
+function saveTxEdit(){
+  if(dlgState.kind!=='txedit')return;
+  const t=byId(db.transactions,dlgState.id);if(!t)return;
+  const g=i=>{const el=$('#'+i);return el?el.value.trim():'';};
+  const err=m=>{$('#te-err').textContent=m;};
+  const date=g('te-date'),accId=g('te-acc'),cat=g('te-cat')||t.category;
+  const amount=parseFloat(String(g('te-amt')).replace(',','.'));
+  const cid=g('te-company'),did=g('te-dept'),eid=g('te-emp'),desc=g('te-desc');
+  if(!date)return err('Tarih seçin.');
+  if(!accId)return err('Hesap seçin.');
+  if(!(amount>0))return err('Tutarı 0’dan büyük girin.');
+  if(!cid)return err('Şirket seçin.');
+  const b=txBagli(t);
+  run('te-err',async()=>{
+    await upd('transactions',t.id,{date:date,account_id:accId,category:cat,amount:amount,
+      company_id:nz(cid),department_id:nz(did),employee_id:nz(eid),descr:desc});
+    /* Virmanın karşı ayağı: tutar, tarih ve açıklama aynı kalmalı */
+    if(b.esId)await upd('transactions',b.esId,{date:date,amount:amount,descr:desc});
+    /* Maaş kaydı ve cihazın bakım geçmişi hareketle aynı kalmalı */
+    if(b.payroll)await upd('payrolls',b.payroll.id,{paid:amount,date:date,account_id:accId});
+    if(b.repair) await upd('repairs', b.repair.id, {cost:amount,date:date,account_id:accId,descr:desc});
+  },'Hareket güncellendi');
+}
 function openTransfer(){
   if(db.accounts.length<2)return needDlg('Virman','Virman için en az iki hesap gerekir. “Hesap ekle” ile ikinci hesabı tanımlayın.');
   dlgState={kind:'transfer'};
@@ -7910,10 +8007,27 @@ const actions={
   'save-tx'(){saveTx();},
   'open-transfer'(){openTransfer();},
   'save-transfer'(){saveTransfer();},
-  'del-tx'(el){confirmDlg('Hareketi sil','Bu hareket silinecek ve hesap bakiyesi yeniden hesaplanacak.','confirm-del-tx',el.dataset.id,'Hareketi sil');},
+  'edit-tx'(el){openTxEdit(el.dataset.id);},
+  'save-txedit'(){saveTxEdit();},
+  'del-tx'(el){
+    const t=byId(db.transactions,el.dataset.id);if(!t)return;
+    const b=txBagli(t);
+    const ek=b.payroll?' '+monthLabel(b.payroll.month)+' maaş kaydı da silinir; maaş yeniden "ödenmedi" durumuna döner.'
+           :b.repair ?' Cihazın bakım geçmişindeki karşılığı da silinir.'
+           :b.esId   ?' Virmanın iki ayağı birlikte silinir.'
+           :t.source==='avans'?' Personelin açık avansı bu tutar kadar azalır.'
+           :'';
+    confirmDlg('Hareketi sil',
+      'Bu hareket silinecek ve hesap bakiyesi yeniden hesaplanacak.'+ek+' Silme işlemi Hareket kaydına yazılır.',
+      'confirm-del-tx',t.id,'Hareketi sil');
+  },
   'confirm-del-tx'(el){
     const t=byId(db.transactions,el.dataset.id);if(!t)return;
+    const b=txBagli(t);
     run(null,async()=>{
+      /* Önce bağlı kayıtlar; hareket silinince onlar sahipsiz kalır */
+      if(b.payroll)await del('payrolls',b.payroll.id);
+      if(b.repair) await del('repairs', b.repair.id);
       if(t.source==='virman'&&t.refId){
         const r=await sb.from('transactions').delete().eq('ref_id',t.refId);if(r.error)throw r.error;
       }else await del('transactions',t.id);
@@ -8233,6 +8347,19 @@ function init(){
     if(el.id==='mut-ay'){_mutAy=el.value;mutHesapla();render();return;}
     if(el.dataset&&el.dataset.set){setPath(el.dataset.set,el.value);afterSet(el.dataset.set);render();return;}
     if(el.id&&dlgState.kind){
+      /* Hareketi düzenle: personel seçilince şirket ve departmanı ondan
+         al; şirket değişince alt listeleri tazele. */
+      if(dlgState.kind==='txedit'&&(el.id==='te-company'||el.id==='te-emp')){
+        const c=$('#te-company'),d=$('#te-dept'),e=$('#te-emp');
+        if(el.id==='te-emp'&&e.value){
+          const em=emp(e.value);
+          if(em){c.value=em.companyId||'';
+            d.innerHTML=deptOptions(em.companyId,em.departmentId||'','Departman seçilmedi');}
+        }else{
+          d.innerHTML=deptOptions(c.value,'','Departman seçilmedi');
+        }
+        return;
+      }
       if(dlgState.kind==='kredi'&&/^kr-(cek|adet|tak|faiz|ilk)$/.test(el.id)){
         const kutu=$('#kr-onizleme');if(kutu)kutu.innerHTML=krediOnizleme();return;}
       if(el.id==='a-emp'){$('#a-open').textContent=money(openAdvance(el.value));return;}
