@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='13.10.2026-a';
+const SURUM='13.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4470,6 +4470,25 @@ function kullaniciEmp(userId){
   const u=(db.users||[]).find(x=>x.userId===userId);
   return u?u.employeeId:null;
 }
+/* Kaydı kim girdi? Saha personeli girdiyse lead_damga saha_id'yi
+   damgalıyor; değilse kaydı açan kullanıcının personeli. */
+const leadGirenId=l=>(l&&(l.sahaId||kullaniciEmp(l.createdBy)))||null;
+function leadGirenAd(l){
+  const e=leadGirenId(l)?emp(leadGirenId(l)):null;
+  if(e)return e.name;
+  const u=(db.users||[]).find(x=>x.userId===(l||{}).createdBy);
+  return u&&u.email?u.email:'Bilinmiyor';
+}
+/* Bir kayıt kümesini "kaydı giren"e göre sayar, çoktan aza sıralar */
+function girenKirilimi(list){
+  const m={};
+  (list||[]).forEach(l=>{
+    const k=leadGirenId(l)||('u:'+(l.createdBy||'yok'));
+    const g=m[k]||(m[k]={ad:leadGirenAd(l),adet:0});
+    g.adet++;
+  });
+  return Object.keys(m).map(k=>m[k]).sort((a,b)=>b.adet-a.adet||a.ad.localeCompare(b.ad,'tr'));
+}
 function leadSatisaDondu(l){
   return !!l.customerId&&db.sales.some(s=>s.customerId===l.customerId);
 }
@@ -5399,6 +5418,10 @@ function potansiyelAl(){
   if(!havuzCekebilir())return needDlg('Potansiyel müşteri al','Havuzdan kayıt çekmeyi telesatış personeli ve takım lideri yapabilir.');
   if(!me.employeeId)return needDlg('Potansiyel müşteri al','Kullanıcınız bir personel kaydına bağlı değil. Yöneticinizden eşleştirme isteyin.');
   let alinan=0;
+  /* Çekmeden önceki listem; sonrasında farkı alıp hangi kayıtların
+     geldiğini ve bunları kimin girdiğini gösteriyoruz. RPC yalnızca
+     adet döndürüyor, kimin kaydı olduğunu söylemiyordu. */
+  const oncekiler=new Set(db.leads.filter(l=>l.atananId===me.employeeId).map(l=>l.id));
   run(null,async()=>{
     leadsKirlet();   /* havuzdan çekme listeyi değiştirir */
     const r=await sb.rpc('potansiyel_al',{adet:10});
@@ -5406,9 +5429,31 @@ function potansiyelAl(){
     alinan=r.data||0;
   },null,()=>{
     state.view='potansiyel';state.pot.sekme='bende';state.pot.page=0;state.pot.q='';render();
-    toast(alinan?alinan+' potansiyel müşteri listenize eklendi':'Havuzda aranacak kayıt kalmadı');
     window.scrollTo(0,0);
+    const yeni=db.leads.filter(l=>l.atananId===me.employeeId&&!oncekiler.has(l.id));
+    if(!alinan&&!yeni.length)return cekimSonucu(0,[],potFiltre('havuz').length);
+    toast(alinan+' potansiyel müşteri listenize eklendi');
+    cekimSonucu(alinan,yeni,potFiltre('havuz').length);
   });
+}
+/* Çekim sonrası özet: kaç kayıt geldi, kimin kayıtları geldi,
+   havuzda ne kaldı. "Hiçbiri gelmedi" durumunda da neden gelmediğini
+   anlatıyor; eskiden yalnızca sayı veren bir bildirim vardı. */
+function cekimSonucu(adet,yeni,kalan){
+  const rows=girenKirilimi(yeni);
+  dlgState={kind:'cekim'};
+  openDlg(dlgHtml('Potansiyel müşteri al',
+    (adet
+      ?'<p><b>'+adet+' kayıt</b> listenize eklendi.</p>'+
+       (rows.length
+         ?'<dl class="kv"><dt>Kaydı giren</dt><dd>'+
+           rows.map(r=>esc(r.ad)+' — <b>'+r.adet+'</b> kayıt').join('<br>')+'</dd></dl>'
+         :'')
+      :'<p><b>Havuzdan kayıt gelmedi.</b></p>'+
+       '<p class="hint">Havuz <b>birime özeldir</b>. Aradığınız kişinin kayıtları sizin biriminizde değilse ya da kişi telesatış/yönetici rolündeyse kayıtları hiç havuza düşmez, doğrudan kendi listesinde kalır. “Havuz” sekmesindeki döküm, biriminizin havuzunda kimin kaç kaydı olduğunu gösterir.</p>')+
+    '<p class="hint">Biriminizin havuzunda şu an <b>'+kalan+'</b> kayıt bekliyor.</p>',
+    '<button class="btn" data-act="pot-havuz-git">Havuzu gör</button>'+
+    '<button class="btn primary" data-act="close">Tamam</button>'));
 }
 /* Arama sonucunu işler: tarih ve deneme sayısı otomatik yazılır. */
 function leadSonuc(id,kind){
@@ -5573,6 +5618,21 @@ function potSekmeler(){
   return '<div class="seg" role="group" aria-label="Liste">'+
     t.map(([k,l,n])=>'<button data-act="pot-sekme" data-v="'+k+'" aria-pressed="'+(state.pot.sekme===k)+'">'+l+' ('+n+')</button>').join('')+'</div>';
 }
+/* Havuz sekmesinde "kimin kayıtları bekliyor" dökümü.
+   Havuz birime özeldir: burada adı GEÇMEYEN birinin kayıtları sizin
+   biriminizin havuzunda değildir, "Potansiyel müşteri al" dediğinizde
+   de gelmez. Sorunu kendi kendine göstersin diye buraya kondu. */
+function havuzKirilimi(){
+  if(state.pot.sekme!=='havuz')return '';
+  if(!(isMudur()||isTLider()))return '';
+  const list=potFiltre('havuz');
+  const rows=girenKirilimi(list);
+  if(!rows.length)
+    return '<div class="panel-b"><p class="hint">Biriminizin havuzunda bekleyen kayıt yok.</p></div>';
+  return '<div class="panel-b"><div class="tools" style="align-items:flex-start">'+
+    rows.map(r=>'<span class="badge">'+esc(r.ad)+' · <b>'+r.adet+'</b></span>').join('')+
+    '</div><p class="hint">Havuzda bekleyen kayıtlar, <b>kaydı giren</b> kişiye göre. Havuz birime özeldir: burada adı geçmeyen birinin kayıtları sizin biriminizin havuzunda değildir ve “Potansiyel müşteri al” dediğinizde size gelmez. Çekerken her kişiden sırayla birer adet alınır.</p></div>';
+}
 function potFiltre(sekme){
   const benim=me.employeeId||'__yok__';
   const l=db.leads;
@@ -5609,12 +5669,17 @@ function potTable(){
     '<div class="tools"><button class="btn sm" data-act="pot-page" data-v="-1"'+(f.page===0?' disabled':'')+'>\u2039 Önceki</button>'+
     '<span class="muted sm">Sayfa '+(f.page+1)+' / '+sayfaAdet+'</span>'+
     '<button class="btn sm" data-act="pot-page" data-v="1"'+(f.page>=sayfaAdet-1?' disabled':'')+'>Sonraki \u203a</button></div></div>';
-  return nav+'<div class="scroll"><table><thead><tr><th>Firma</th><th>Yetkili</th><th>Telefon</th><th>İl / İlçe</th><th>Atanan</th><th>Durum</th><th>Son arama</th><th></th></tr></thead><tbody>'+
+  /* Kaydı girenin adı: telesatış kimin kaydını aradığını görsün,
+     saha personeli kendi listesinde kendi adını tekrar görmesin. */
+  const girenGor=!isSaha();
+  return nav+'<div class="scroll"><table><thead><tr><th>Firma</th><th>Yetkili</th><th>Telefon</th><th>İl / İlçe</th>'+
+  (girenGor?'<th>Kaydı giren</th>':'')+'<th>Atanan</th><th>Durum</th><th>Son arama</th><th></th></tr></thead><tbody>'+
   gosterilen.map(l=>'<tr><td class="click" tabindex="0" data-act="lead" data-id="'+l.id+'"><b>'+esc(l.unvan)+'</b>'+
     (l.kaynak?'<div class="muted sm">'+esc(l.kaynak)+'</div>':'')+'</td>'+
     '<td>'+esc(l.yetkili||'—')+'</td>'+
     '<td class="nowrap">'+esc(l.telefon||'—')+'</td>'+
     '<td>'+esc([l.il,l.ilce].filter(Boolean).join(' / ')||'—')+'</td>'+
+    (girenGor?'<td>'+esc(leadGirenAd(l))+(l.kaynakTip==='excel'?'<div class="muted sm">Excel ile</div>':'')+'</td>':'')+
     '<td>'+esc((emp(l.atananId)||{}).name||'—')+'</td>'+
     '<td><span class="badge '+LEAD_ROZET[l.durum]+'">'+esc(l.durum)+'</span></td>'+
     '<td class="nowrap muted sm">'+(l.sonArama?fmtDate(l.sonArama):'—')+'</td>'+
@@ -5642,7 +5707,7 @@ function viewPotansiyel(){
   '<div class="kpi"><span>Havuzda bekleyen</span><b>'+(db.havuz||0)+'</b></div></div>'+
   /* Kaydı giren kişiye göre kırılım; yalnızca yöneticilerde */
   (raporcu()?'<div style="margin-bottom:16px">'+girisRaporBolum(true)+'</div>':'')+
-  '<section class="panel"><div class="panel-h">'+potSekmeler()+'</div><div class="panel-h">'+
+  '<section class="panel"><div class="panel-h">'+potSekmeler()+'</div>'+havuzKirilimi()+'<div class="panel-h">'+
   '<input id="potq" type="search" placeholder="Ünvan, yetkili, telefon, VKN veya adres ara" value="'+esc(f.q)+'" style="max-width:340px" aria-label="Ara">'+
   '<div class="tools">'+
   (f.sekme==='hepsi'?'<select data-set="pot.durum" aria-label="Durum">'+opt(LEAD_DURUM.map(d=>[d,d]),f.durum,'Tüm durumlar')+'</select>':'')+
@@ -8182,6 +8247,8 @@ const actions={
   'lead-next'(){leadSiradaki();},
   'pot-pull'(){potansiyelAl();},
   'pot-sekme'(el){state.pot.sekme=el.dataset.v;state.pot.page=0;state.pot.durum='';render();},
+  'pot-havuz-git'(){closeDlg();state.view='potansiyel';state.pot.sekme='havuz';
+    state.pot.page=0;state.pot.q='';render();window.scrollTo(0,0);},
   'lead-sonuc'(el){leadSonuc(el.dataset.id,el.dataset.v);},
   'pot-page'(el){state.pot.page=Math.max(0,state.pot.page+(+el.dataset.v||0));
     const box=$('#potlist');if(box){box.innerHTML=potTable();window.scrollTo(0,0);}},
