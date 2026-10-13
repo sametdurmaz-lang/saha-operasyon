@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='13.10.2026-b';
+const SURUM='13.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -479,6 +479,9 @@ const CAT_ENV='Envanter bakım';
 /* Banka kredisi taksidi. Yalnızca Krediler ekranından yazılır;
    elle hareket girişinde kapalıdır ki taksit iki kez işlenmesin. */
 const CAT_KREDI='Kredi taksidi';
+/* Köprü ve otoyol (HGS) geçişleri. Yalnızca HGS dökümü yüklenerek
+   yazılır; elle hareket girişinde kapalıdır. */
+const CAT_HGS='Köprü ve otoyol';
 /* Personele yapılan ek ödemeler. Maaş ve avans gibi, elle hareket
    girişinden değil Maaş ve ödemeler ekranından yazılır. */
 const ODEME_TURU=[
@@ -490,7 +493,7 @@ const ODEME_TURU=[
 ];
 const CAT_ODEME=ODEME_TURU.map(t=>t.kat);
 const CAT_OUT=['Maaş','Personel avansı'].concat(CAT_ODEME,
-  ['Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK',CAT_KREDI,'Diğer gider']);
+  ['Yakıt',CAT_ENV,'Araç bakım ve tamir','Cihaz tamir','Kira','Fatura','Ofis gideri','Yol ve konaklama','Vergi ve SGK',CAT_KREDI,CAT_HGS,'Diğer gider']);
 /* Elle hareket girişinde kapalı kategoriler.
    Maaş, avans, ticket, yol parası, ek ödeme ve prim:
    Maaş ve ödemeler ekranından yazılır.
@@ -498,7 +501,7 @@ const CAT_OUT=['Maaş','Personel avansı'].concat(CAT_ODEME,
    diye kapalı; envanter masrafı yalnızca "Envanter bakım" ile girilir.
    İkisi de CAT_OUT'ta duruyor, çünkü eski kayıtlar ve cihaz detayından
    girilen tamirler bu kategorilerde ve raporlarda süzülebilmeli. */
-const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir',CAT_KREDI].concat(CAT_ODEME);
+const CAT_ELLE_KAPALI=['Maaş','Personel avansı','Araç bakım ve tamir','Cihaz tamir',CAT_KREDI,CAT_HGS].concat(CAT_ODEME);
 const CAT_OUT_MANUAL=CAT_OUT.filter(c=>CAT_ELLE_KAPALI.indexOf(c)<0);
 const IL_ILCE={
 "İstanbul":["Adalar","Arnavutköy","Ataşehir","Avcılar","Bağcılar","Bahçelievler","Bakırköy","Başakşehir","Bayrampaşa","Beşiktaş","Beykoz","Beylikdüzü","Beyoğlu","Büyükçekmece","Çatalca","Çekmeköy","Esenler","Esenyurt","Eyüpsultan","Fatih","Gaziosmanpaşa","Güngören","Kadıköy","Kağıthane","Kartal","Küçükçekmece","Maltepe","Pendik","Sancaktepe","Sarıyer","Silivri","Sultanbeyli","Sultangazi","Şile","Şişli","Tuzla","Ümraniye","Üsküdar","Zeytinburnu"],
@@ -758,6 +761,10 @@ const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
   enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
   asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
   veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''});
+const mapHgs=r=>({id:r.id,anahtar:r.anahtar||'',plaka:r.plaka||'',assetId:r.asset_id||null,
+  employeeId:r.employee_id||null,tip:r.tip||'otoyol',tarih:r.tarih||'',
+  girisAt:r.giris_at||'',cikisAt:r.cikis_at||'',girisIst:r.giris_ist||'',cikisIst:r.cikis_ist||'',
+  otoyol:r.otoyol||'',aciklama:r.aciklama||'',ucret:num(r.ucret),txId:r.tx_id||null});
 const mapKredi=r=>({id:r.id,companyId:r.company_id||'',banka:r.banka||'',ad:r.name||'',
   cekilen:num(r.cekilen),taksitSayisi:+r.taksit_sayisi||0,taksitTutari:num(r.taksit_tutari),
   ilkOdeme:r.ilk_odeme||'',kalanAnapara:num(r.kalan_anapara),faiz:num(r.faiz),
@@ -789,8 +796,9 @@ async function loadAll(zorla){
   /* Krediler yalnızca master'a görünür (RLS). Diğer rollerde boşuna
      iki istek atmamak için hiç sorulmuyor. */
   const krediIste=isMaster();
+  const hgsIste=isFinans();
   const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum,
-         krediler,krediOdemeler]=await Promise.all([
+         krediler,krediOdemeler,hgsGecis]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -806,7 +814,9 @@ async function loadAll(zorla){
     sb.rpc('randevu_donusumlerim').then(r=>r.error?[]:(r.data||[])).catch(()=>[]),
     /* 68 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
     krediIste?bos(q('krediler')):Promise.resolve([]),
-    krediIste?bos(q('kredi_odemeler')):Promise.resolve([])]);
+    krediIste?bos(q('kredi_odemeler')):Promise.resolve([]),
+    /* 70 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
+    hgsIste?bos(q('hgs_gecis')):Promise.resolve([])]);
   katlariKur(katlar);
   donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
@@ -878,6 +888,7 @@ async function loadAll(zorla){
     appointments:appointments.map(r=>mapRandevu(r,pLog[r.id]||[])),
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(mapLead),
+    hgs:hgsGecis.map(mapHgs),
     krediler:krediler.map(mapKredi),
     krediOdemeler:krediOdemeler.map(mapKrediOdeme),
     havuz:havuz
@@ -932,7 +943,8 @@ function emptyDb(){
     accounts:[],transactions:[],payrolls:[],
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
-    assets:[],repairs:[],users:[],leads:[],krediler:[],krediOdemeler:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+    assets:[],repairs:[],users:[],leads:[],krediler:[],krediOdemeler:[],hgs:[],
+    aracKonum:[],aracGunluk:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
@@ -1487,7 +1499,7 @@ function viewKasa(){
   const accBar=db.accounts.length?(selAcc?'<div class="row" style="margin-top:2px"><span class="muted sm">'+esc(selAcc.name)+' — açılış bakiyesi '+money(selAcc.opening)+'</span><button class="btn sm" data-act="open-acct" data-id="'+selAcc.id+'">Hesabı düzenle</button></div>':'')
     :'<div class="panel"><div class="empty">Henüz kasa veya banka hesabı yok. Hareket girebilmek için önce bir hesap ekleyin.</div></div>';
   return head('Kasa ve banka','Tüm para hareketleri tek listede. Her hareket bir şirket, departman ve personele bağlanabilir.',
-    periodSel()+'<button class="btn" data-act="open-acct">Hesap ekle</button><button class="btn" data-act="open-transfer">Virman</button><button class="btn" data-act="open-tx" data-dir="in">Gelir ekle</button><button class="btn primary" data-act="open-tx" data-dir="out">Gider ekle</button>')+
+    periodSel()+'<button class="btn" data-act="open-hgs">HGS yükle</button><button class="btn" data-act="open-acct">Hesap ekle</button><button class="btn" data-act="open-transfer">Virman</button><button class="btn" data-act="open-tx" data-dir="in">Gelir ekle</button><button class="btn primary" data-act="open-tx" data-dir="out">Gider ekle</button>')+
   '<div class="stack"><div class="chips">'+chips+'</div>'+accBar+'<section class="panel"><div class="panel-h"><input id="kq" type="search" placeholder="Açıklama, personel veya departman ara" value="'+esc(k.q)+'" style="max-width:320px" aria-label="Ara"><div class="tools">'+
     '<select data-set="kasa.dir" aria-label="Tür"><option value="all"'+(k.dir==='all'?' selected':'')+'>Gelir ve gider</option><option value="in"'+(k.dir==='in'?' selected':'')+'>Yalnızca gelir</option><option value="out"'+(k.dir==='out'?' selected':'')+'>Yalnızca gider</option></select>'+
     '<select data-set="kasa.cat" aria-label="Kategori">'+opt([...CAT_IN,...CAT_OUT,'Virman'].map(c=>[c,c]),k.cat,'Tüm kategoriler')+'</select></div></div><div id="txlist">'+txTable()+'</div></section></div>';
@@ -2204,6 +2216,277 @@ function satFiltreSeridi(){
       ?'<span class="badge warn">Tarih aralığı seçili — dönem filtresi uygulanmıyor</span>'
       :'')+
     '</div>';
+}
+
+/* ================= KÖPRÜ VE OTOYOL GEÇİŞLERİ (HGS) ================
+   Operatörün plaka bazlı HGS dökümü Excel olarak yüklenir.
+
+   PARA ARACA DEĞİL PERSONELE YAZILIR: plaka hangi araca aitse, o
+   aracın zimmetli olduğu personel gideri üstlenir. Her plaka ve her
+   AY için tek bir gider hareketi açılır ("Köprü ve otoyol"), geçiş
+   satırları hgs_gecis tablosunda hareketle bağlı durur. Böylece hem
+   kişi maliyeti doğru çıkar hem de hangi araç nereden geçmiş
+   raporlanabilir.
+
+   Dosyada iki sayfa ve ÜÇ FARKLI tarih biçimi var:
+     Karayolları Geçişleri : "12.10.2026 13:00:23.140"  gg.aa.yyyy
+     Özel Otoyol, tahsilat : "08/10/2026 04:27:35"      gg/aa/yyyy
+     Özel Otoyol, geçiş    : "7/31/2026 11:44:43 AM"    aa/gg/yyyy
+   Rakamdan anlaşılan yerde biçimi kendimiz belirliyoruz; anlaşılmayan
+   yerde sütunun bilinen düzenine düşüyoruz ve çözümlenen tarihi
+   önizlemede gösteriyoruz ki yanlış okuma gözden kaçmasın. */
+const plakaKey=x=>String(x==null?'':x).toUpperCase().replace(/[^A-Z0-9]/g,'');
+const iki2=n=>String(n).padStart(2,'0');
+function hgsZaman(ham,gunIlk){
+  const t=String(ham==null?'':ham).trim();
+  if(!t)return null;
+  const m=t.match(/^(\d{1,4})[.\/-](\d{1,2})[.\/-](\d{2,4})(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?(?:[.,]\d+)?\s*(AM|PM)?/i);
+  if(!m)return null;
+  let a=+m[1],b=+m[2],y=+m[3],g,ay;
+  if(a>31||y<=12){                 /* yyyy-aa-gg biçimi */
+    y=+m[1];ay=+m[2];g=+m[3];
+  }else if(a>12){g=a;ay=b;}
+  else if(b>12){ay=a;g=b;}
+  else if(gunIlk){g=a;ay=b;}
+  else {ay=a;g=b;}
+  if(y<100)y+=2000;
+  let sa=m[4]?+m[4]:0;const dk=m[5]?+m[5]:0,sn=m[6]?+m[6]:0;
+  const ap=(m[7]||'').toUpperCase();
+  if(ap==='PM'&&sa<12)sa+=12;
+  if(ap==='AM'&&sa===12)sa=0;
+  if(!(y>=2000&&y<2100&&ay>=1&&ay<=12&&g>=1&&g<=31))return null;
+  const iso=y+'-'+iki2(ay)+'-'+iki2(g);
+  return {iso:iso,at:iso+'T'+iki2(sa)+':'+iki2(dk)+':'+iki2(sn)};
+}
+/* "49.00", "400.0", "1.234,56", "1,234.56" — hepsini okur */
+function hgsTutar(v){
+  if(typeof v==='number')return v;
+  let t=String(v==null?'':v).replace(/[^\d.,-]/g,'').trim();
+  if(!t)return 0;
+  const nk=t.lastIndexOf(','),nn=t.lastIndexOf('.');
+  if(nk>=0&&nn>=0)t=nk>nn?t.replace(/\./g,'').replace(',','.'):t.replace(/,/g,'');
+  else if(nk>=0)t=t.replace(',','.');
+  return parseFloat(t)||0;
+}
+/* Başlık satırını bulur: aranan metinlerden birini içeren ilk satır */
+function hgsBaslik(aoa,aranan){
+  for(let i=0;i<Math.min(aoa.length,15);i++){
+    const satir=(aoa[i]||[]).map(x=>String(x==null?'':x).trim());
+    if(satir.some(h=>aranan.indexOf(h)>=0))return {i:i,satir:satir};
+  }
+  return null;
+}
+const hgsKol=(b,ad)=>b.satir.indexOf(ad);
+/* Tüm sayfaları okur, iki biçimi de tanır. plaka dosya adından gelir. */
+function hgsOku(wb,plaka){
+  const out=[],uyari=[];
+  (wb.SheetNames||[]).forEach(ad=>{
+    const sh=wb.Sheets[ad];if(!sh)return;
+    const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:false,defval:''});
+    const b1=hgsBaslik(aoa,['Giriş Zamanı']);
+    const b2=hgsBaslik(aoa,['Tahsilat Tarihi']);
+    const b=b1||b2,tip=b1?'otoyol':'ozel';
+    if(!b){if(aoa.length>3)uyari.push('“'+ad+'” sayfası tanınmadı, atlandı.');return;}
+    const K=n=>hgsKol(b,n);
+    const cUcret=K('Ücret');
+    for(let i=b.i+1;i<aoa.length;i++){
+      const r=aoa[i]||[];
+      const al=c=>c>=0?String(r[c]==null?'':r[c]).trim():'';
+      const ucret=hgsTutar(cUcret>=0?r[cUcret]:0);
+      let giris,cikis,tarih;
+      if(tip==='otoyol'){
+        giris=hgsZaman(al(K('Giriş Zamanı')),true);
+        cikis=hgsZaman(al(K('Çıkış Zamanı')),true);
+        tarih=giris?giris.iso:null;
+      }else{
+        giris=hgsZaman(al(K('Giriş Tarihi')),false);   /* aa/gg/yyyy */
+        cikis=hgsZaman(al(K('Çıkış Tarihi')),false);
+        const tah=hgsZaman(al(K('Tahsilat Tarihi')),true);
+        tarih=(giris&&giris.iso)||(tah&&tah.iso)||null;
+      }
+      if(!tarih||!(ucret>0))continue;
+      const girisIst=al(K('Giriş İstasyonu')),cikisIst=al(K('Çıkış İstasyonu'));
+      out.push({plaka:plaka,tip:tip,tarih:tarih,
+        girisAt:giris?giris.at:null,cikisAt:cikis?cikis.at:null,
+        girisIst:girisIst,cikisIst:cikisIst,
+        otoyol:al(K('Otoyol')),aciklama:al(K('Açıklama')),ucret:ucret,
+        anahtar:[plakaKey(plaka),tip,(giris?giris.at:tarih),girisIst,ucret.toFixed(2)].join('|')});
+    }
+  });
+  /* Dosyanın kendi içindeki birebir tekrarları da ele */
+  const gorulen={},tekil=[];
+  out.forEach(x=>{if(!gorulen[x.anahtar]){gorulen[x.anahtar]=1;tekil.push(x);}});
+  return {satirlar:tekil,uyari:uyari,tekrar:out.length-tekil.length};
+}
+/* Ay bazında özet; her ay için tek gider hareketi açılacak */
+function hgsAylar(list){
+  const m={};
+  list.forEach(x=>{
+    const ay=x.tarih.slice(0,7);
+    const g=m[ay]||(m[ay]={ay:ay,adet:0,tutar:0,son:x.tarih});
+    g.adet++;g.tutar+=x.ucret;
+    if(x.tarih>g.son)g.son=x.tarih;
+  });
+  return Object.keys(m).sort().map(k=>m[k]);
+}
+
+function openHgs(){
+  if(!isFinans())return needDlg('HGS yükle','Bu işlemi yalnızca master ve muhasebe yapabilir.');
+  if(!db.accounts.length)return needDlg('HGS yükle','Önce bir kasa veya banka hesabı ekleyin.');
+  dlgState={kind:'hgs',rows:null,plaka:'',asset:null};
+  openDlg(dlgHtml('Köprü ve otoyol geçişleri yükle',
+    '<p>Operatörden aldığınız <b>plaka bazlı HGS dökümünü</b> olduğu gibi yükleyin. Dosya adındaki plaka araçla eşleştirilir; tutar <b>aracın zimmetli olduğu personelin</b> giderine yazılır.</p>'+
+    '<div class="fields">'+
+    '<div class="field full"><label for="hg-file">HGS dosyası (.xlsx)</label>'+
+      '<input id="hg-file" type="file" accept=".xlsx,.xls"></div>'+
+    '<div class="field"><label for="hg-asset">Araç</label><select id="hg-asset">'+
+      opt(aracSecenekleri(),'','Dosya adından bulunacak')+'</select></div>'+
+    '<div class="field"><label for="hg-emp">Gideri üstlenen personel</label><select id="hg-emp">'+
+      empSecim('','Personel seçin',aktifPersonel())+'</select></div>'+
+    '<div class="field"><label for="hg-acc">Ödeme hesabı</label><select id="hg-acc">'+acctOptions(db.accounts[0].id)+'</select></div>'+
+    '</div>'+
+    '<div id="hg-prev"></div>'+
+    '<p class="hint">Her ay için tek bir “'+CAT_HGS+'” gider hareketi açılır; geçişlerin tek tek dökümü saklanır ve raporlanır. Daha önce yüklenmiş geçişler atlanır, aynı dosyayı tekrar yüklemek tutarı iki katına çıkarmaz.</p>'+
+    '<p class="err" id="hg-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="hgs-yukle">Yükle</button>'));
+}
+const aracSecenekleri=()=>aktifCihazlar().filter(a=>a.plaka)
+  .sort((x,y)=>x.plaka.localeCompare(y.plaka,'tr',SAYISAL))
+  .map(a=>[a.id,a.plaka+' — '+a.model]);
+
+function hgsDosyaOku(file){
+  const err=m=>{const e=$('#hg-err');if(e)e.textContent=m;};
+  if(!XL_HAZIR())return err('Excel bileşeni yüklenemedi. Sayfayı yenileyin.');
+  const adPlaka=String(file.name||'').replace(/\.[^.]+$/,'').trim();
+  const fr=new FileReader();
+  fr.onerror=()=>err('Dosya okunamadı.');
+  fr.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const res=hgsOku(wb,adPlaka);
+      dlgState.rows=res.satirlar;dlgState.plaka=adPlaka;dlgState.tekrar=res.tekrar;
+      dlgState.uyari=res.uyari;
+      /* Dosya adındaki plakayı araçla eşleştir, personeli ondan doldur */
+      const a=db.assets.find(x=>x.plaka&&plakaKey(x.plaka)===plakaKey(adPlaka));
+      const sel=$('#hg-asset');if(sel&&a)sel.value=a.id;
+      const h=a&&a.holderId?emp(a.holderId):null;
+      const es=$('#hg-emp');if(es&&h)es.value=h.id;
+      err('');
+      hgsOnizleme();
+    }catch(e){err('Dosya okunamadı: '+((e&&e.message)||e));}
+  };
+  fr.readAsArrayBuffer(file);
+}
+function hgsOnizleme(){
+  const kutu=$('#hg-prev');if(!kutu)return;
+  const rows=dlgState.rows||[];
+  if(!rows.length){
+    kutu.innerHTML=dlgState.plaka?'<div class="empty">Dosyada yüklenecek geçiş bulunamadı.</div>':'';
+    return;
+  }
+  const varOlan={};(db.hgs||[]).forEach(x=>{varOlan[x.anahtar]=1;});
+  const yeni=rows.filter(x=>!varOlan[x.anahtar]);
+  const atlanan=rows.length-yeni.length;
+  const aylar=hgsAylar(yeni);
+  const toplam=yeni.reduce((t,x)=>t+x.ucret,0);
+  const a=$('#hg-asset')&&$('#hg-asset').value?asset($('#hg-asset').value):null;
+  dlgState.yeni=yeni;
+  kutu.innerHTML='<div class="ro-banner"><b>'+dlgState.plaka+'</b> — '+rows.length+' geçiş okundu'+
+      (dlgState.tekrar?', dosya içinde '+dlgState.tekrar+' tekrar elendi':'')+'.'+
+      (atlanan?' <b>'+atlanan+' geçiş daha önce yüklenmiş</b>, atlanacak.':'')+
+      (a?'':' <b>Bu plakayla eşleşen araç bulunamadı, listeden seçin.</b>')+
+      ((dlgState.uyari||[]).length?'<div class="sm">'+dlgState.uyari.map(esc).join(' ')+'</div>':'')+
+    '</div>'+
+    (yeni.length
+      ?'<div class="scroll"><table><thead><tr><th>Ay</th><th class="num">Geçiş</th><th class="num">Tutar</th></tr></thead><tbody>'+
+       aylar.map(x=>'<tr><td>'+monthLabel(x.ay)+'</td><td class="num">'+x.adet+'</td><td class="num"><b>'+money(x.tutar)+'</b></td></tr>').join('')+
+       '<tr class="total"><td>Toplam</td><td class="num">'+yeni.length+'</td><td class="num out">'+money(toplam)+'</td></tr>'+
+       '</tbody></table></div>'+
+       '<div class="scroll" style="max-height:32vh"><table><thead><tr><th>Tarih</th><th>Otoyol</th><th>Giriş</th><th>Çıkış</th><th class="num">Ücret</th></tr></thead><tbody>'+
+       yeni.slice(0,40).map(x=>'<tr><td class="nowrap">'+fmtDate(x.tarih)+'</td><td>'+esc(x.otoyol||'—')+'</td>'+
+         '<td>'+esc(x.girisIst||'—')+'</td><td>'+esc(x.cikisIst||'—')+'</td>'+
+         '<td class="num">'+money(x.ucret)+'</td></tr>').join('')+
+       '</tbody></table></div>'+
+       (yeni.length>40?'<p class="hint">İlk 40 geçiş gösteriliyor; tamamı yüklenecek.</p>':'')
+      :'<div class="empty">Yeni geçiş yok; bu dosyadaki geçişlerin hepsi daha önce yüklenmiş.</div>');
+}
+function hgsYukle(){
+  if(dlgState.kind!=='hgs')return;
+  const err=m=>{$('#hg-err').textContent=m;};
+  const yeni=dlgState.yeni||[];
+  if(!yeni.length)return err('Yüklenecek yeni geçiş yok. Önce dosya seçin.');
+  const assetId=($('#hg-asset')||{}).value||'';
+  const empId=($('#hg-emp')||{}).value||'';
+  const accId=($('#hg-acc')||{}).value||'';
+  if(!empId)return err('Gideri üstlenecek personeli seçin. Araç kimseye zimmetli değilse buradan elle seçmelisiniz.');
+  if(!accId)return err('Ödeme hesabını seçin.');
+  const e=emp(empId);
+  /* Envanterdeki yazım tercih edilir ("34 PVV 421"); tekillik
+     anahtarı plakaKey ile üretildiği için biçim farkı sorun değil. */
+  const plaka=(asset(assetId)||{}).plaka||dlgState.plaka||'';
+  const aylar=hgsAylar(yeni);
+  run('hg-err',async()=>{
+    for(const ay of aylar){
+      const liste=yeni.filter(x=>x.tarih.slice(0,7)===ay.ay);
+      const tx=await ins('transactions',{date:ay.son,dir:'out',account_id:accId,
+        category:CAT_HGS,amount:Math.round(ay.tutar*100)/100,
+        company_id:nz(e.companyId),department_id:nz(e.departmentId),employee_id:empId,
+        descr:plaka+' köprü ve otoyol geçişleri — '+monthLabel(ay.ay)+' ('+liste.length+' geçiş)',
+        source:'hgs'});
+      await insCok('hgs_gecis',liste.map(x=>({anahtar:x.anahtar,plaka:plaka,
+        asset_id:nz(assetId),employee_id:empId,tip:x.tip,tarih:x.tarih,
+        giris_at:x.girisAt,cikis_at:x.cikisAt,giris_ist:x.girisIst,cikis_ist:x.cikisIst,
+        otoyol:x.otoyol,aciklama:x.aciklama,ucret:x.ucret,tx_id:tx.id})));
+    }
+  },yeni.length+' geçiş yüklendi');
+}
+
+/* ---------------- Rapor ---------------- */
+function hgsRows(period){
+  const list=(db.hgs||[]).filter(x=>period==='all'||String(x.tarih).slice(0,7)===period);
+  const m={};
+  list.forEach(x=>{
+    const k=(x.employeeId||'yok')+'|'+(x.plaka||'');
+    const g=m[k]||(m[k]={empId:x.employeeId,plaka:x.plaka,adet:0,tutar:0,otoyol:0,ozel:0});
+    g.adet++;g.tutar+=x.ucret;
+    if(x.tip==='ozel')g.ozel+=x.ucret;else g.otoyol+=x.ucret;
+  });
+  return Object.keys(m).map(k=>m[k]).sort((a,b)=>b.tutar-a.tutar);
+}
+function hgsBolumu(){
+  if(!isFinans())return '';
+  const p=state.period,rows=hgsRows(p);
+  if(!rows.length)return '';
+  const t=rows.reduce((o,r)=>({adet:o.adet+r.adet,tutar:o.tutar+r.tutar,
+    otoyol:o.otoyol+r.otoyol,ozel:o.ozel+r.ozel}),{adet:0,tutar:0,otoyol:0,ozel:0});
+  return '<section class="panel"><div class="panel-h"><div><h2>Köprü ve otoyol geçişleri</h2>'+
+    '<p class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+' · araç ve personel kırılımı</p></div>'+
+    '<button class="btn sm" data-act="open-hgs">HGS dökümü yükle</button></div>'+
+    '<div class="scroll"><table><thead><tr><th>Personel</th><th>Plaka</th>'+
+    '<th class="num">Geçiş</th><th class="num">Otoyol</th><th class="num">Özel otoyol</th>'+
+    '<th class="num">Toplam</th></tr></thead><tbody>'+
+    rows.map(r=>{const e=r.empId?emp(r.empId):null;
+      return '<tr><td><div>'+esc(e?e.name:'Personel atanmamış')+'</div>'+
+        '<div class="muted sm">'+esc(e?((dept(e.departmentId)||{}).name||''):'')+'</div></td>'+
+        '<td class="nowrap">'+esc(r.plaka||'—')+'</td>'+
+        '<td class="num">'+r.adet+'</td>'+
+        '<td class="num'+(r.otoyol?'':' muted')+'">'+(r.otoyol?money(r.otoyol):'—')+'</td>'+
+        '<td class="num'+(r.ozel?'':' muted')+'">'+(r.ozel?money(r.ozel):'—')+'</td>'+
+        '<td class="num out"><b>'+money(r.tutar)+'</b></td></tr>';}).join('')+
+    '<tr class="total"><td>Toplam</td><td></td><td class="num">'+t.adet+'</td>'+
+    '<td class="num">'+money(t.otoyol)+'</td><td class="num">'+money(t.ozel)+'</td>'+
+    '<td class="num out">'+money(t.tutar)+'</td></tr></tbody></table></div>'+
+    '<div class="panel-b"><p class="hint">Tutar araca değil, aracın zimmetli olduğu <b>personele</b> gider yazılır; kişi karlılık tablosunda “Gider” sütununda görünür. Kasa ve banka ekranında her plaka ve ay için tek bir “'+CAT_HGS+'” hareketi durur, dökümü burada. Geçişlerin tamamı Excel’e aktarılır.</p></div></section>';
+}
+function hgsExportRows(){
+  const p=xlAyi();
+  const list=(db.hgs||[]).filter(x=>p==='all'||String(x.tarih).slice(0,7)===p)
+    .sort((a,b)=>a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
+  const head=['Tarih','Plaka','Personel','Departman','Tür','Otoyol','Giriş istasyonu','Çıkış istasyonu','Açıklama','Ücret'];
+  return [head].concat(list.map(x=>{const e=x.employeeId?emp(x.employeeId):null;
+    return [x.tarih,x.plaka,e?e.name:'',e?((dept(e.departmentId)||{}).name||''):'',
+      x.tip==='ozel'?'Özel otoyol':'Otoyol',x.otoyol,x.girisIst,x.cikisIst,x.aciklama,x.ucret];}));
 }
 /* ---------------------------------------------------------------
    MOBİL HAT
@@ -4724,6 +5007,7 @@ function viewRapor(){
   yedekBolumu()+
   stokDegerBolumu()+
   gelirMaliyetBolumu()+
+  hgsBolumu()+
   merkeziGiderBolumu()+
   girisRaporBolum()+
   (giderGor?'<div>'+filt+'</div>'+
@@ -4874,6 +5158,8 @@ function exportExcel(which){
   }
   if(which==='giris'||which==='hepsi'){
     XLSX.utils.book_append_sheet(wb,sheetOf(girisExportRows(),[],[26,20,14,12,10,10,16,14,14,14]),'Potansiyel girişi');
+    if((db.hgs||[]).length)
+      XLSX.utils.book_append_sheet(wb,sheetOf(hgsExportRows(),[0],[14,14,24,20,14,30,26,26,22,12]),'HGS geçişleri');
     if(which==='giris')ad='potansiyel-girisi';
   }
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
@@ -8349,6 +8635,8 @@ const actions={
     'Bu taksit ödemesi silinecek; kasaya işlendiyse oradaki gider hareketi de kalkar.',
     'confirm-del-kredi-odeme',el.dataset.id,'Ödemeyi sil');},
   'confirm-del-kredi-odeme'(el){delKrediOdeme(el.dataset.id);},
+  'open-hgs'(){openHgs();},
+  'hgs-yukle'(){hgsYukle();},
   'open-acct'(el){openAccount(el.dataset.id||null);},
   'save-acct'(){saveAccount();},
   'del-acct'(el){confirmDlg('Hesabı sil','Bu hesap listeden silinecek. Hesaba bağlı hareket varsa silinemez.','confirm-del-acct',el.dataset.id,'Hesabı sil');},
@@ -8430,6 +8718,12 @@ function init(){
   document.addEventListener('change',e=>{
     const el=e.target;
     if(el.id==='mut-file'){const f=el.files&&el.files[0];if(f)mutDosyaOku(f);return;}
+    if(el.id==='hg-file'){const f=el.files&&el.files[0];if(f)hgsDosyaOku(f);return;}
+    if(el.id==='hg-asset'&&dlgState.kind==='hgs'){
+      /* Araç elle değişti: personeli o aracın zimmetinden doldur */
+      const a=el.value?asset(el.value):null,h=a&&a.holderId?emp(a.holderId):null;
+      const es=$('#hg-emp');if(es&&h)es.value=h.id;
+      hgsOnizleme();return;}
     if(el.id==='mut-ay'){_mutAy=el.value;mutHesapla();render();return;}
     if(el.dataset&&el.dataset.set){setPath(el.dataset.set,el.value);afterSet(el.dataset.set);render();return;}
     if(el.id&&dlgState.kind){
