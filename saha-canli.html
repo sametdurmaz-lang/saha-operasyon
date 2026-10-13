@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='13.10.2026-c';
+const SURUM='13.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2478,6 +2478,146 @@ function hgsBolumu(){
     '<td class="num">'+money(t.otoyol)+'</td><td class="num">'+money(t.ozel)+'</td>'+
     '<td class="num out">'+money(t.tutar)+'</td></tr></tbody></table></div>'+
     '<div class="panel-b"><p class="hint">Tutar araca değil, aracın zimmetli olduğu <b>personele</b> gider yazılır; kişi karlılık tablosunda “Gider” sütununda görünür. Kasa ve banka ekranında her plaka ve ay için tek bir “'+CAT_HGS+'” hareketi durur, dökümü burada. Geçişlerin tamamı Excel’e aktarılır.</p></div></section>';
+}
+
+/* -------- Mesai dışı ve şahsi kullanım şüphesi taşıyan geçişler ----
+   Dört kural, hepsi aynı anda işler ve bir geçiş birden fazla
+   sebeple işaretlenebilir:
+     1) Cumartesi ve Pazar
+     2) Resmi tatil günleri
+     3) 21:00 - 07:00 arası (her gün)
+     4) YSS köprüsü ve Avrasya Tüneli geçişleri
+   Rapor kesinti YAPMAZ, yalnızca listeler; kesintiyi kontrol ettikten
+   sonra Maaş ve ödemeler ekranından siz işlersiniz. */
+
+/* Sabit tarihli resmi tatiller (her yıl aynı gün) */
+const TATIL_SABIT=['01-01','04-23','05-01','05-19','07-15','08-30','10-29'];
+/* Dinî bayramlar ay takvimine göre kaydığı için yıl yıl yazılır.
+   2025 ve 2026 kesinleşmiş, 2027-2028 hesaplanmış tarihlerdir;
+   Diyanet takvimiyle doğrulayıp gerekirse buradan güncelleyin.
+   Yarım gün arifeler listeye ALINMADI; o günlerin çalışma saati
+   mesai sayılıyor. */
+const TATIL_DINI={
+  2025:['03-30','03-31','04-01','06-06','06-07','06-08','06-09'],
+  2026:['03-20','03-21','03-22','05-27','05-28','05-29','05-30'],
+  2027:['03-09','03-10','03-11','05-16','05-17','05-18','05-19'],
+  2028:['02-26','02-27','02-28','05-04','05-05','05-06','05-07']
+};
+function tatilMi(iso){
+  const yil=+String(iso).slice(0,4),gun=String(iso).slice(5,10);
+  if(TATIL_SABIT.indexOf(gun)>=0)return true;
+  return (TATIL_DINI[yil]||[]).indexOf(gun)>=0;
+}
+/* Ayrı raporlanacak köprü ve tüneller. Operatör dökümünde otoyol ve
+   istasyon adları farklı yazılabildiği için anahtar kelimeyle
+   eşleşiyor; dökümünüzdeki adlar farklıysa listeyi genişletin. */
+const HGS_OZEL_GECIS=['YAVUZ SULTAN','YSS','3. KOPRU','3.KOPRU','UCUNCU KOPRU',
+  'AVRASYA','EURASIA','ATAS TUNEL','ATASTUNEL'];
+function kopruTunelMi(x){
+  const metin=katla([x.otoyol,x.girisIst,x.cikisIst].join(' ')).toUpperCase();
+  return HGS_OZEL_GECIS.some(k=>metin.indexOf(katla(k).toUpperCase())>=0);
+}
+/* Geçiş saati. Saat bilgisi olmayan kayıtlarda gece kuralı
+   uygulanmaz: zaman damgası 00:00:00 ise "saat bilinmiyor" sayılır,
+   yoksa saati olmayan her kayıt gece gibi görünürdü. */
+function hgsSaat(x){
+  const m=String(x.girisAt||'').match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(!m)return null;
+  const sa=+m[1],dk=+m[2],sn=+(m[3]||0);
+  if(sa===0&&dk===0&&sn===0)return null;
+  return sa;
+}
+const HAFTA_ADI=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+function hgsSebepler(x){
+  const out=[];
+  const g=new Date(String(x.tarih)+'T12:00:00').getDay();
+  if(g===0||g===6)out.push(HAFTA_ADI[g]);
+  if(tatilMi(x.tarih))out.push('Resmi tatil');
+  const sa=hgsSaat(x);
+  if(sa!==null&&(sa>=21||sa<7))out.push('21:00-07:00');
+  if(kopruTunelMi(x))out.push('Köprü / tünel');
+  return out;
+}
+const hgsSupheli=x=>hgsSebepler(x).length>0;
+/* Dönemdeki işaretli geçişler, personel kırılımıyla */
+function hgsMesaiRows(period){
+  const list=(db.hgs||[]).filter(x=>(period==='all'||String(x.tarih).slice(0,7)===period)&&hgsSupheli(x));
+  const m={};
+  list.forEach(x=>{
+    const k=(x.employeeId||'yok')+'|'+(x.plaka||'');
+    const g=m[k]||(m[k]={empId:x.employeeId,plaka:x.plaka,adet:0,tutar:0,
+      haftaSonu:0,tatil:0,gece:0,kopru:0});
+    const sb=hgsSebepler(x);
+    g.adet++;g.tutar+=x.ucret;
+    if(sb.indexOf('Cumartesi')>=0||sb.indexOf('Pazar')>=0)g.haftaSonu+=x.ucret;
+    if(sb.indexOf('Resmi tatil')>=0)g.tatil+=x.ucret;
+    if(sb.indexOf('21:00-07:00')>=0)g.gece+=x.ucret;
+    if(sb.indexOf('Köprü / tünel')>=0)g.kopru+=x.ucret;
+  });
+  return {rows:Object.keys(m).map(k=>m[k]).sort((a,b)=>b.tutar-a.tutar),list:list};
+}
+function hgsMesaiBolumu(){
+  if(!isFinans())return '';
+  const p=state.period,o=hgsMesaiRows(p);
+  if(!o.rows.length)return '';
+  const t=o.rows.reduce((a,r)=>({adet:a.adet+r.adet,tutar:a.tutar+r.tutar,
+    haftaSonu:a.haftaSonu+r.haftaSonu,tatil:a.tatil+r.tatil,gece:a.gece+r.gece,kopru:a.kopru+r.kopru}),
+    {adet:0,tutar:0,haftaSonu:0,tatil:0,gece:0,kopru:0});
+  const detay=o.list.slice().sort((a,b)=>a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
+  return '<section class="panel"><div class="panel-h"><div><h2>Mesai dışı ve şahsi geçişler</h2>'+
+    '<p class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+' · hafta sonu, resmi tatil, 21:00-07:00 ve köprü / tünel</p></div></div>'+
+    '<div class="panel-b"><div class="kpis" style="margin:0">'+
+    '<div class="kpi"><span>İşaretli geçiş</span><b>'+t.adet+'</b></div>'+
+    '<div class="kpi"><span>Toplam tutar</span><b class="out">'+money(t.tutar)+'</b></div>'+
+    '<div class="kpi"><span>Hafta sonu</span><b>'+money(t.haftaSonu)+'</b></div>'+
+    '<div class="kpi"><span>Resmi tatil</span><b>'+money(t.tatil)+'</b></div>'+
+    '<div class="kpi"><span>21:00-07:00</span><b>'+money(t.gece)+'</b></div>'+
+    '<div class="kpi"><span>Köprü / tünel</span><b>'+money(t.kopru)+'</b></div>'+
+    '</div></div>'+
+    '<div class="scroll"><table><thead><tr><th>Personel</th><th>Plaka</th><th class="num">Geçiş</th>'+
+    '<th class="num">Hafta sonu</th><th class="num">Resmi tatil</th><th class="num">21:00-07:00</th>'+
+    '<th class="num">Köprü / tünel</th><th class="num">Toplam</th></tr></thead><tbody>'+
+    o.rows.map(r=>{const e=r.empId?emp(r.empId):null;
+      const h=v=>'<td class="num'+(v?'':' muted')+'">'+(v?money(v):'—')+'</td>';
+      return '<tr><td><div>'+esc(e?e.name:'Personel atanmamış')+'</div>'+
+        '<div class="muted sm">'+esc(e?((dept(e.departmentId)||{}).name||''):'')+'</div></td>'+
+        '<td class="nowrap">'+esc(r.plaka||'—')+'</td><td class="num">'+r.adet+'</td>'+
+        h(r.haftaSonu)+h(r.tatil)+h(r.gece)+h(r.kopru)+
+        '<td class="num out"><b>'+money(r.tutar)+'</b></td></tr>';}).join('')+
+    '<tr class="total"><td>Toplam</td><td></td><td class="num">'+t.adet+'</td>'+
+    '<td class="num">'+money(t.haftaSonu)+'</td><td class="num">'+money(t.tatil)+'</td>'+
+    '<td class="num">'+money(t.gece)+'</td><td class="num">'+money(t.kopru)+'</td>'+
+    '<td class="num out">'+money(t.tutar)+'</td></tr></tbody></table></div>'+
+    '<div class="panel-h"><h2 style="font-size:15px">Geçiş dökümü</h2>'+
+      '<span class="muted sm">'+detay.length+' geçiş'+(detay.length>60?', ilk 60 gösteriliyor':'')+'</span></div>'+
+    '<div class="scroll" style="max-height:46vh"><table><thead><tr><th>Tarih</th><th>Gün</th><th>Saat</th>'+
+    '<th>Personel</th><th>Plaka</th><th>Otoyol</th><th>Giriş → Çıkış</th><th>Sebep</th>'+
+    '<th class="num">Ücret</th></tr></thead><tbody>'+
+    detay.slice(0,60).map(x=>{const e=x.employeeId?emp(x.employeeId):null;
+      const sa=hgsSaat(x),m=String(x.girisAt||'').match(/T(\d{2}:\d{2})/);
+      return '<tr><td class="nowrap">'+fmtDate(x.tarih)+'</td>'+
+        '<td class="nowrap muted sm">'+HAFTA_ADI[new Date(String(x.tarih)+'T12:00:00').getDay()]+'</td>'+
+        '<td class="nowrap">'+(sa===null?'<span class="muted">—</span>':esc(m?m[1]:''))+'</td>'+
+        '<td>'+esc(e?e.name:'—')+'</td><td class="nowrap">'+esc(x.plaka||'—')+'</td>'+
+        '<td>'+esc(x.otoyol||'—')+'</td>'+
+        '<td class="muted sm">'+esc((x.girisIst||'—')+' → '+(x.cikisIst||'—'))+'</td>'+
+        '<td>'+hgsSebepler(x).map(b=>'<span class="badge warn">'+esc(b)+'</span>').join(' ')+'</td>'+
+        '<td class="num out"><b>'+money(x.ucret)+'</b></td></tr>';}).join('')+
+    '</tbody></table></div>'+
+    '<div class="panel-b"><p class="hint">Bu liste <b>kesinti yapmaz</b>, yalnızca kontrol içindir. Bir geçiş birden fazla sebeple işaretlenebilir; sebep sütunlarının toplamı satır toplamından büyük çıkabilir, <b>Toplam</b> sütunu her geçişi bir kez sayar. Saati olmayan kayıtlarda 21:00-07:00 kuralı uygulanmaz, saat sütununda “—” görünür. Resmi tatillerde dinî bayram tarihleri yıllık tablodan okunur; yeni yılın tarihlerini güncellemeyi unutmayın. Kesintiyi kontrol ettikten sonra <b>Maaş ve ödemeler</b> ekranından işleyin.</p></div></section>';
+}
+function hgsMesaiExportRows(){
+  const p=xlAyi();
+  const list=(db.hgs||[]).filter(x=>(p==='all'||String(x.tarih).slice(0,7)===p)&&hgsSupheli(x))
+    .sort((a,b)=>a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
+  const head=['Tarih','Gün','Saat','Personel','Departman','Plaka','Tür','Otoyol',
+              'Giriş istasyonu','Çıkış istasyonu','Sebep','Ücret'];
+  return [head].concat(list.map(x=>{const e=x.employeeId?emp(x.employeeId):null;
+    const m=String(x.girisAt||'').match(/T(\d{2}:\d{2})/),sa=hgsSaat(x);
+    return [x.tarih,HAFTA_ADI[new Date(String(x.tarih)+'T12:00:00').getDay()],
+      sa===null?'':(m?m[1]:''),e?e.name:'',e?((dept(e.departmentId)||{}).name||''):'',
+      x.plaka,x.tip==='ozel'?'Özel otoyol':'Otoyol',x.otoyol,x.girisIst,x.cikisIst,
+      hgsSebepler(x).join(', '),x.ucret];}));
 }
 function hgsExportRows(){
   const p=xlAyi();
@@ -5008,6 +5148,7 @@ function viewRapor(){
   stokDegerBolumu()+
   gelirMaliyetBolumu()+
   hgsBolumu()+
+  hgsMesaiBolumu()+
   merkeziGiderBolumu()+
   girisRaporBolum()+
   (giderGor?'<div>'+filt+'</div>'+
@@ -5158,8 +5299,11 @@ function exportExcel(which){
   }
   if(which==='giris'||which==='hepsi'){
     XLSX.utils.book_append_sheet(wb,sheetOf(girisExportRows(),[],[26,20,14,12,10,10,16,14,14,14]),'Potansiyel girişi');
-    if((db.hgs||[]).length)
+    if((db.hgs||[]).length){
       XLSX.utils.book_append_sheet(wb,sheetOf(hgsExportRows(),[0],[14,14,24,20,14,30,26,26,22,12]),'HGS geçişleri');
+      if(hgsMesaiExportRows().length>1)
+        XLSX.utils.book_append_sheet(wb,sheetOf(hgsMesaiExportRows(),[0],[14,12,10,24,20,14,14,30,26,26,28,12]),'Mesai dışı geçişler');
+    }
     if(which==='giris')ad='potansiyel-girisi';
   }
   const t=new Date(),iki=n=>String(n).padStart(2,'0');
