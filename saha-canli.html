@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-f';
+const SURUM='15.10.2026-g';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -6201,6 +6201,17 @@ const firsatGecikti=f=>f.durum==='Takipte'&&!!f.sonrakiTakip&&f.sonrakiTakip<TOD
 const firsatBugun=f=>f.durum==='Takipte'&&f.sonrakiTakip===TODAY;
 /* Teklif sonrası bu müşteriye satış yapılmış mı? Durumu kendiliğinden
    değiştirmiyoruz; yalnızca işaret koyup tek tıkla kapatma sunuyoruz. */
+/* Fırsattaki hat adedi ve rakip operatör müşteri kartından okunur;
+   teklif verilirken "Teklif verildi" penceresinde oraya yazılıyor. */
+function firsatHat(f){
+  const c=f&&f.customerId?byId(db.customers,f.customerId):null;
+  if(!c||!c.operator||c.operator==='Hattı yok')return 0;
+  return num(c.mobilAdet)||0;
+}
+const firsatOperator=f=>{
+  const c=f&&f.customerId?byId(db.customers,f.customerId):null;
+  return c&&c.operator?c.operator:'';
+};
 function firsatSatisVar(f){
   if(!f.customerId)return false;
   return db.sales.some(s=>s.customerId===f.customerId&&(!f.teklifTarihi||s.date>=f.teklifTarihi));
@@ -6235,6 +6246,8 @@ function firsatOzet(){
   return {
     takip:takip.length,
     tutar:takip.reduce((t,f)=>t+f.teklifTutar,0),
+    /* Satır satır toplanır; tablodaki Hat sütununun toplamıyla aynıdır */
+    hat:takip.reduce((t,f)=>t+firsatHat(f),0),
     geciken:l.filter(firsatGecikti).length,
     bugun:l.filter(firsatBugun).length,
     satis:l.filter(f=>f.durum==='Satışa Döndü').length,
@@ -6278,16 +6291,20 @@ function firsatTablo(){
   const shown=list.slice(0,200);
   return (list.length>shown.length?'<div class="panel-b muted sm">İlk 200 fırsat gösteriliyor; aramayı daraltın.</div>':'')+
   '<div class="scroll"><table><thead><tr><th>Müşteri</th><th>Sorumlu</th>'+
+  '<th class="num">Hat</th><th>Rakip operatör</th>'+
   '<th class="num">Teklif</th><th>Teklif tarihi</th><th>Durum</th><th>Sonraki takip</th>'+
   '<th>Son takip notu</th><th></th></tr></thead><tbody>'+
   shown.map(f=>{
     const c=f.customerId?byId(db.customers,f.customerId):null,e=emp(f.employeeId);
     const son=firsatSonTakip(f.id),gec=firsatGecikti(f),bug=firsatBugun(f);
+    const hat=firsatHat(f),oper=firsatOperator(f);
     return '<tr class="click" tabindex="0" data-act="firsat" data-id="'+f.id+'">'+
       '<td><b>'+esc(c?c.unvan:'Silinmiş müşteri')+'</b>'+
         (c&&c.yetkili?'<div class="muted sm">'+esc(c.yetkili)+'</div>':'')+
         (f.durum==='Takipte'&&firsatSatisVar(f)?' <span class="badge ok">satış var</span>':'')+'</td>'+
       '<td><div>'+esc(e?e.name:'—')+'</div><div class="muted sm">'+esc(e?((dept(e.departmentId)||{}).name||''):'')+'</div></td>'+
+      '<td class="num'+(hat?'':' muted')+'">'+(hat?'<b>'+hat+'</b>':'—')+'</td>'+
+      '<td>'+(oper?esc(oper):'<span class="muted">—</span>')+'</td>'+
       '<td class="num">'+(f.teklifTutar?money(f.teklifTutar):'—')+'</td>'+
       '<td class="nowrap muted sm">'+(f.teklifTarihi?fmtDate(f.teklifTarihi):'—')+'</td>'+
       '<td><span class="badge '+FIRSAT_ROZET[f.durum]+'">'+esc(f.durum)+'</span></td>'+
@@ -6295,12 +6312,10 @@ function firsatTablo(){
         :f.sonrakiTakip?fmtDate(f.sonrakiTakip)+(gec?' <span class="badge bad">gecikti</span>':bug?' <span class="badge warn">bugün</span>':'')
         :'<span class="muted">—</span>')+'</td>'+
       '<td class="muted sm">'+esc(son?son.aciklama:(f.kapanisNot||''))+'</td>'+
-      '<td class="num nowrap">'+
-        (f.durum==='Takipte'
-          ?'<button class="btn sm" data-act="firsat-takip" data-id="'+f.id+'">Takip ekle</button> '+
-           '<button class="btn sm danger" data-act="firsat-kayip" data-id="'+f.id+'">Kayıp</button>'
-          :'<button class="btn sm" data-act="firsat" data-id="'+f.id+'">Detay</button>')+
-      '</td></tr>';}).join('')+
+      /* Listede tek tuşla işlem yok: takip ve kayıp kapatma detayda.
+         Yanlışlıkla durum değiştirme riski kalkıyor. */
+      '<td class="num nowrap"><button class="btn sm" data-act="firsat" data-id="'+f.id+'">Detay</button></td>'+
+      '</tr>';}).join('')+
   '</tbody></table></div>';
 }
 function viewFirsat(){
@@ -6312,6 +6327,7 @@ function viewFirsat(){
   return head('Fırsatlar','Teklif verilen müşterilerin takibi. Randevu “Teklif verildi” ile kapatıldığında fırsat kendiliğinden açılır; elle eklemek gerekmez.','')+
   '<div class="kpis">'+
   '<div class="kpi"><span>Takipte</span><b>'+o.takip+'</b><span class="muted sm">'+money(o.tutar)+' teklif</span></div>'+
+  '<div class="kpi"><span>Takipteki hat</span><b>'+o.hat+'</b><span class="muted sm">toplam hat adedi</span></div>'+
   '<div class="kpi"><span>Takibi gecikmiş</span><b'+(o.geciken?' class="out"':'')+'>'+o.geciken+'</b></div>'+
   '<div class="kpi"><span>Bugün aranacak</span><b>'+o.bugun+'</b></div>'+
   '<div class="kpi"><span>Satışa dönen</span><b>'+o.satis+'</b><span class="muted sm">'+money(o.satisTutar)+'</span></div>'+
