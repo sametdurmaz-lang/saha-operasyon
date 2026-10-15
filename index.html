@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-t';
+const SURUM='15.10.2026-u';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -8376,12 +8376,18 @@ function openEmp(id){
     '<div class="field"><label for="p-company">Şirket</label><select id="p-company">'+companyOptions(cid)+'</select></div><div class="field"><label for="p-dept">Departman</label><select id="p-dept">'+deptOptions(cid,e?e.departmentId:'','Departman seçin')+'</select></div>'+
 
     /* Görünürlük takımdan okunur: takımın lideri bu kişinin
-       kayıtlarını görür. Boş bırakılırsa eski birim kapsamı geçerli. */
+       kayıtlarını görür. BOŞ BIRAKILMAMALI: takımı olmayan personelin
+       randevusu, satışı ve müşterisi hiçbir liderin ekranına düşmez
+       (74 eski birim yedeğini kaldırdı). */
     '<div class="field full"><label for="p-takim">Takım</label><select id="p-takim">'+
       opt((db.takimlar||[]).slice().sort((a,b)=>a.ad.localeCompare(b.ad,'tr',SAYISAL))
         .map(t=>[t.id,t.ad+' — '+((TAKIM_TUR.find(x=>x[0]===t.tur)||['',''])[1])+
           (t.liderId?' · '+((emp(t.liderId)||{}).name||''):'')]),
-        e?(e.takimId||''):'','Takıma bağlı değil')+'</select></div>'+
+        e?(e.takimId||''):'','Takıma bağlı değil')+'</select>'+
+      ((db.takimlar||[]).length&&!(e&&e.takimId)
+        ?'<p class="hint">Takım seçilmezse bu kişinin kayıtlarını yalnızca kendisi, '
+         +'satış destek ve yönetim görebilir; takım lideri göremez.</p>':'')+
+      '</div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
     /* Düzenli ek ödemeler. Ödeme penceresinde hazır gelir; orada
        değiştirilebilir, kart değişmez. */
@@ -8527,8 +8533,21 @@ function takimlarBolumu(){
         '<td class="num"><button class="btn sm" data-act="open-takim" data-id="'+t.id+'">Düzenle</button></td></tr>').join('')+
       '</tbody></table></div>'
      :'<div class="empty">Henüz takım tanımlanmadı. Saha ve telesatış ekiplerinizi takım olarak tanımlayın, sonra personeli takımlara bağlayın.</div>')+
-    (aktifPersonel().some(e=>!e.takimId)
-      ?'<div class="panel-b"><p class="hint"><b>'+aktifPersonel().filter(e=>!e.takimId).length+' personel hiçbir takımda değil.</b> Takımı olmayan personelde eski birim kapsamı geçerli olur; personel kartından takım seçin.</p></div>':'')+
+    /* 74, takımsız personel için eski birim yedeğini kaldırdı: bu
+       kişiler artık hiçbir liderin kapsamında değil. Sessiz kalırsa
+       lider "randevuyu göremiyorum" diye fark ediyor; o yüzden
+       kimler olduğunu burada açıkça yazıyoruz. */
+    (function(){
+      const bos=aktifPersonel().filter(e=>!e.takimId);
+      if(!bos.length||!list.length)return '';
+      const ad=bos.slice(0,12).map(e=>esc(empAd(e))).join(', ')+
+        (bos.length>12?' ve '+(bos.length-12)+' kişi daha':'');
+      return '<div class="panel-b"><p class="hint"><b>'+bos.length+
+        ' personel hiçbir takımda değil.</b> Bu kişilerin randevuları, '+
+        'satışları ve müşterileri hiçbir takım liderinin ekranına düşmez — '+
+        'haritada da görünmezler. Yalnızca kendileri, satış destek ve '+
+        'yönetim görür. Personel kartından takım seçin: '+ad+'</p></div>';
+    })()+
     '</section>';
 }
 function openTakim(id){
@@ -8951,8 +8970,17 @@ const isBayi    =()=>rolum()==='bayi_muduru';
    kuralı uyguluyor, böylece havuzdan çekme gibi telesatışa özel
    davranışlar saha liderine açılmıyor. */
 const isTakimLideri=()=>rolum()==='takim_lideri';
-const liderTuru=t=>isTakimLideri()&&(db.takimlar||[])
-  .some(k=>k.liderId&&k.liderId===me.employeeId&&k.tur===t);
+/* Takım tablosu henüz kurulmadıysa (73 çalışmadan açılan sürüm) tür
+   HAM ROLDEN okunur; yoksa birim müdürü liderliğini tümden yitirir ve
+   ekip ekranları boşalır. Takımlar kurulduktan sonra bu yedek devre
+   dışı kalır. */
+const liderTuru=t=>{
+  if(!isTakimLideri()||!me)return false;
+  if(!(db.takimlar||[]).length)
+    return me.role===(t==='saha'?'birim_muduru':'telesatis_lideri');
+  return (db.takimlar||[])
+    .some(k=>k.liderId&&k.liderId===me.employeeId&&k.tur===t);
+};
 const isBirim   =()=>liderTuru('saha');
 /* Satış destek: kendi birimindeki herkes adına kayıt girebilir */
 const isDestek  =()=>rolum()==='destek';
@@ -8998,16 +9026,25 @@ function telesatisciMi(eid){
   const d=dept(e.departmentId);
   return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
-/* Bu personel benim kapsamımda mı? (kendim dahil) */
-/* Kapsam artık TAKIMDAN geliyor: lideri olduğum takımdaki herkes,
-   bir de kendim. Sunucudaki ekipte() ile aynı kural (73/74). */
+/* Bu personel benim kapsamımda mı? (kendim dahil)
+   Kapsam TAKIMDAN geliyor: lideri olduğum takımdaki herkes, bir de
+   kendim. Sunucudaki ekipte() ile aynı kural (73/74).
+   Takım tablosu henüz kurulmadıysa (73 çalışmadan açılan sürüm)
+   eski birim kapsamına düşüyoruz; yoksa lider yalnızca kendini
+   görür ve ekranlar boşalır. */
 function ekipte(eid){
-  if(!eid||!me)return false;
+  if(!eid||!me||!me.employeeId)return false;
   if(eid===me.employeeId)return true;
   const e=emp(eid);
-  if(!e||!e.takimId||!me.employeeId)return false;
-  const t=takim(e.takimId);
-  return !!t&&t.liderId===me.employeeId;
+  if(!e)return false;
+  if((db.takimlar||[]).length){
+    const t=e.takimId?takim(e.takimId):null;
+    /* Takıma bağlanmamış kişi sunucuda da kimsenin kapsamında
+       değil (74 birim yedeğini kaldırdı); burada da kapsam dışı. */
+    return !!t&&t.liderId===me.employeeId;
+  }
+  const bid=birimKapsamim();
+  return !!bid&&e.birimId===bid;
 }
 /* Hangi personeller adına kayıt girilebilir (satış, randevu, liste atama) */
 function adinaYazabilecekler(){
