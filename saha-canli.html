@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='13.10.2026-d';
+const SURUM='15.10.2026-a';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2646,7 +2646,16 @@ const mobilVar=()=>mobilDk().length>0;
 const carpanOf     =t=>{const c=(db.carpan||{})[t||'BASE'];return c===undefined?1:c;};
 const gelirCarpanOf=t=>{const c=(db.gelirCarpan||{})[t||'BASE'];return c===undefined?1:c;};
 const primCarpanOf =t=>{const c=(db.primCarpan||{})[t||'BASE'];return c===undefined?1:c;};
-const mobilMi=p=>!!p&&p.mobilTip==='dakika';
+/* Mobil hat satırı: dakika tarifesi ya da — dakika paketi yoksa —
+   doğrudan GB paketi. İkisinde de NT/BASE çarpanları işler. */
+const mobilMi=p=>!!p&&(p.mobilTip==='dakika'||p.mobilTip==='gb');
+/* Ürün kutusundaki "dakika paketi yok" seçeneği. Gerçek bir ürün
+   değil; satır yalnızca GB paketinden oluşur ve kayıtta ürün olarak
+   GB paketi saklanır. */
+const MOBIL_DK_YOK='__dkyok';
+const dkYokMu=L=>!!L&&L.prod===MOBIL_DK_YOK;
+/* Satırın mobil olup olmadığı: ürün mobil ya da dakika "yok" */
+const satirMobilMi=L=>dkYokMu(L)||mobilMi(byId(db.products,L.prod));
 /* PSTN tarife yükseltme. Tarife ürünlerinin prim alanı operatörün o
    tarife için ödediği hakedişi tutar; satırda iki tarife seçilir ve
    aradaki fark hesaba girer. */
@@ -2777,16 +2786,21 @@ function slRead(){
 const yuvarla=(v,h)=>{const n=Number(v)||0,k=Math.pow(10,h===undefined?4:h);
   return Math.round(n*k)/k;};
 function lineCalc(L){
-  const p=byId(db.products,L.prod);
-  if(!p)return {p:null,qty:0,amount:0,prim:0,puan:0};
-  if(mobilMi(p)){
-    const g=L.gb?byId(db.products,L.gb):null;
+  const ham=byId(db.products,L.prod);
+  const dkYok=dkYokMu(L);
+  /* "Dakika yok" satırında ürün GB paketidir; dakika tarafı sıfırdır */
+  const p=dkYok?(L.gb?byId(db.products,L.gb):null):ham;
+  if(!p)return {p:null,dkYok:dkYok,qty:0,amount:0,prim:0,puan:0};
+  if(dkYok||mobilMi(p)){
+    /* dkYok'ta p zaten GB paketi; ikinci kez eklemeyelim */
+    const g=dkYok?null:(L.gb?byId(db.products,L.gb):null);
     const k=carpanOf(L.tip),kg=gelirCarpanOf(L.tip),kp=primCarpanOf(L.tip);
     const adet=parseSerials(L.abone).length;
     const bazPrim=(p.prim||0)+(g?(g.prim||0):0);
     const bazPuan=(p.puan||0)+(g?(g.puan||0):0);
     const bazGelir=(p.gelir||0)+(g?(g.gelir||0):0);
-    return {p,g,mobil:true,qty:adet,amount:0,carpan:k,gelirCarpan:kg,primCarpan:kp,bazPrim,bazPuan,
+    return {p,g,dkYok:dkYok,mobil:true,qty:adet,amount:0,carpan:k,gelirCarpan:kg,primCarpan:kp,
+            bazPrim,bazPuan,
             prim:bazPrim*kp*adet,puan:bazPuan*k*adet,gelir:bazGelir*kg*adet};
   }
   if(metroMu(p)){
@@ -2827,9 +2841,10 @@ function lineHtml(L,i){
   '<div class="fields">'+
     '<div class="field"><label for="slc-'+L.id+'">Kategori</label><select id="slc-'+L.id+'">'+opt(satisCats().map(x=>[x,x]),L.cat,'Kategori seçin')+'</select></div>'+
     '<div class="field"><label for="slp-'+L.id+'">Ürün</label><select id="slp-'+L.id+'">'+saleProdOptions(L.cat,L.prod)+'</select></div>'+
-    (mobilMi(p)
+    (satirMobilMi(L)
       ?'<div class="field"><label for="slg-'+L.id+'">GB paketi</label><select id="slg-'+L.id+'">'+
-         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,x.name]),L.gb||'','GB paketi seçin')+'</select></div>'+
+         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,x.name]),L.gb||'',
+           dkYokMu(L)?'GB paketi seçin':'Yok — GB paketi yok')+'</select></div>'+
        '<div class="field"><label for="slt-'+L.id+'">Hat tipi</label><select id="slt-'+L.id+'">'+opt(HAT_TIP,L.tip||'BASE')+'</select></div>'
       :'')+
     (upcellMi(p)
@@ -2859,7 +2874,9 @@ function lineHtml(L,i){
       return n
         ?'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" value="'+n+'" disabled><span class="muted sm">Girilen hizmet numarası sayısı</span></div>'
         :'<div class="field"><label for="slq-'+L.id+'">Adet</label><input id="slq-'+L.id+'" type="number" min="1" step="1" inputmode="numeric" value="'+esc(L.qty)+'"></div>';})():'')+
-    (p?'<div class="field full"><label for="slab-'+L.id+'">'+(mobilMi(p)?'Telefon numaraları':'Abone / hizmet numaraları (isteğe bağlı)')+'</label><textarea id="slab-'+L.id+'" rows="2" placeholder="'+(mobilMi(p)?'Her satıra bir numara. Aynı tarifeden birden fazla hat satıldıysa hepsini buraya yazın.':'Her satıra bir numara yazın veya virgülle ayırın')+'">'+esc(L.abone)+'</textarea><span class="muted sm" id="slabc-'+L.id+'">'+parseSerials(L.abone).length+' numara girildi</span></div>':'')+
+    /* Dakika paketi "yok" seçildiğinde de mobil hat satırıdır;
+       telefon numarası alanı görünmeye devam etmeli. */
+    ((p||dkYokMu(L))?'<div class="field full"><label for="slab-'+L.id+'">'+(satirMobilMi(L)?'Telefon numaraları':'Abone / hizmet numaraları (isteğe bağlı)')+'</label><textarea id="slab-'+L.id+'" rows="2" placeholder="'+(satirMobilMi(L)?'Her satıra bir numara. Aynı tarifeden birden fazla hat satıldıysa hepsini buraya yazın.':'Her satıra bir numara yazın veya virgülle ayırın')+'">'+esc(L.abone)+'</textarea><span class="muted sm" id="slabc-'+L.id+'">'+parseSerials(L.abone).length+' numara girildi</span></div>':'')+
   '</div>'+
   (p?'<div class="preview sm" id="slpv-'+L.id+'">'+lineSummary(L)+'</div>'
     :'<p class="hint">Kategori ve ürünü seçin.</p>')+
@@ -2867,9 +2884,8 @@ function lineHtml(L,i){
 }
 function lineSummary(L){
   const c=lineCalc(L);
-  if(!c.p)return '';
+  if(!c.p)return c.dkYok?'GB paketini seçin.':'';
   if(c.mobil){
-    if(!c.g)return 'GB paketini seçin.';
     if(!c.qty)return 'Telefon numarasını girin.';
     const tipAd=(c.p&&L.tip?L.tip:'BASE');
     return c.qty+' hat · '+tipAd+
@@ -2944,7 +2960,12 @@ function saleProdOptions(cat,sel){
   if(!cat)return opt([],sel,'Önce kategori seçin');
   const list=db.products.filter(p=>p.category===cat&&((p.mobilTip!=='gb'&&p.mobilTip!=='tarife')||p.id===sel))
     .sort((a,b)=>a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
-  return opt(list.map(p=>[p.id,prodLabel(p)+(p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]),sel,'Ürün seçin');
+  const ops=list.map(p=>[p.id,prodLabel(p)+(p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]);
+  /* Kategoride mobil hat varsa "dakika paketi yok" da seçilebilsin;
+     müşteri yalnızca GB paketi alıyorsa kullanılır. */
+  if(db.products.some(p=>p.category===cat&&p.mobilTip==='dakika'))
+    ops.push([MOBIL_DK_YOK,'Dakika paketi yok — yalnızca GB']);
+  return opt(ops,sel,'Ürün seçin');
 }
 function saveSale(){
   const g=id=>$('#'+id)?$('#'+id).value:'',err=m=>{$('#sl-err').textContent=m;};
@@ -2956,8 +2977,11 @@ function saveSale(){
   if(!lines.length)return err('En az bir ürün satırı ekleyin.');
   const hazir=[],tumSeri=new Set();
   for(let i=0;i<lines.length;i++){
-    const L=lines[i],no=(i+1)+'. ürün: ',p=byId(db.products,L.prod);
-    if(!p)return err(no+'ürün seçin.');
+    const L=lines[i],no=(i+1)+'. ürün: ';
+    const dkYok=dkYokMu(L);
+    /* "Dakika paketi yok" satırında ürün olarak GB paketi saklanır */
+    const p=dkYok?(L.gb?byId(db.products,L.gb):null):byId(db.products,L.prod);
+    if(!p)return err(no+(dkYok?'GB paketini seçin; dakika paketi yoksa satırda en az GB olmalı.':'ürün seçin.'));
     if(metroMu(p)){
       const sim=L.simetri==='asimetrik'?'asimetrik':'simetrik';
       const hiz=Math.max(0,parseInt(String(L.hiz).replace(/\D/g,''),10)||0);
@@ -2988,9 +3012,10 @@ function saveSale(){
         prim,puan,gelir:tutar,upcellEski:u.e.id,upcellYeni:u.y.id});
       continue;
     }
-    if(mobilMi(p)){
-      const g=L.gb?byId(db.products,L.gb):null;
-      if(!g)return err(no+'GB paketini seçin.');
+    if(dkYok||mobilMi(p)){
+      /* GB artık zorunlu değil: dakika-yok satırında ürün zaten GB,
+         dakika seçili satırda GB "Yok" olabilir ve 0 katkı yapar. */
+      const g=dkYok?null:(L.gb?byId(db.products,L.gb):null);
       const tip=L.tip||'BASE';
       const nolar=parseSerials(L.abone);
       if(!nolar.length)return err(no+'en az bir telefon numarası girin.');
@@ -2998,8 +3023,8 @@ function saveSale(){
       nolar.forEach(x=>{const k=x.replace(/\D/g,'');if(gorulen.has(k))tekrar.push(x);gorulen.add(k);});
       if(tekrar.length)return err(no+'aynı numara birden fazla girilmiş: '+missingText(tekrar));
       const k=carpanOf(tip),kg=gelirCarpanOf(tip),kp=primCarpanOf(tip);
-      const bazPrim=(p.prim||0)+(g.prim||0),bazPuan=(p.puan||0)+(g.puan||0);
-      const bazGelir=(p.gelir||0)+(g.gelir||0);
+      const bazPrim=(p.prim||0)+(g?(g.prim||0):0),bazPuan=(p.puan||0)+(g?(g.puan||0):0);
+      const bazGelir=(p.gelir||0)+(g?(g.gelir||0):0);
       hazir.push({p,gb:g,hatTip:tip,qty:nolar.length,units:[],amount:0,calc:'sabit',abone:nolar,
         prim:bazPrim*kp*nolar.length,puan:bazPuan*k*nolar.length,gelir:bazGelir*kg*nolar.length});
       continue;
