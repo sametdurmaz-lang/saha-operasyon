@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-a';
+const SURUM='15.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2637,10 +2637,21 @@ function hgsExportRows(){
      gelir = baz x gelir çarpanı x numara adedi   (NT 1,20 · BASE 1,00)
      prim  = baz x prim çarpanı  x numara adedi   (NT 1,00 · BASE 0,85)
 ----------------------------------------------------------------*/
-const HAT_TIP=[['NT','NT (yeni / taşıma)'],['BASE','BASE (mevcut hat)']];
+const HAT_TIP=[['NT','NT (taşıma)'],['BASE','BASE (yeni / mevcut hat)']];
 const mobilDk=()=>db.products.filter(p=>p.mobilTip==='dakika');
 const mobilGb=()=>db.products.filter(p=>p.mobilTip==='gb');
 const mobilVar=()=>mobilDk().length>0;
+/* 12000DK ile 1200DK listede birbirine çok benziyor ve yanlış
+   seçiliyordu. Dört ve daha uzun sayıları binlik noktasıyla yazıyoruz:
+   "1200DK" -> "1.200DK", "12000 DK" -> "12.000 DK".
+   Yalnızca DK/GB/MB birimiyle biten ya da tamamen sayı olan adlarda
+   çalışır; "2024 Kampanya" gibi adlara dokunmaz. Yalnızca GÖRÜNÜMÜ
+   değiştirir, üründeki ad olduğu gibi kalır. */
+const binlikAd=ad=>String(ad==null?'':ad)
+  .replace(/(\d{4,})(\s*)(DK|DAKİKA|DAKIKA|GB|MB)\b/gi,(m,n,bosluk,birim)=>nf.format(+n)+bosluk+birim)
+  .replace(/^(\d{4,})$/,m=>nf.format(+m));
+/* Mobil paketin listede görünecek adı */
+const mobilAd=p=>p?(p.brand?p.brand+' ':'')+binlikAd(p.name):'';
 /* Üç ayrı çarpan:  puan NT 1,40 · gelir NT 1,20 · prim NT 1,00
                       BASE'de sırasıyla 1,00 · 1,00 · 0,85 */
 const carpanOf     =t=>{const c=(db.carpan||{})[t||'BASE'];return c===undefined?1:c;};
@@ -2708,7 +2719,7 @@ function upcellFark(L){
 }
 function hatEtiket(s){
   const p=byId(db.products,s.productId),g=s.gbProductId?byId(db.products,s.gbProductId):null;
-  return (p?p.name:'Silinmiş tarife')+(g?' + '+g.name:'')+(s.hatTip?' ('+s.hatTip+')':'');
+  return (p?binlikAd(p.name):'Silinmiş tarife')+(g?' + '+binlikAd(g.name):'')+(s.hatTip?' ('+s.hatTip+')':'');
 }
 /* ---------------------------------------------------------------
    GELİR
@@ -2843,7 +2854,7 @@ function lineHtml(L,i){
     '<div class="field"><label for="slp-'+L.id+'">Ürün</label><select id="slp-'+L.id+'">'+saleProdOptions(L.cat,L.prod)+'</select></div>'+
     (satirMobilMi(L)
       ?'<div class="field"><label for="slg-'+L.id+'">GB paketi</label><select id="slg-'+L.id+'">'+
-         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,x.name]),L.gb||'',
+         opt(mobilGb().slice().sort((a,b)=>(parseFloat(a.name)||0)-(parseFloat(b.name)||0)||a.name.localeCompare(b.name,'tr',SAYISAL)).map(x=>[x.id,binlikAd(x.name)]),L.gb||'',
            dkYokMu(L)?'GB paketi seçin':'Yok — GB paketi yok')+'</select></div>'+
        '<div class="field"><label for="slt-'+L.id+'">Hat tipi</label><select id="slt-'+L.id+'">'+opt(HAT_TIP,L.tip||'BASE')+'</select></div>'
       :'')+
@@ -2960,7 +2971,9 @@ function saleProdOptions(cat,sel){
   if(!cat)return opt([],sel,'Önce kategori seçin');
   const list=db.products.filter(p=>p.category===cat&&((p.mobilTip!=='gb'&&p.mobilTip!=='tarife')||p.id===sel))
     .sort((a,b)=>a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
-  const ops=list.map(p=>[p.id,prodLabel(p)+(p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]);
+  const ops=list.map(p=>[p.id,
+    ((p.mobilTip==='dakika'||p.mobilTip==='gb')?mobilAd(p):prodLabel(p))+
+    (p.mobilTip==='dakika'?' — mobil hat':p.stocked?' (stoklu)':'')]);
   /* Kategoride mobil hat varsa "dakika paketi yok" da seçilebilsin;
      müşteri yalnızca GB paketi alıyorsa kullanılır. */
   if(db.products.some(p=>p.category===cat&&p.mobilTip==='dakika'))
