@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-e';
+const SURUM='15.10.2026-f';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -6242,6 +6242,36 @@ function firsatOzet(){
     kayip:l.filter(f=>f.durum==='Kayıp').length
   };
 }
+/* Telefonda saha temsilcisi için kart görünümü: hat adedi, firma
+   ünvanı, teklif tarihi ve sonraki takip. Karta basınca fırsat
+   detayı açılır; kart üzerinde ayrı bir işlem düğmesi yok.
+   Masaüstünde tablo görünür (.rnd-kart-alan / .rnd-tablo-alan). */
+function firsatKartlar(){
+  const list=firsatListesi();
+  if(!list.length)return '<div class="empty">Bu filtrede fırsat yok. Randevular “Teklif verildi” ile kapatıldıkça buraya kendiliğinden düşer.</div>';
+  return '<div class="rnd-kartlar">'+list.map(f=>{
+    const c=f.customerId?byId(db.customers,f.customerId):null;
+    const hat=(c&&c.operator&&c.operator!=='Hattı yok'&&num(c.mobilAdet))?num(c.mobilAdet):0;
+    const gec=firsatGecikti(f),bug=firsatBugun(f),acik=f.durum==='Takipte';
+    return '<button class="rnd-kart'+(gec?' gecti':bug?' bugun':'')+'" '+
+      'data-act="firsat" data-id="'+f.id+'">'+
+      '<span class="rk-tarih">Teklif '+esc(f.teklifTarihi?fmtDate(f.teklifTarihi):'—')+'</span>'+
+      '<span class="rk-ad">'+esc(c?c.unvan:'Silinmiş müşteri')+'</span>'+
+      '<span class="rk-bilgi">'+
+        (hat?'<b>'+hat+' hat</b>':'<b class="muted">Hat yok</b>')+
+        (f.teklifTutar?'<span>'+money(f.teklifTutar)+'</span>':'')+'</span>'+
+      (acik
+        ?'<span class="rk-eylem'+(gec?'':' kapali')+'">'+
+           (f.sonrakiTakip?'Takip '+esc(fmtDate(f.sonrakiTakip))+(gec?' · gecikti':bug?' · bugün':''):'Takip tarihi yok')+'</span>'
+        :'<span class="rk-eylem kapali">'+esc(f.durum)+'</span>')+
+    '</button>';}).join('')+'</div>';
+}
+function firsatListeAlani(){
+  return isSaha()
+    ? '<div class="rnd-kart-alan">'+firsatKartlar()+'</div>'+
+      '<div class="rnd-tablo-alan">'+firsatTablo()+'</div>'
+    : firsatTablo();
+}
 function firsatTablo(){
   const list=firsatListesi();
   if(!list.length)return '<div class="empty">Bu filtrede fırsat yok. Randevular “Teklif verildi” ile kapatıldıkça buraya kendiliğinden düşer.</div>';
@@ -6294,7 +6324,7 @@ function viewFirsat(){
   odakBtn('bugun','Bugün',o.bugun)+
   '<select data-set="firsat.durum" aria-label="Durum">'+opt(FIRSAT_DURUM.map(d=>[d,d]),fl.durum,'Tüm durumlar')+'</select>'+
   (firsatPersoneli().length>1?'<select data-set="firsat.emp" aria-label="Sorumlu">'+empOptGroups(firsatPersoneli(),fl.emp,'Tüm personel')+'</select>':'')+
-  '</div></div><div id="frlist">'+firsatTablo()+'</div></section>';
+  '</div></div><div id="frlist">'+firsatListeAlani()+'</div></section>';
 }
 
 /* ---------------- Fırsat detayı ve takip ---------------- */
@@ -9232,7 +9262,7 @@ function init(){
       const pre=el.id.split('-')[0];
       dlgState.apDup=false;dlgState.slDup=false;
       hizliBenzerYenile(pre);}
-    else if(el.id==='frq'){state.firsat.q=el.value;const box=$('#frlist');if(box)box.innerHTML=firsatTablo();}
+    else if(el.id==='frq'){state.firsat.q=el.value;const box=$('#frlist');if(box)box.innerHTML=firsatListeAlani();}
     else if(el.id==='rq'){state.rand.q=el.value;const box=$('#randlist');if(box)box.innerHTML=randListe();}
     else if((el.id==='c-unvan'||el.id==='c-tel'||el.id==='c-vkn'||el.id==='c-yetkili'||el.id==='c-adres')&&dlgState.kind==='cust'){
       dlgState.dupConfirmed=false;const b=$('#c-benzer');if(b)b.innerHTML='';}
