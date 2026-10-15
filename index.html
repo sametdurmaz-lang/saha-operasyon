@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-o';
+const SURUM='15.10.2026-p';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -668,6 +668,18 @@ function birimKisa(bid){
   const ilk=String(b.name||'').trim().split(/\s+/)[0]||'';
   return ilk.toLocaleUpperCase('tr').slice(0,10);
 }
+/* ---------- TAKIMLAR ----------------------------------------------
+   Departman bazlı birim müdürü / telesatış lideri ayrımının yerini
+   aldı. Bir takımın lideri o takımdaki herkesi görür; bayi müdürü ve
+   master her şeyi görür (kural sunucuda takimimda() ile uygulanır).
+   Birimler duruyor: potansiyel havuzu ve müşteri paylaşımı hâlâ
+   birim üzerinden yürüyor. */
+const TAKIM_TUR=[['saha','Saha'],['telesatis','Telesatış']];
+const takim=id=>byId(db.takimlar||[],id);
+const takimAdi=id=>{const t=takim(id);return t?t.ad:'';};
+const takimEkibi=tid=>aktifPersonel().filter(e=>e.takimId===tid);
+/* Lideri olduğum takımlar */
+const liderTakimlarim=()=>(db.takimlar||[]).filter(t=>me.employeeId&&t.liderId===me.employeeId);
 function empAd(e){
   if(!e||!e.name)return '';
   const k=birimKisa(e.birimId);
@@ -833,7 +845,7 @@ async function loadAll(zorla){
   const hgsIste=isFinans();
   const firsatIste=!isMuhasebe();
   const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum,
-         krediler,krediOdemeler,hgsGecis,firsatlar,firsatTakip]=await Promise.all([
+         krediler,krediOdemeler,hgsGecis,firsatlar,firsatTakip,takimlar]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -854,7 +866,9 @@ async function loadAll(zorla){
     hgsIste?bos(q('hgs_gecis')):Promise.resolve([]),
     /* 71 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
     firsatIste?bos(q('firsatlar')):Promise.resolve([]),
-    firsatIste?bos(q('firsat_takip')):Promise.resolve([])]);
+    firsatIste?bos(q('firsat_takip')):Promise.resolve([]),
+    /* 73 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
+    bos(q('takimlar'))]);
   katlariKur(katlar);
   donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
@@ -890,7 +904,8 @@ async function loadAll(zorla){
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
       name:r.name,title:r.title||'',bayiMuduru:!!r.bayi_muduru,
       ...(salMap[r.id]||SIFIR_HAK),
-      birimId:r.birim_id||null,takimLideriId:r.takim_lideri_id||null,
+      birimId:r.birim_id||null,takimId:r.takim_id||null,
+      takimLideriId:r.takim_lideri_id||null,
       birimMuduruId:r.birim_muduru_id||null,
       cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     accounts:accounts.map(r=>({id:r.id,name:r.name,type:r.type,companyId:r.company_id,opening:num(r.opening)})),
@@ -929,6 +944,8 @@ async function loadAll(zorla){
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(mapLead),
     hgs:hgsGecis.map(mapHgs),
+    takimlar:takimlar.map(r=>({id:r.id,ad:r.ad||'',tur:r.tur||'saha',
+      liderId:r.lider_id||null,companyId:r.company_id||null})),
     firsatlar:firsatlar.map(mapFirsat),
     firsatTakip:firsatTakip.map(mapFirsatTakip),
     krediler:krediler.map(mapKredi),
@@ -986,7 +1003,7 @@ function emptyDb(){
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
     assets:[],repairs:[],users:[],leads:[],krediler:[],krediOdemeler:[],hgs:[],
-    firsatlar:[],firsatTakip:[],aracKonum:[],aracGunluk:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+    firsatlar:[],firsatTakip:[],takimlar:[],aracKonum:[],aracGunluk:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
@@ -4870,7 +4887,7 @@ function viewOrg(){
   const p=state.period,exp=expenses(p);
   if(!db.companies.length)return emptyView('Şirket ve departmanlar','Bütün kayıtların bağlandığı yapı. Önce şirketi, sonra departmanlarını tanımlayın.','<button class="btn primary" data-act="open-company">Şirket ekle</button>','Henüz şirket eklenmedi. Kurulumun ilk adımı budur.');
   return head('Şirket, birim ve departmanlar','Bütün kayıtların bağlandığı yapı. Birimler havuzları ve yetki kapsamını belirler.',periodSel()+'<button class="btn primary" data-act="open-company">Şirket ekle</button>')+
-  '<div class="stack">'+birimlerBolumu()+db.companies.map(c=>{
+  '<div class="stack">'+takimlarBolumu()+birimlerBolumu()+db.companies.map(c=>{
     const ds=db.departments.filter(d=>d.companyId===c.id),tot=sum(exp.filter(t=>t.companyId===c.id));
     return '<section class="panel"><div class="panel-h"><div><h2>'+esc(c.name)+'</h2><p class="muted sm">'+db.employees.filter(e=>e.companyId===c.id).length+' personel'+(isFinans()?', dönem gideri '+money(tot):'')+'</p></div><div class="tools"><button class="btn sm" data-act="drill" data-dim="sirket" data-key="'+c.id+'">Gider detayı</button><button class="btn sm" data-act="open-dept" data-id="'+c.id+'">Departman ekle</button></div></div>'+
     (ds.length?'<div class="scroll"><table><thead><tr><th>Departman</th><th class="num">Personel</th>'+(isFinans()?'<th class="num">Dönem gideri</th>':'')+'<th></th></tr></thead><tbody>'+ds.map(d=>'<tr><td>'+esc(d.name)+'</td><td class="num">'+db.employees.filter(e=>e.departmentId===d.id).length+'</td>'+(isFinans()?'<td class="num">'+money(sum(exp.filter(t=>t.departmentId===d.id)))+'</td>':'')+'<td class="num"><button class="btn sm" data-act="drill" data-dim="departman" data-key="'+d.id+'">Gider detayı</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Bu şirkete henüz departman eklenmedi.</div>')+'</section>';}).join('')+'</div>';
@@ -8295,12 +8312,13 @@ function openEmp(id){
     '<div class="field full"><label for="p-birim">Bağlı olduğu birim</label><select id="p-birim">'+
       opt((db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)).map(b=>[b.id,b.name+((emp(b.mudurId)||{}).name?' — '+(emp(b.mudurId)||{}).name:'')]),e?(e.birimId||''):'','Birime bağlı değil')+
       '</select></div>'+
-    /* Hiyerarşi: fırsat görünürlüğü bu iki alandan okunur.
-       Boş bırakılırsa birim yapısındaki eski kapsam geçerli olur. */
-    '<div class="field"><label for="p-tlider">Takım lideri</label><select id="p-tlider">'+
-      empSecim(e?(e.takimLideriId||''):'','Takım lideri yok',aktifPersonel().filter(x=>!e||x.id!==e.id))+'</select></div>'+
-    '<div class="field"><label for="p-bmudur">Birim müdürü</label><select id="p-bmudur">'+
-      empSecim(e?(e.birimMuduruId||''):'','Birim müdürü yok',aktifPersonel().filter(x=>!e||x.id!==e.id))+'</select></div>'+
+    /* Görünürlük takımdan okunur: takımın lideri bu kişinin
+       kayıtlarını görür. Boş bırakılırsa eski birim kapsamı geçerli. */
+    '<div class="field full"><label for="p-takim">Takım</label><select id="p-takim">'+
+      opt((db.takimlar||[]).slice().sort((a,b)=>a.ad.localeCompare(b.ad,'tr',SAYISAL))
+        .map(t=>[t.id,t.ad+' — '+((TAKIM_TUR.find(x=>x[0]===t.tur)||['',''])[1])+
+          (t.liderId?' · '+((emp(t.liderId)||{}).name||''):'')]),
+        e?(e.takimId||''):'','Takıma bağlı değil')+'</select></div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
     /* Düzenli ek ödemeler. Ödeme penceresinde hazır gelir; orada
        değiştirilebilir, kart değişmez. */
@@ -8311,7 +8329,7 @@ function openEmp(id){
     '<div class="field"><label for="p-ekodeme">Ek ödeme (₺)</label><input id="p-ekodeme" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekOdeme?e.ekOdeme:'')+'" placeholder="0"></div>'+
     '<div class="field"><label for="p-ekprim">Prim (₺)</label><input id="p-ekprim" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekPrim?e.ekPrim:'')+'" placeholder="0"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
-    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar. <b>Takım lideri</b> ve <b>birim müdürü</b> alanları fırsat görünürlüğünü belirler: bu kişinin fırsatlarını burada yazan yöneticiler görür. Boş bırakılırsa birim yapısındaki kapsam geçerli olur.</p>'+
+    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar. <b>Takım</b> alanı görünürlüğü belirler: bu kişinin kayıtlarını takımın lideri görür. Boş bırakılırsa birim yapısındaki eski kapsam geçerli olur.</p>'+
     (e&&ayrildi(e)?'<div class="ro-banner"><b>Bu personel işten ayrıldı.</b><div class="sm">Çıkış tarihi: '+fmtDate(e.cikisTarihi)+(e.cikisNedeni?' · '+esc(e.cikisNedeni):'')+'</div>'+
       '<div class="sm">Kayıtları duruyor, yeni satış ve randevu listelerinde görünmüyor.</div></div>':'')+
     '<p class="err" id="p-err"></p>',
@@ -8332,11 +8350,9 @@ function saveEmp(){
   if(!(salary>=0))return err('Net maaşı girin.');
   for(const [ad,v] of [['Ticket',ticket],['Yol parası',yol],['Ek ödeme',ekOdeme],['Prim',ekPrim]])
     if(!(v>=0))return err(ad+' tutarı negatif olamaz.');
-  const tl=nz(($('#p-tlider')||{}).value),bm=nz(($('#p-bmudur')||{}).value);
-  if(id&&(tl===id||bm===id))return err('Personel kendi takım lideri veya birim müdürü olamaz.');
   const row={name,company_id:$('#p-company').value,department_id:deptId,
              birim_id:nz($('#p-birim').value),
-             takim_lideri_id:tl,birim_muduru_id:bm,
+             takim_id:nz(($('#p-takim')||{}).value),
              title:$('#p-title').value.trim(),bayi_muduru:bayi};
   run('p-err',async()=>{
     // Bayi Müdürü tek kişi: önce diğerlerinden yetkiyi al
@@ -8429,6 +8445,63 @@ function geriAl(id){
   run('p-err',()=>upd('employees',id,{cikis_tarihi:null,cikis_nedeni:''}),e.name+' yeniden çalışan olarak işaretlendi');
 }
 function birimEkip(bid){return db.employees.filter(e=>e.birimId===bid);}
+function takimlarBolumu(){
+  if(!(isFinans()||isUst()))return '';
+  const list=(db.takimlar||[]).slice()
+    .sort((a,b)=>a.tur.localeCompare(b.tur)||a.ad.localeCompare(b.ad,'tr',SAYISAL));
+  const turAd=t=>(TAKIM_TUR.find(x=>x[0]===t)||['','?'])[1];
+  return '<section class="panel"><div class="panel-h"><div><h2>Takımlar</h2>'+
+    '<p class="muted sm">Görünürlük buradan belirlenir: bir takımın lideri o takımdaki herkesin kayıtlarını görür. Saha takımı bir şirkete bağlıdır; telesatış takımı şirketten bağımsızdır.</p></div>'+
+    '<button class="btn primary" data-act="open-takim">Takım ekle</button></div>'+
+    (list.length?'<div class="scroll"><table><thead><tr><th>Takım</th><th>Tür</th><th>Lider</th><th>Şirket</th><th class="num">Personel</th><th></th></tr></thead><tbody>'+
+      list.map(t=>'<tr><td><b>'+esc(t.ad)+'</b></td>'+
+        '<td><span class="badge'+(t.tur==='telesatis'?' warn':'')+'">'+esc(turAd(t.tur))+'</span></td>'+
+        '<td>'+esc(empAdId(t.liderId)||'—')+'</td>'+
+        '<td class="muted sm">'+esc(t.companyId?((comp(t.companyId)||{}).name||''):'Şirketten bağımsız')+'</td>'+
+        '<td class="num">'+takimEkibi(t.id).length+'</td>'+
+        '<td class="num"><button class="btn sm" data-act="open-takim" data-id="'+t.id+'">Düzenle</button></td></tr>').join('')+
+      '</tbody></table></div>'
+     :'<div class="empty">Henüz takım tanımlanmadı. Saha ve telesatış ekiplerinizi takım olarak tanımlayın, sonra personeli takımlara bağlayın.</div>')+
+    (aktifPersonel().some(e=>!e.takimId)
+      ?'<div class="panel-b"><p class="hint"><b>'+aktifPersonel().filter(e=>!e.takimId).length+' personel hiçbir takımda değil.</b> Takımı olmayan personelde eski birim kapsamı geçerli olur; personel kartından takım seçin.</p></div>':'')+
+    '</section>';
+}
+function openTakim(id){
+  if(!isUst())return needDlg('Takım','Takımları yalnızca master ve bayi müdürü düzenleyebilir.');
+  const t=id?takim(id):null;
+  const v=t||{ad:'',tur:'saha',liderId:'',companyId:(db.companies[0]||{}).id||''};
+  dlgState={kind:'takim',id:id||null};
+  const ekip=t?takimEkibi(t.id):[];
+  openDlg(dlgHtml(t?'Takımı düzenle':'Takım ekle','<div class="fields">'+
+    '<div class="field full"><label for="tk-ad">Takım adı</label><input id="tk-ad" type="text" value="'+esc(v.ad)+'" placeholder="Örn. Mercan Saha"></div>'+
+    '<div class="field"><label for="tk-tur">Tür</label><select id="tk-tur">'+opt(TAKIM_TUR,v.tur)+'</select></div>'+
+    '<div class="field"><label for="tk-lider">Takım lideri</label><select id="tk-lider">'+
+      empSecim(v.liderId||'','Lider seçilmedi',aktifPersonel())+'</select></div>'+
+    '<div class="field full"><label for="tk-co">Şirket</label><select id="tk-co">'+
+      companyOptions(v.companyId||'','Şirketten bağımsız (telesatış)')+'</select>'+
+      '<div class="hint">Saha takımında şirket zorunludur; telesatış takımında boş bırakabilirsiniz.</div></div>'+
+    '</div>'+
+    (ekip.length?'<section class="dsec"><h3>Takımdaki personel ('+ekip.length+')</h3>'+
+      '<p class="muted sm">'+ekip.map(e=>esc(e.name)).join(', ')+'</p></section>':'')+
+    '<p class="hint">Takım lideri bu takımdaki herkesin satış, randevu ve fırsat kayıtlarını görür. Personeli takıma bağlamak için personel kartındaki <b>Takım</b> alanını kullanın.</p>'+
+    '<p class="err" id="tk-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    (t&&!ekip.length?'<button class="btn danger" data-act="del-takim" data-id="'+t.id+'">Takımı sil</button>':'')+
+    '<button class="btn primary" data-act="save-takim">Kaydet</button>'));
+}
+function saveTakim(){
+  const g=i=>{const el=$('#'+i);return el?el.value.trim():'';};
+  const err=m=>{$('#tk-err').textContent=m;};
+  const ad=norm(g('tk-ad')),tur=g('tk-tur')||'saha',lider=g('tk-lider'),cid=g('tk-co');
+  const id=dlgState.id;
+  if(!ad)return err('Takım adını girin.');
+  if((db.takimlar||[]).some(t=>t.id!==id&&same(t.ad,ad)))return err('Bu adla bir takım zaten var.');
+  if(tur==='saha'&&!cid)return err('Saha takımı bir şirkete bağlı olmalı.');
+  if(lider&&(db.takimlar||[]).some(t=>t.id!==id&&t.liderId===lider))
+    return err('Bu kişi zaten başka bir takımın lideri. Bir kişi tek takım yönetebilir.');
+  const row={ad:ad,tur:tur,lider_id:nz(lider),company_id:nz(cid)};
+  run('tk-err',()=>id?upd('takimlar',id,row):ins('takimlar',row),'Takım kaydedildi');
+}
 function birimlerBolumu(){
   if(!(isFinans()||isUst()))return '';
   const list=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL));
@@ -9337,6 +9410,12 @@ const actions={
   'confirm-del-kredi-odeme'(el){delKrediOdeme(el.dataset.id);},
   'open-hgs'(){openHgs();},
   'hgs-yukle'(){hgsYukle();},
+  'open-takim'(el){openTakim(el.dataset.id||null);},
+  'save-takim'(){saveTakim();},
+  'del-takim'(el){confirmDlg('Takımı sil',
+    'Takım silinecek. Personel kayıtları silinmez, yalnızca takım bağları kalkar.',
+    'confirm-del-takim',el.dataset.id,'Takımı sil');},
+  'confirm-del-takim'(el){run(null,()=>del('takimlar',el.dataset.id),'Takım silindi');},
   'open-acct'(el){openAccount(el.dataset.id||null);},
   'save-acct'(){saveAccount();},
   'del-acct'(el){confirmDlg('Hesabı sil','Bu hesap listeden silinecek. Hesaba bağlı hareket varsa silinemez.','confirm-del-acct',el.dataset.id,'Hesabı sil');},
