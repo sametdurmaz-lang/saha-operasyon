@@ -142,8 +142,20 @@ tr.sel{background:var(--accent-soft)}
 .hcell:hover{background:var(--accent-soft)}
 .hcell.salt{cursor:default}
 .hcell.salt:hover{background:transparent}
-.hbar{display:block;width:100%;height:5px;background:var(--paper);border-radius:3px;overflow:hidden}
+.hbar{display:block;width:100%;height:6px;background:var(--paper);border-radius:3px;overflow:hidden}
 .hbar span{display:block;height:100%;background:var(--accent)}
+/* Gösterge renkleri: bir bakışta hangi kalemin geride olduğu görünsün.
+   t=hedef tamam, y=yakın, o=orta, d=düşük. */
+.hbar span.t,.hk-bar span.t{background:var(--in)}
+.hbar span.y,.hk-bar span.y{background:var(--accent)}
+.hbar span.o,.hk-bar span.o{background:var(--warn-line)}
+.hbar span.d,.hk-bar span.d{background:var(--out)}
+.hyuzde{font-variant-numeric:tabular-nums}
+.hyuzde.t{color:var(--in)} .hyuzde.o{color:var(--warn)} .hyuzde.d{color:var(--out)}
+.hdf-lejant{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.hdf-lejant i{display:inline-block;width:22px;height:6px;border-radius:3px;margin-right:5px;vertical-align:middle}
+.hdf-lejant .t{background:var(--in)} .hdf-lejant .y{background:var(--accent)}
+.hdf-lejant .o{background:var(--warn-line)} .hdf-lejant .d{background:var(--out)}
 .svc-chip{display:inline-block;background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px;margin:0 4px 4px 0}
 textarea{resize:vertical}
 .clamp{max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -417,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-c';
+const SURUM='16.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1259,7 +1271,7 @@ function viewOzetBirim(){
       p,'Takım karşılaştırması','Takım'):'')+
   (ekip.length
     ?(hepsi?'':hedefGrubu(takimim?takimim.ad:'Takımınız',
-        'Takım · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p))+
+        'Takım · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p,true,true))+
      '<section class="panel"><div class="panel-h"><h2>Ekip performansı</h2>'+
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
@@ -3442,6 +3454,17 @@ function realizedFor(empId,katId,period){
   if(kat.kind==='adet')return sum(rows.map(s=>({amount:num(s.qty)})));
   return sum(rows.map(s=>({amount:s.amount||0})));
 }
+/* Yüzdeyi dört kabaya bölüyoruz: hedef tamam, yakın, orta, geride.
+   Eşikler bilerek kaba; amaç ölçmek değil, gözün taramasını
+   kolaylaştırmak. */
+const hedefSinif=pc=>pc>=100?'t':pc>=70?'y':pc>=40?'o':'d';
+const hedefCubuk=pc=>'<span class="hbar"><span class="'+hedefSinif(pc)+
+  '" style="width:'+clamp(pc,0,100)+'%"></span></span>';
+const hedefLejant=()=>'<div class="hdf-lejant">'+
+  '<span><i class="t"></i>hedef tamam</span>'+
+  '<span><i class="y"></i>%70 ve üzeri</span>'+
+  '<span><i class="o"></i>%40–69</span>'+
+  '<span><i class="d"></i>%40 altı</span></div>';
 function hedefCell(empId,kat,period){
   const t=getTarget(empId,kat.id,period);
   /* Tüm dönemler seçiliyken hedef düzenlenmez: değerin hangi aya
@@ -3466,7 +3489,8 @@ function hedefCell(empId,kat,period){
     return sar('<b>'+d+'</b><span class="muted sm">hedef yok</span>');
   }
   const pc=pct(r,t.value),fmt=kat.kind==='tutar'?money(r)+' / '+money(t.value):nf.format(r)+' / '+nf.format(t.value);
-  return sar('<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><span class="hbar"><span style="width:'+clamp(pc,0,100)+'%"></span></span><span class="muted sm">'+fmt+'</span>');
+  return sar('<b class="hyuzde '+hedefSinif(pc)+'">%'+pc+'</b>'+hedefCubuk(pc)+
+    '<span class="muted sm">'+fmt+'</span>');
 }
 /* Bir grup personelin bir hedef kategorisindeki toplamı.
    Muaf tutulanlar hedefe de gerçekleşmeye de katılmaz. */
@@ -3500,7 +3524,10 @@ function toplamHucre(list,kat,period){
       :'<span class="muted sm">—</span>';
   const pc=pct(t.gercek,t.hedef);
   const fmt=bicim(t.gercek)+' / '+bicim(t.hedef);
-  return '<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><div class="muted sm">'+fmt+'</div>';
+  /* Toplam satırlarında çubuk yoktu; karşılaştırma tablosu bu yüzden
+     yalnızca rakam yığınıydı. */
+  return '<div class="hcell salt"><b class="hyuzde '+hedefSinif(pc)+'">%'+pc+'</b>'+
+    hedefCubuk(pc)+'<span class="muted sm">'+fmt+'</span></div>';
 }
 /* toplamGoster=false: yalnızca kendi hedefini gören personel için.
    Tek kişilik listede "birim toplamı" satırı, kişinin kendi rakamını
@@ -3539,7 +3566,7 @@ function hedefKartlar(empId,period){
     return '<div class="hdf-kart'+(tam?' tamam':'')+'">'+
       '<span class="hk-ad">'+esc(k.name)+'</span>'+
       '<span class="hk-deger">'+bic(r)+'<small> / '+bic(t.value)+'</small></span>'+
-      '<span class="hk-bar"><span style="width:'+clamp(yuzde,0,100)+'%"></span></span>'+
+      '<span class="hk-bar"><span class="'+hedefSinif(yuzde)+'" style="width:'+clamp(yuzde,0,100)+'%"></span></span>'+
       /* Kutucuk dar; devir bilgisi masaüstü tablosunda ↳ imiyle duruyor */
       '<span class="hk-alt'+(tam?' tamam':'')+'">%'+yuzde+(tam?' · hedef tamam':'')+'</span>'+
     '</div>';}).join('')+'</div>';
@@ -3555,12 +3582,15 @@ function kisiselHedefTablo(empId,period){
     kats.map(k=>'<td class="num">'+hedefCell(empId,k,period)+'</td>').join('')+
     '</tr></tbody></table></div>';
 }
-function hedefGrubu(baslik,altBaslik,list,period,toplamGoster){
+/* lejant: renk açıklaması panelde gösterilsin mi. Her takım panelinde
+   tekrar etmesi gürültü yapıyordu; sayfada bir kez yeter. */
+function hedefGrubu(baslik,altBaslik,list,period,toplamGoster,lejant){
   if(!list.length)return '';
   const toplamVar=toplamGoster!==false;
   const sirali=list.slice().sort(personelSirasi);
   return '<section class="panel"><div class="panel-h"><div><h2>'+esc(baslik)+'</h2>'+
     (altBaslik?'<p class="muted sm">'+esc(altBaslik)+'</p>':'')+'</div>'+
+    (lejant?hedefLejant():'')+
     (toplamVar?'<span class="muted sm">'+sirali.length+' personel</span>':'')+'</div>'+
     '<div class="scroll"><table><thead><tr><th>Personel</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
@@ -3576,7 +3606,8 @@ function genelToplamBolumu(gorunur,hamGruplar,period,baslik,kolon){
   const gruplar=hamGruplar.filter(g=>g.list.length);
   if(gruplar.length<2)return '';
   return '<section class="panel"><div class="panel-h"><h2>'+esc(baslik||'Karşılaştırma')+'</h2>'+
-    '<span class="muted sm">'+(period==='all'?'Tüm dönemler':monthLabel(period))+'</span></div>'+
+    hedefLejant()+
+    '<span class="muted sm" style="margin-left:auto">'+(period==='all'?'Tüm dönemler':monthLabel(period))+'</span></div>'+
     '<div class="scroll"><table><thead><tr><th>'+esc(kolon||'Grup')+'</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
     '<tr class="total-top"><td>Genel toplam</td>'+
@@ -3618,6 +3649,11 @@ function viewHedef(){
     .sort((a,b)=>String(a.tur||'').localeCompare(String(b.tur||''))
       ||String(a.ad||'').localeCompare(String(b.ad||''),'tr',SAYISAL));
   const turAdi=t=>(TAKIM_TUR.find(x=>x[0]===t)||['',''])[1];
+  /* Karşılaştırma tablosu varsa lejant orada duruyor; yoksa ilk
+     takım panelinde gösteriyoruz. */
+  const ustLejant=takimlar.length>1;
+  let lejantVerildi=ustLejant;
+  const blokLejant=()=>{if(lejantVerildi)return false;lejantVerildi=true;return true;};
   const bloklar=takimlar.map(t=>hedefGrubu(t.ad||'',
       [turAdi(t.tur),
        /* Blok zaten takımı ve şirketi yazıyor; adın önüne bir de
@@ -3625,7 +3661,7 @@ function viewHedef(){
        ((emp(t.liderId)||{}).name?'Takım lideri: '+(emp(t.liderId)||{}).name:'Takım lideri atanmadı'),
        (t.companyId?((comp(t.companyId)||{}).name||''):'Şirketten bağımsız')
       ].filter(Boolean).join(' · '),
-      gorunur.filter(e=>e.takimId===t.id),p)).join('');
+      gorunur.filter(e=>e.takimId===t.id),p,true,blokLejant())).join('');
   const takimsiz=gorunur.filter(e=>!e.takimId||!takim(e.takimId));
   const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
   return head('Satış hedefleri','Önce takım toplamları, altında takım takım personel hedefleri. Hedefler aya bağlıdır: bir hücreye tıklayıp seçili ayın hedefini girin, sonraki aylar yenisi girilene kadar o hedefi devralır. ↳ imi, değerin önceki bir aydan devrettiğini gösterir.'+(state.period==='all'?' Düzenlemek için bir ay seçin.':''),periodSel()+katBtn)+
@@ -3636,7 +3672,7 @@ function viewHedef(){
   (bloklar||'<div class="empty">Henüz takım tanımlanmadı. Şirket ve birimler sayfasındaki Takımlar bölümünden takım ekleyip personeli takımlara bağlayın.</div>')+
   (takimsiz.length?hedefGrubu('Takıma bağlı olmayan personel',
      'Bu kişileri Personel sayfasından bir takıma bağlayın; takımı olmayan personelin kayıtlarını hiçbir lider göremez',
-     takimsiz,p):'')+
+     takimsiz,p,true,blokLejant()):'')+
   '</div>'+
   '<p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır. Toplam satırında muaf tutulan personel sayılmaz.</p>';
 }
