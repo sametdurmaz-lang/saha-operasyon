@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-d';
+const SURUM='15.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1319,7 +1319,9 @@ const KUTU_IKON={
   potansiyel:'<path d="M4 6h16M4 12h16M4 18h10"/>',
   satis:'<path d="M3 17l5-5 4 3 7-8M21 7h-5M21 7v5"/>',
   hedef:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/>',
-  harita:'<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+  harita:'<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  /* Fiyat etiketi: verilmiş teklif */
+  firsat:'<path d="M3.5 11.6V5.4a1.9 1.9 0 011.9-1.9h6.2l9 9-8.1 8.1-9-9z"/><circle cx="7.8" cy="7.8" r="1.3"/>'
 };
 function anaKutu(v,etiket,sayi,altyazi){
   const ik=KUTU_IKON[v]||'';
@@ -1343,6 +1345,10 @@ function viewAnasayfa(){
   const puan=satis.reduce((t,x)=>t+(x.puan||0),0);
   const konumlu=acik.filter(a=>{const c=byId(db.customers,a.customerId);
     return c&&c.enlem!=null&&c.boylam!=null;}).length;
+  /* Fırsatlar sunucuda zaten kişiye göre süzülü geliyor; yine de
+     ana sayfada kendi fırsatlarını say. */
+  const firTakip=(db.firsatlar||[]).filter(f=>f.employeeId===ben&&f.durum==='Takipte');
+  const firGec=firTakip.filter(firsatGecikti).length;
   return '<div class="ana-sayfa">'+
     '<div class="ana-ust"><h1>Merhaba'+(emp(ben)?', '+esc(emp(ben).name.split(' ')[0]):'')+'</h1>'+
       '<p class="muted">'+(bugun?'Bugün '+bugun+' randevunuz var.':'Bugüne randevunuz yok.')+
@@ -1352,6 +1358,9 @@ function viewAnasayfa(){
       anaKutu('potansiyel','Potansiyel',pot,pot?'aranacak firma':'')+
       anaKutu('satis','Satışlarım',satis.length,monthLabel(ay))+
       anaKutu('hedef','Hedeflerim',nf.format(puan),'bu ay puan')+
+      /* Takipteki fırsatlar; gecikmiş takip varsa altyazıda uyarır */
+      anaKutu('firsat','Fırsatlarım',firTakip.length,
+        firGec?firGec+' takip gecikti':(firTakip.length?'takipte':''))+
       anaKutu('harita','Harita',konumlu,konumlu?'randevu haritada':'')+
     '</div>'+
     /* Telefonda menü gizli olduğu için hesap düğmeleri burada durur */
