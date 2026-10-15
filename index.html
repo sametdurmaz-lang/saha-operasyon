@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-w';
+const SURUM='15.10.2026-x';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -654,26 +654,12 @@ const dl=(id,items)=>'<datalist id="'+id+'">'+items.map(i=>'<option value="'+esc
 
 const byId=(arr,id)=>arr.find(x=>x.id===id);
 const comp=id=>byId(db.companies,id), dept=id=>byId(db.departments,id), emp=id=>byId(db.employees,id), acct=id=>byId(db.accounts,id), asset=id=>byId(db.assets,id);
-/* ---------- Personel adının önüne birim kısaltması ----------------
-   Rapor ve listelerde "SDM · Ahmet Taşçı" gibi görünür. Kısaltma
-   birimin kendi "kisa" alanıdır; boşsa birim adının ilk kelimesinden
-   türetilir, böylece 72-birim-kisa.sql çalıştırılmadan da çalışır.
-   Birime bağlı olmayan personelde önek yoktur.
-   ÖNEMLİ: e.name ham ad olarak kalır — formlar, kaydetme ve
-   eşleştirme onu kullanır; burada yalnızca GÖRÜNÜM üretiliyor. */
-function birimKisa(bid){
-  const b=bid?byId(db.birimler||[],bid):null;
-  if(!b)return '';
-  if(b.kisa)return String(b.kisa).trim();
-  const ilk=String(b.name||'').trim().split(/\s+/)[0]||'';
-  return ilk.toLocaleUpperCase('tr').slice(0,10);
-}
 /* ---------- TAKIMLAR ----------------------------------------------
    Departman bazlı birim müdürü / telesatış lideri ayrımının yerini
    aldı. Bir takımın lideri o takımdaki herkesi görür; bayi müdürü ve
    master her şeyi görür (kural sunucuda takimimda() ile uygulanır).
-   Birimler duruyor: potansiyel havuzu ve müşteri paylaşımı hâlâ
-   birim üzerinden yürüyor. */
+   Potansiyel havuzu ve müşteri paylaşımı da takıma taşındı (74);
+   birimler artık hiçbir kuralda kullanılmıyor. */
 const TAKIM_TUR=[['saha','Saha'],['telesatis','Telesatış']];
 const takim=id=>byId(db.takimlar||[],id);
 const takimAdi=id=>{const t=takim(id);return t?t.ad:'';};
@@ -688,9 +674,24 @@ function havuzTakimim(){
   if(!t)return null;
   return t.tur==='telesatis'?t.id:(t.havuzTakimId||null);
 }
+/* ---------- Personel adının önüne takım kısaltması ----------------
+   Rapor ve listelerde "SDM · Ahmet Taşçı" gibi görünür. Kısaltma
+   kişinin TAKIM ADININ ilk kelimesidir: "SDM ASK2" → SDM,
+   "Mercan Saha" → MERCAN, "DSL Telesatış" → DSL. Önceden birimden
+   okunuyordu; birimi boş olan takım liderleri kısaltmasız kalıyordu.
+   Kısaltma yanlış çıkıyorsa takımı yeniden adlandırmak yeter.
+   Takıma bağlı olmayan personelde önek yoktur.
+   ÖNEMLİ: e.name ham ad olarak kalır — formlar, kaydetme ve
+   eşleştirme onu kullanır; burada yalnızca GÖRÜNÜM üretiliyor. */
+function takimKisa(tid){
+  const t=tid?takim(tid):null;
+  if(!t)return '';
+  const ilk=String(t.ad||'').trim().split(/\s+/)[0]||'';
+  return ilk.toLocaleUpperCase('tr').slice(0,10);
+}
 function empAd(e){
   if(!e||!e.name)return '';
-  const k=birimKisa(e.birimId);
+  const k=takimKisa(e.takimId);
   return k?k+' · '+e.name:e.name;
 }
 /* id'den doğrudan: emp(id) null olabilir */
@@ -8574,7 +8575,9 @@ function openTakim(id){
   dlgState={kind:'takim',id:id||null};
   const ekip=t?takimEkibi(t.id):[];
   openDlg(dlgHtml(t?'Takımı düzenle':'Takım ekle','<div class="fields">'+
-    '<div class="field full"><label for="tk-ad">Takım adı</label><input id="tk-ad" type="text" value="'+esc(v.ad)+'" placeholder="Örn. Mercan Saha"></div>'+
+    '<div class="field full"><label for="tk-ad">Takım adı</label><input id="tk-ad" type="text" value="'+esc(v.ad)+'" placeholder="Örn. Mercan Saha">'+
+      '<p class="hint">Adın ilk kelimesi, rapor ve listelerde personel adının önüne kısaltma olarak yazılır: '+
+      '“Mercan Saha” → <b>MERCAN · Ahmet Taşçı</b>. Kısaltmayı değiştirmek için takımı yeniden adlandırın.</p></div>'+
     '<div class="field"><label for="tk-tur">Tür</label><select id="tk-tur">'+opt(TAKIM_TUR,v.tur)+'</select></div>'+
     '<div class="field"><label for="tk-lider">Takım lideri</label><select id="tk-lider">'+
       empSecim(v.liderId||'','Lider seçilmedi',aktifPersonel())+'</select></div>'+
@@ -8640,7 +8643,6 @@ function openBirim(id){
 
   openDlg(dlgHtml(b?'Birimi düzenle':'Birim ekle','<div class="fields">'+
     '<div class="field full"><label for="bi-name">Birim adı</label><input id="bi-name" type="text" value="'+esc(v.name)+'" placeholder="Örn. İzmir 1. Bölge"></div>'+
-    '<div class="field"><label for="bi-kisa">Kısaltma</label><input id="bi-kisa" type="text" maxlength="10" value="'+esc(v.kisa||'')+'" placeholder="Örn. SDM"></div>'+
     '<div class="field"><label for="bi-company">Şirket</label><select id="bi-company">'+companyOptions(v.companyId)+'</select></div>'+
     '<div class="field"><label for="bi-mudur">Birim müdürü</label><select id="bi-mudur">'+empSecim(v.mudurId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
     '<div class="field"><label for="bi-tlider">Telesatış takım lideri</label><select id="bi-tlider">'+empSecim(v.tliderId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
@@ -8664,10 +8666,9 @@ function saveBirim(){
   if(tid&&(db.birimler||[]).some(b=>b.id!==id&&b.tliderId===tid))
     return err('Bu kişi zaten başka bir birimin telesatış takım lideri.');
   if(tid&&tid===mid)return err('Aynı kişi hem birim müdürü hem takım lideri olamaz.');
-  /* Kısaltma rapor ve listelerde personel adının önüne yazılır */
-  const kisa=norm((($('#bi-kisa')||{}).value||'')).toLocaleUpperCase('tr').slice(0,10);
-  /* capraz alanı artık okunmuyor: görünürlük takımdan geliyor (74) */
-  const row={name,kisa:kisa,company_id:nz(cid),mudur_id:nz(mid),tlider_id:nz(tid)};
+  /* kisa ve capraz alanları artık okunmuyor: kısaltma takım adından,
+     görünürlük takımdan geliyor (74 ve sonrası) */
+  const row={name,company_id:nz(cid),mudur_id:nz(mid),tlider_id:nz(tid)};
   run('bi-err',()=>id?upd('birimler',id,row):ins('birimler',row),'Birim kaydedildi');
 }
 function openAccount(id){
