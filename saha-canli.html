@@ -303,6 +303,11 @@ dialog::backdrop{background:rgba(10,18,28,.55)}
 .rk-yer{font-size:12.5px;color:var(--muted);line-height:1.2;margin-bottom:4px;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .rk-bilgi{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;font-size:13px;color:var(--muted)}
+/* Tek sütun: satış kartları gibi uzun düğmeler */
+.rnd-kartlar.tek{grid-template-columns:1fr}
+.rnd-kartlar.tek .rnd-kart{min-height:0}
+.rk-ust{display:flex;width:100%;justify-content:space-between;align-items:baseline;gap:10px}
+.rk-puan{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap}
 .rk-bilgi b{font-size:17px;color:var(--ink);font-weight:700}
 .rk-metro{color:#7C3AED!important}
 .rk-eylem{margin-top:auto;padding-top:8px;font-size:12.5px;font-weight:600;color:var(--accent)}
@@ -412,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-l';
+const SURUM='15.10.2026-m';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2209,6 +2214,35 @@ function satFiltreOzeti(list){
     (primGor()?'<span>·</span><span>prim <b>'+money(prim)+'</b></span>':'')+
     '</div></div>';
 }
+/* Telefonda saha temsilcisi için satış kartları: tarih, firma, ürün
+   kategorisi, adet ve alınan puan. Karta basınca satış detayı açılır.
+   Masaüstünde tablo görünür (.rnd-kart-alan / .rnd-tablo-alan). */
+function satKartlar(){
+  const list=satFiltreli();
+  if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
+  const shown=list.slice(0,100);
+  return satFiltreOzeti(list)+
+    (list.length>shown.length?'<div class="panel-b muted sm">İlk 100 satış gösteriliyor; daraltmak için filtreleri kullanın.</div>':'')+
+    '<div class="rnd-kartlar tek">'+shown.map(s=>{
+      const p=byId(db.products,s.productId);
+      const kat=p?p.category:'';
+      const urun=s.hatTip?hatEtiket(s):prodLabel(p);
+      return '<button class="rnd-kart" data-act="sale" data-id="'+s.id+'">'+
+        '<span class="rk-ust"><span class="rk-tarih">'+esc(fmtDate(s.date))+'</span>'+
+          '<span class="rk-puan">'+nf.format(s.puan)+' puan</span></span>'+
+        '<span class="rk-ad">'+esc(s.customer||'Müşteri yok')+'</span>'+
+        '<span class="rk-bilgi">'+
+          (kat?'<b>'+esc(kat)+'</b>':'')+
+          '<span>'+s.qty+' adet</span>'+
+          (urun?'<span>· '+esc(urun)+'</span>':'')+
+        '</span></button>';}).join('')+'</div>';
+}
+function satListeAlani(){
+  return isSaha()
+    ? '<div class="rnd-kart-alan">'+satKartlar()+'</div>'+
+      '<div class="rnd-tablo-alan">'+satTable()+'</div>'
+    : satTable();
+}
 function satTable(){
   const list=satFiltreli();
   if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
@@ -2256,7 +2290,7 @@ function viewSatis(){
     /* Saha personeli zaten yalnızca kendi satışlarını görüyor */
     (isSaha()?'':'<div class="tools"><select data-set="sat.emp" aria-label="Personel">'+empSecim(st.emp,'Tüm personel')+'</select></div>')+
     '</div>'+satFiltreSeridi()+
-    '<div id="satlist">'+satTable()+'</div></section></div>';
+    '<div id="satlist">'+satListeAlani()+'</div></section></div>';
 }
 function satFiltreSeridi(){
   const st=state.sat,kaynak=satFiltreKaynak();
@@ -9366,7 +9400,7 @@ function init(){
     else if(/^slq-/.test(el.id||'')){updateLinePreview(el.id.slice(4));updateSaleTotals();}
     else if(/^slh-/.test(el.id||'')){slRead();updateLinePreview(el.id.slice(4));updateSaleTotals();}
     else if(/^sla-/.test(el.id||'')){updateLinePreview(el.id.slice(4));updateSaleTotals();}
-    else if(el.id==='slq'){state.sat.q=el.value;const box=$('#satlist');if(box)box.innerHTML=satTable();}
+    else if(el.id==='slq'){state.sat.q=el.value;const box=$('#satlist');if(box)box.innerHTML=satListeAlani();}
     else if(el.id==='iq'){state.inv.q=el.value;const box=$('#invlist');if(box)box.innerHTML=invTable();}
     else if(el.id==='aq'){state.aracQ=el.value;const box=$('#araclist');if(box)box.innerHTML=aracTable();}
     else if(el.id==='arac-bas'||el.id==='arac-bit'){
