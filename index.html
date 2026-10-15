@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-u';
+const SURUM='15.10.2026-v';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1882,7 +1882,9 @@ function haritaCanli(koru){
   if(f.katRnd&&r.musterisiz)yazi+=' · '+r.musterisiz+' randevunun müşteri kaydını göremiyorsunuz';
   /* Sebebi zaten yazdıysak genel "veri yok" mesajıyla üstünü örtmeyelim */
   if(!noktalar.length&&par.length&&!r.konumsuz&&!r.musterisiz)
-    yazi='Haritaya düşecek konum verisi yok';
+    yazi=f.emp
+      ? 'Seçili personelin haritaya düşecek kaydı yok. Kutuyu "Tüm personel" yapıp bakın.'
+      : 'Haritaya düşecek konum verisi yok';
   bilgi.textContent=yazi;
   const not=$('#hrt-bekleyen');
   if(not)not.innerHTML=(f.katRnd&&r.bekleyen&&r.bekleyen.length)
@@ -2051,13 +2053,23 @@ function viewHarita(){
   /* Harita saha işidir: listede yalnızca saha tarafındaki personel
      olsun. Randevuyu alan telesatışçılar alan_id üzerinden listeye
      giriyordu, haritada aranacak bir şeyleri yok. */
+  /* Kutudaki sayılar, "X'in randevularını göremiyorum" sorusunu
+     kullanıcının kendi başına yanıtlamasını sağlıyor: sayı
+     görünüyorsa kayıt gelmiş, sorun süzgeçte ya da koordinatta. */
+  const rndSay=id=>acikRnd.filter(a=>a.employeeId===id||a.alanId===id).length;
+  const etiket=e=>{
+    const r=rndSay(e.id),v=list.filter(a=>a.holderId===e.id).length,par=[];
+    if(r)par.push(r+' randevu');
+    if(v)par.push(v===1?'araç':v+' araç');
+    return empAd(e)+(par.length?' ('+par.join(', ')+')':'');
+  };
   const kisiler=uniq(list.map(a=>a.holderId)
       .concat(acikRnd.map(a=>a.employeeId))
       .concat(acikRnd.map(a=>a.alanId))
       .filter(Boolean))
     .map(id=>emp(id)).filter(e=>e&&e.name&&!telesatisTarafi(e))
-    .map(e=>[e.id,empAd(e)])
-    .sort((a,b)=>a[1].localeCompare(b[1],'tr',SAYISAL));
+    .sort((a,b)=>empAd(a).localeCompare(empAd(b),'tr',SAYISAL))
+    .map(e=>[e.id,etiket(e)]);
   haritaCiz();
 
   const katDugme=(k,l,n)=>'<button data-act="hrt-kat" data-v="'+k+'" aria-pressed="'+(!!f[k])+'">'+l+' ('+n+')</button>';
