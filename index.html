@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-k';
+const SURUM='15.10.2026-l';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1982,11 +1982,19 @@ function haritaCiz(){
 function viewHarita(){
   const list=takipliAraclar(),aracVar=list.length>0;
   const acikRnd=db.appointments.filter(a=>a.status==='Açık');
-  if(!aracVar&&!acikRnd.length)
-    return emptyView('Harita','Araçların ve randevuların haritadaki konumu.','',
-      'Görebileceğiniz plakalı araç ya da açık randevu yok.');
-  const f=state.hrt,isi=f.sekme==='isi';
-  if(!aracVar){f.sekme='canli';f.katArac=false;f.katRnd=true;}
+  /* Saha temsilcisinin haritası sade: yalnızca kendi randevuları.
+     Canlı durum, ısı haritası ve araç katmanı onun işine yaramıyor,
+     ekranı kalabalıklaştırıyordu. */
+  const sade=isSaha();
+  if(sade?!acikRnd.length:(!aracVar&&!acikRnd.length))
+    return emptyView('Harita',sade?'Açık randevularınızın haritadaki konumu.':'Araçların ve randevuların haritadaki konumu.','',
+      sade?'Haritada gösterilecek açık randevunuz yok.':'Görebileceğiniz plakalı araç ya da açık randevu yok.');
+  const f=state.hrt,isi=!sade&&f.sekme==='isi';
+  if(!aracVar||sade){f.sekme='canli';f.katArac=false;f.katRnd=true;}
+  /* Saha temsilcisi zaten yalnızca kendi randevularını görüyor;
+     personel kutusu hem gereksiz hem de eski bir seçim kalırsa
+     kendi pinlerini gizleyebilirdi. */
+  if(sade)f.emp='';
   if(!f.katArac&&!f.katRnd)f.katRnd=true;
 
   /* Süzgeç iki katmanı birden kapsar: kişinin hem aracı hem randevuları */
@@ -2014,8 +2022,9 @@ function viewHarita(){
 
   return head('Harita',isi
       ?'Seçilen aralıkta araçların en çok bulunduğu bölgeler. Koyu kırmızı en yoğun, mavi en seyrek.'
+      :sade?'Açık randevularınız harita üzerinde. Pine tıklayınca ayrıntı açılır.'
       :'Araçların son konumu ve açık randevular aynı harita üzerinde. Pine tıklayınca ayrıntı açılır.','')+
-  (aracVar?'<div class="stack"><div class="seg" role="group" aria-label="Harita türü">'+
+  ((aracVar&&!sade)?'<div class="stack"><div class="seg" role="group" aria-label="Harita türü">'+
     '<button data-act="hrt-sekme" data-v="canli" aria-pressed="'+(!isi)+'">Canlı durum</button>'+
     '<button data-act="hrt-sekme" data-v="isi" aria-pressed="'+isi+'">Isı haritası</button></div>'
    :'<div class="stack">')+
@@ -2023,10 +2032,12 @@ function viewHarita(){
     (isi
       ?'<label class="muted sm" for="hrt-bas">Başlangıç</label><input id="hrt-bas" type="date" value="'+esc(f.bas)+'" style="max-width:160px">'+
        '<label class="muted sm" for="hrt-bit">Bitiş</label><input id="hrt-bit" type="date" value="'+esc(f.bit)+'" style="max-width:160px">'
+      /* Sade haritada tek katman var; düğme göstermeye gerek yok */
+      :sade?'<span class="muted sm">'+acikRnd.length+' açık randevu</span>'
       :'<div class="seg" role="group" aria-label="Katmanlar">'+
          (aracVar?katDugme('katArac','Araçlar',list.length):'')+
          katDugme('katRnd','Randevular',acikRnd.length)+'</div>')+
-    '<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>'+
+    (sade?'':'<select id="hrt-emp" aria-label="Personel" style="max-width:220px">'+opt(kisiler,f.emp||'','Tüm personel')+'</select>')+
     '<span class="muted sm" id="hrt-bilgi">Yükleniyor…</span>'+
     '<span class="muted sm" id="canli-damga"></span>'+
     '<span class="lejant" style="margin-left:auto">'+lejant+'</span>'+
