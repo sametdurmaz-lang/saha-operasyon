@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-v';
+const SURUM='15.10.2026-w';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1313,18 +1313,21 @@ function gelirToplamListe(list,empId){
 }
 const primToplamListe=(list,empId)=>list.reduce((a,s)=>a+(s.employeeId===empId?(s.prim||0):0),0);
 function gelirPrimSatirlari(kirilim,gun,ay){
+  /* Kırılım da takımdan: birim kırılımı, birimi boş olan lideri
+     "bağlı değil" satırına düşürüyordu. */
   if(kirilim==='birim'){
-    const bl=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL));
+    const bl=(db.takimlar||[]).slice()
+      .sort((a,b)=>String(a.ad||'').localeCompare(String(b.ad||''),'tr',SAYISAL));
     const satir=bl.map(b=>{
-      const ids=aktifPersonel().filter(e=>personelBirimi(e)===b.id).map(e=>e.id);
-      return {ad:b.name,alt:ids.length+' personel',
+      const ids=aktifPersonel().filter(e=>e.takimId===b.id).map(e=>e.id);
+      return {ad:b.ad||'',alt:ids.length+' personel',
         gGelir:ids.reduce((t,id)=>t+gelirToplamListe(gun,id),0),
         gPrim :ids.reduce((t,id)=>t+primToplamListe(gun,id),0),
         aGelir:ids.reduce((t,id)=>t+gelirToplamListe(ay,id),0),
         aPrim :ids.reduce((t,id)=>t+primToplamListe(ay,id),0)};
     });
-    const bagsiz=aktifPersonel().filter(e=>!byId(db.birimler,personelBirimi(e))).map(e=>e.id);
-    if(bagsiz.length)satir.push({ad:'Birime bağlı değil',alt:bagsiz.length+' personel',
+    const bagsiz=aktifPersonel().filter(e=>!e.takimId||!takim(e.takimId)).map(e=>e.id);
+    if(bagsiz.length)satir.push({ad:'Takıma bağlı değil',alt:bagsiz.length+' personel',
       gGelir:bagsiz.reduce((t,id)=>t+gelirToplamListe(gun,id),0),
       gPrim :bagsiz.reduce((t,id)=>t+primToplamListe(gun,id),0),
       aGelir:bagsiz.reduce((t,id)=>t+gelirToplamListe(ay,id),0),
@@ -1345,14 +1348,14 @@ function gelirPrimPanel(){
     .sort((a,b)=>b.aGelir-a.aGelir||b.aPrim-a.aPrim);
   const t=satir.reduce((o,r)=>({gGelir:o.gGelir+r.gGelir,gPrim:o.gPrim+r.gPrim,
     aGelir:o.aGelir+r.aGelir,aPrim:o.aPrim+r.aPrim}),{gGelir:0,gPrim:0,aGelir:0,aPrim:0});
-  const seg=[['personel','Personel'],['birim','Birim']]
+  const seg=[['personel','Personel'],['birim','Takım']]
     .map(([k,l])=>'<button data-act="gp-kirilim" data-v="'+k+'" aria-pressed="'+(kir===k)+'">'+l+'</button>').join('');
   return '<section class="panel"><div class="panel-h"><div><h2>Gelir ve prim</h2>'+
     '<p class="muted sm">Solda bugün, sağda '+(state.period==='all'?'tüm dönemler':monthLabel(state.period))+'.</p></div>'+
     '<div class="seg" role="group" aria-label="Kırılım">'+seg+'</div></div>'+
     (satir.length
       ?'<div class="scroll"><table><thead>'+
-        '<tr><th rowspan="2">'+(kir==='birim'?'Birim':'Personel')+'</th>'+
+        '<tr><th rowspan="2">'+(kir==='birim'?'Takım':'Personel')+'</th>'+
         '<th class="num" colspan="2">Bugün</th><th class="num" colspan="2">'+
           (state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</th></tr>'+
         '<tr><th class="num">Gelir</th><th class="num">Prim</th>'+
@@ -3503,15 +3506,6 @@ function toplamHucre(list,kat,period){
 /* Hedef tablosunda personel önce departmanına, sonra adına göre
    sıralanır; saha, telesatış ve satış destek iç içe geçmesin.
    Departmanı girilmemiş olanlar en sona iner. */
-/* Kişinin ait olduğu birim. Müdür ve takım liderinin personel
-   kaydındaki birim alanı boş veya farklı olabiliyor; yönettikleri
-   birim önce gelir. birim_kapsamim() ile aynı öncelik sırası. */
-function personelBirimi(e){
-  if(!e)return null;
-  const bl=db.birimler||[];
-  const y=bl.find(b=>b.mudurId===e.id)||bl.find(b=>b.tliderId===e.id);
-  return y?y.id:(e.birimId||null);
-}
 const departmanAdi=e=>(dept(e.departmentId)||{}).name||'';
 function personelSirasi(a,b){
   const da=departmanAdi(a),db2=departmanAdi(b);
@@ -3615,21 +3609,32 @@ function viewHedef(){
       '</section></div>'+
       '<p class="hint" style="margin-top:10px">Hedefler aya bağlıdır; bir ay için ayrı hedef girilmemişse en son girilen hedef devreder. Gerçekleşme, seçtiğiniz dönemdeki satışlarınızdan hesaplanır.</p>';
     }
-  const birimler=(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL));
-  const bloklar=birimler.map(b=>hedefGrubu(b.name,
-      [((emp(b.mudurId)||{}).name?'Birim müdürü: '+(emp(b.mudurId)||{}).name:'Birim müdürü atanmadı'),
-       ((emp(b.tliderId)||{}).name?'Telesatış lideri: '+(emp(b.tliderId)||{}).name:'')].filter(Boolean).join(' · '),
-      gorunur.filter(e=>personelBirimi(e)===b.id),p)).join('');
-  const birimsiz=gorunur.filter(e=>{const k=personelBirimi(e);
-    return !k||!byId(db.birimler,k);});
+  /* Gruplama TAKIMDAN okunuyor (73/74). Birim kırılımı, birimi boş
+     olan takım liderini "birime bağlı değil" kutusuna düşürüyordu;
+     oysa kişinin takımı belli. */
+  const takimlar=(db.takimlar||[]).slice()
+    .sort((a,b)=>String(a.tur||'').localeCompare(String(b.tur||''))
+      ||String(a.ad||'').localeCompare(String(b.ad||''),'tr',SAYISAL));
+  const turAdi=t=>(TAKIM_TUR.find(x=>x[0]===t)||['',''])[1];
+  const bloklar=takimlar.map(t=>hedefGrubu(t.ad||'',
+      [turAdi(t.tur),
+       /* Blok zaten takımı ve şirketi yazıyor; adın önüne bir de
+          birim kısaltması koymak "SDM · VOLKAN · SDM" oluyordu. */
+       ((emp(t.liderId)||{}).name?'Takım lideri: '+(emp(t.liderId)||{}).name:'Takım lideri atanmadı'),
+       (t.companyId?((comp(t.companyId)||{}).name||''):'Şirketten bağımsız')
+      ].filter(Boolean).join(' · '),
+      gorunur.filter(e=>e.takimId===t.id),p)).join('');
+  const takimsiz=gorunur.filter(e=>!e.takimId||!takim(e.takimId));
   const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
-  return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Hedefler aya bağlıdır: bir hücreye tıklayıp seçili ayın hedefini girin, sonraki aylar yenisi girilene kadar o hedefi devralır. ↳ imi, değerin önceki bir aydan devrettiğini gösterir.'+(state.period==='all'?' Düzenlemek için bir ay seçin.':''),periodSel()+katBtn)+
+  return head('Satış hedefleri','Önce takım toplamları, altında takım takım personel hedefleri. Hedefler aya bağlıdır: bir hücreye tıklayıp seçili ayın hedefini girin, sonraki aylar yenisi girilene kadar o hedefi devralır. ↳ imi, değerin önceki bir aydan devrettiğini gösterir.'+(state.period==='all'?' Düzenlemek için bir ay seçin.':''),periodSel()+katBtn)+
   '<div class="stack">'+
-  (birimler.length>1?genelToplamBolumu(gorunur,
-      birimler.map(b=>({ad:b.name,list:gorunur.filter(e=>personelBirimi(e)===b.id)})),
-      p,'Birim karşılaştırması','Birim'):'')+
-  (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
-  hedefGrubu('Birime bağlı olmayan personel','Bu kişileri Personel sayfasından bir birime bağlayın',birimsiz,p)+
+  (takimlar.length>1?genelToplamBolumu(gorunur,
+      takimlar.map(t=>({ad:t.ad||'',list:gorunur.filter(e=>e.takimId===t.id)})),
+      p,'Takım karşılaştırması','Takım'):'')+
+  (bloklar||'<div class="empty">Henüz takım tanımlanmadı. Şirket ve birimler sayfasındaki Takımlar bölümünden takım ekleyip personeli takımlara bağlayın.</div>')+
+  (takimsiz.length?hedefGrubu('Takıma bağlı olmayan personel',
+     'Bu kişileri Personel sayfasından bir takıma bağlayın; takımı olmayan personelin kayıtlarını hiçbir lider göremez',
+     takimsiz,p):'')+
   '</div>'+
   '<p class="hint" style="margin-top:10px">Hedefler her ay aynı değerle tekrar eder, belirli bir aya özel girilmez. Gerçekleşme, seçtiğiniz dönemdeki satışlardan hesaplanır. Toplam satırında muaf tutulan personel sayılmaz.</p>';
 }
