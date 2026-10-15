@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-j';
+const SURUM='15.10.2026-k';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3328,10 +3328,17 @@ function hedefToplam(list,kat,period){
 }
 function toplamHucre(list,kat,period){
   const t=hedefToplam(list,kat,period);
-  if(!t.sayi)return '<span class="muted sm">—</span>';
+  const bicim=v=>kat.kind==='tutar'?money(v):nf.format(v);
+  /* Kimsenin hedefi yoksa yüzde hesaplanamaz; ama GERÇEKLEŞEN varsa
+     gizlenmemeli. Birimde satış olduğu halde hücre "—" görünüyor,
+     rakam yalnızca genel toplamda ortaya çıkıyordu. Kişi bazlı
+     hücrede (hedefCell) bu zaten böyle davranıyordu. */
+  if(!t.sayi)
+    return t.gercek
+      ?'<b>'+bicim(t.gercek)+'</b><div class="muted sm">hedef yok</div>'
+      :'<span class="muted sm">—</span>';
   const pc=pct(t.gercek,t.hedef);
-  const fmt=kat.kind==='tutar'?money(t.gercek)+' / '+money(t.hedef)
-                              :nf.format(t.gercek)+' / '+nf.format(t.hedef);
+  const fmt=bicim(t.gercek)+' / '+bicim(t.hedef);
   return '<b class="'+(pc>=100?'in':'')+'">%'+pc+'</b><div class="muted sm">'+fmt+'</div>';
 }
 /* toplamGoster=false: yalnızca kendi hedefini gören personel için.
