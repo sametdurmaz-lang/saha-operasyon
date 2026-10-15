@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-b';
+const SURUM='16.10.2026-c';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -8179,16 +8179,28 @@ function tgbEsle(ad){
 /* Kısaltmaya göre hesap önerisi: "MERCAN" kısaltmalı personelin
    ödemesi adında MERCAN geçen hesaptan, "SDM" ise SDM hesabından
    çıkar. Bulamazsa takımın şirketine bağlı hesaba düşer. */
-function tgbHesapOner(kisa,tid){
-  const k=katla(kisa||'');
-  if(k){
-    const ad=db.accounts.filter(a=>katla(a.name).indexOf(k)>=0);
-    if(ad.length)return ad[0].id;
-  }
-  const t=tid?takim(tid):null;
-  if(t&&t.companyId){
-    const c=db.accounts.filter(a=>a.companyId===t.companyId);
-    if(c.length)return c[0].id;
+function tgbHesapOner(e){
+  if(!e)return '';
+  const bul=k=>{
+    k=katla(k||'');
+    if(!k)return null;
+    const a=db.accounts.filter(x=>katla(x.name).indexOf(k)>=0);
+    return a.length?a[0].id:null;
+  };
+  /* 1) Takım kısaltması hesap adında geçiyor mu: "SDM" -> "Garanti SDM" */
+  const t=e.takimId?takim(e.takimId):null;
+  let r=bul(takimKisa(e.takimId));
+  if(r)return r;
+  /* 2) Şirketin adı ya da kısa adı hesap adında geçiyor mu */
+  const sirketId=(t&&t.companyId)||e.companyId||'';
+  const c=sirketId?comp(sirketId):null;
+  if(c){
+    r=bul(c.short)||bul(c.name);
+    if(r)return r;
+    /* 3) Adlar tutmuyorsa şirkete bağlı hesap: en güçlü ipucu bu,
+       çünkü her personelin şirketi ve her hesabın şirketi dolu. */
+    const s=db.accounts.filter(x=>x.companyId===sirketId);
+    if(s.length)return s[0].id;
   }
   return '';
 }
@@ -8234,7 +8246,7 @@ function tgbDosyaOku(file){
         s.neden=m.neden;
         const e=m.emp;
         s.kisa=e?takimKisa(e.takimId):'';
-        s.hesap=e?tgbHesapOner(s.kisa,e.takimId):'';
+        s.hesap=e?tgbHesapOner(e):'';
       });
       dlgState.veri=o;
       err('');
@@ -8259,7 +8271,7 @@ function tgbSatirlariTopla(){
     const kat=o.tur==='avans'?'Personel avansı':(o.tur==='maas'?'Maaş':o.kat);
     const r={i,ad:s.ad,tutar:s.tutar,empId:s.empId,hesap:s.hesap,neden:s.neden,
              tur:o.tur,kat,tarih:o.tarih,ay,izahat:s.izahat||o.izahat,
-             kisa:e?takimKisa(e.takimId):''};
+             kisa:e?takimKisa(e.takimId):'',grup:tgbGrup(e)};
     if(o.tur==='maas'&&e){
       /* Dosyadaki tutar bankaya giden NET tutardır. Kart maaşıyla
          arasındaki fark avans mahsubudur; açık avansı aşamaz.
@@ -8273,6 +8285,43 @@ function tgbSatirlariTopla(){
     r.zaten=r.empId?tgbVarMi(r):false;
     return r;
   });
+}
+/* Satırı hangi kovaya koyacağımız, hesabı belirleyen şeydir: önce
+   takım kısaltması, o yoksa şirket. Takımsız personelde hepsini tek
+   "kısaltmasız" kovasına atsaydık, toplu atama iki şirketi aynı
+   hesaba yazardı. */
+function tgbGrup(e){
+  if(!e)return '';
+  const k=takimKisa(e.takimId);
+  if(k)return k;
+  const c=comp(e.companyId);
+  return c?(c.name||''):'';
+}
+/* Grup başına tek seçim: otomatik öneri tutmadığında elli kişiyi tek
+   tek değiştirmek gerekiyordu. Buradaki seçim o gruptaki bütün
+   satırlara birden uygulanır. */
+function tgbGrupUygula(grup,hesapId){
+  const o=dlgState.veri;if(!o)return;
+  tgbSatirlariTopla();            /* elle yapılmış seçimleri koru */
+  o.satirlar.forEach((s,i)=>{
+    const e=s.empId?emp(s.empId):null;
+    if(!e||tgbGrup(e)!==grup)return;
+    s.hesap=hesapId;
+    /* Ekrandaki kutuyu da yaz: önizleme seçimleri DOM'dan geri
+       okuyor, yalnızca modeli değiştirmek hemen üzerine yazılıyordu. */
+    const sh=$('#tg-acc-'+i);
+    if(sh)sh.value=hesapId;
+  });
+  tgbOnizleme();
+}
+function tgbGruplar(rows){
+  const m={};
+  rows.forEach(r=>{
+    if(!r.empId)return;
+    const k=r.grup||'';
+    (m[k]=m[k]||[]).push(r);
+  });
+  return m;
 }
 function tgbOnizleme(){
   const kutu=$('#tg-prev');if(!kutu)return;
@@ -8296,7 +8345,7 @@ function tgbOnizleme(){
     '<td>'+esc(r.ad)+(r.neden&&r.empId&&r.neden!=='ad birebir'
       ?'<div class="muted sm">'+esc(r.neden)+'</div>':'')+'</td>'+
     '<td>'+empSec(r.i,r.empId)+'</td>'+
-    '<td>'+accSec(r.i,r.hesap)+(r.kisa?'<div class="muted sm">kısaltma: '+esc(r.kisa)+'</div>':'')+'</td>'+
+    '<td>'+accSec(r.i,r.hesap)+(r.grup?'<div class="muted sm">'+esc(r.grup)+'</div>':'')+'</td>'+
     '<td class="num"><b>'+money(r.tutar)+'</b></td>'+
     (maas?'<td class="num">'+(r.empId?money(r.kartMaas):'—')+
       (r.empId&&r.mahsup?'<div class="muted sm">'+money(r.mahsup)+' avans mahsup</div>':'')+
@@ -8308,6 +8357,21 @@ function tgbOnizleme(){
     '<td>'+(r.zaten?'<span class="badge">zaten kayıtlı, atlanacak</span>'
       :r.empId?(r.hesap?'<span class="badge ok">kaydedilecek</span>':'<span class="badge bad">hesap seçin</span>')
       :'<span class="badge bad">personel seçin</span>')+'</td></tr>';
+  /* Kısaltma başına hesap seçimi: üstte bir kez seçilir, o
+     kısaltmadaki bütün satırlara uygulanır. */
+  const gruplar=tgbGruplar(rows);
+  const grupAnahtar=Object.keys(gruplar).sort();
+  const grupSerit=grupAnahtar.length?'<div class="panel-h" style="padding:0;margin:10px 0;flex-wrap:wrap">'+
+    '<b class="sm">Hesap ataması:</b>'+
+    grupAnahtar.map((k,gi)=>{
+      const liste=gruplar[k];
+      const hep=liste.every(r=>r.hesap===liste[0].hesap)?liste[0].hesap:'';
+      return '<label class="muted sm" style="display:flex;gap:6px;align-items:center">'+
+        '<b>'+esc(k||'belirsiz')+'</b> ('+liste.length+')'+
+        '<select id="tg-grp-'+gi+'" data-grup="'+esc(k)+'" style="max-width:190px">'+
+        opt(db.accounts.map(a=>[a.id,a.name]),hep,hep?undefined:'— karışık / seçilmedi —')+
+        '</select></label>';
+    }).join('')+'</div>':'';
   kutu.innerHTML=
     '<div class="ro-banner" style="margin:10px 0"><b>'+esc(o.tipAd)+'</b> · '+esc(fmtDate(o.tarih))+
       (o.izahat?' · '+esc(o.izahat):'')+
@@ -8315,6 +8379,7 @@ function tgbOnizleme(){
       (o.bos&&o.bos.length?', '+o.bos.length+' satır atlandı (ad ya da tutar boş)':'')+
       (maas?' · maaş olarak işlenecek: hem gider hareketi hem maaş kaydı açılır'
            :' · “'+esc(o.tur==='avans'?'Personel avansı':o.kat)+'” gideri olarak işlenecek')+'</div></div>'+
+    grupSerit+
     '<div class="scroll" style="max-height:340px"><table><thead><tr>'+
       '<th>Dosyadaki ad</th><th>Personel</th><th>Ödeme hesabı</th><th class="num">Tutar</th>'+
       (maas?'<th class="num">Kart maaşı</th>':'')+'<th>Durum</th></tr></thead><tbody>'+
@@ -8325,7 +8390,9 @@ function tgbOnizleme(){
       (eksik.length?'<div class="kpi"><span>Eşleşmeyen</span><b class="out">'+eksik.length+'</b></div>':'')+
       (atlanan.length?'<div class="kpi"><span>Zaten kayıtlı</span><b>'+atlanan.length+'</b></div>':'')+
     '</div>'+
-    (hesapsiz.length?'<p class="hint">'+hesapsiz.length+' satırda ödeme hesabı seçili değil. Kısaltmaya uyan bir hesap bulunamadı; elle seçin.</p>':'')+
+    (hesapsiz.length?'<p class="hint">'+hesapsiz.length+' satırda ödeme hesabı seçili değil. '+
+      'Kısaltmaya ya da şirkete uyan bir hesap bulunamadı; yukarıdaki '+
+      '<b>Hesap ataması</b> bölümünden kısaltma başına tek seferde seçebilirsiniz.</p>':'')+
     (maas?'<p class="hint">Dosyadaki tutar bankaya giden <b>net</b> tutardır. Personel kartındaki maaşla arasındaki fark, açık avansı aşmamak kaydıyla <b>avans mahsubu</b> olarak yazılır.</p>':'');
 }
 function tgbYukle(){
@@ -9962,6 +10029,8 @@ function init(){
     if(el.id==='mut-file'){const f=el.files&&el.files[0];if(f)mutDosyaOku(f);return;}
     if(el.id==='hg-file'){const f=el.files&&el.files[0];if(f)hgsDosyaOku(f);return;}
     if(el.id==='tg-file'){const f=el.files&&el.files[0];if(f)tgbDosyaOku(f);return;}
+    if(dlgState.kind==='tgb'&&/^tg-grp-\d+$/.test(el.id||'')){
+      tgbGrupUygula(el.dataset.grup||'',el.value);return;}
     if(dlgState.kind==='tgb'&&/^tg-(emp|acc)-\d+$/.test(el.id||'')){tgbOnizleme();return;}
     if(el.id==='hg-asset'&&dlgState.kind==='hgs'){
       /* Araç elle değişti: personeli o aracın zimmetinden doldur */
