@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-c';
+const SURUM='15.10.2026-d';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -761,6 +761,14 @@ const mapAracKonum=r=>({assetId:r.asset_id,plaka:r.plaka||'',
   enlem:r.enlem,boylam:r.boylam,hiz:num(r.hiz),yon:r.yon,kontak:!!r.kontak,rolanti:!!r.rolanti,
   asiriHiz:!!r.asiri_hiz,adres:r.adres||'',surucu:r.surucu||'',kmSayaci:num(r.km_sayaci),
   veriAt:r.veri_at||'',gpsAt:r.gps_at||'',guncelAt:r.guncel_at||''});
+const mapFirsat=r=>({id:r.id,apptId:r.appointment_id||null,customerId:r.customer_id||null,
+  employeeId:r.employee_id||null,birimId:r.birim_id||null,durum:r.durum||'Takipte',
+  teklifTutar:num(r.teklif_tutar),sonFatura:num(r.son_fatura),
+  teklifTarihi:r.teklif_tarihi||'',sonrakiTakip:r.sonraki_takip||'',
+  kapanisNot:r.kapanis_not||'',kapanisTarihi:r.kapanis_tarihi||''});
+const mapFirsatTakip=r=>({id:r.id,firsatId:r.firsat_id,tarih:r.tarih||'',
+  durum:r.durum||'',aciklama:r.aciklama||'',sonrakiTakip:r.sonraki_takip||'',
+  createdBy:r.created_by||null,createdAt:r.created_at||''});
 const mapHgs=r=>({id:r.id,anahtar:r.anahtar||'',plaka:r.plaka||'',assetId:r.asset_id||null,
   employeeId:r.employee_id||null,tip:r.tip||'otoyol',tarih:r.tarih||'',
   girisAt:r.giris_at||'',cikisAt:r.cikis_at||'',girisIst:r.giris_ist||'',cikisIst:r.cikis_ist||'',
@@ -797,8 +805,9 @@ async function loadAll(zorla){
      iki istek atmamak için hiç sorulmuyor. */
   const krediIste=isMaster();
   const hgsIste=isFinans();
+  const firsatIste=!isMuhasebe();
   const [subs,leads,birimler,aracKonum,carpanlar,ayarlar,users,bugunku,havuz,katlar,donusum,
-         krediler,krediOdemeler,hgsGecis]=await Promise.all([
+         krediler,krediOdemeler,hgsGecis,firsatlar,firsatTakip]=await Promise.all([
     q('sale_subscriptions'),
     leadsGetir(zorla),
     q('birimler'),
@@ -816,7 +825,10 @@ async function loadAll(zorla){
     krediIste?bos(q('krediler')):Promise.resolve([]),
     krediIste?bos(q('kredi_odemeler')):Promise.resolve([]),
     /* 70 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
-    hgsIste?bos(q('hgs_gecis')):Promise.resolve([])]);
+    hgsIste?bos(q('hgs_gecis')):Promise.resolve([]),
+    /* 71 numaralı dosya çalıştırılmadıysa tablo yoktur; boş kalır. */
+    firsatIste?bos(q('firsatlar')):Promise.resolve([]),
+    firsatIste?bos(q('firsat_takip')):Promise.resolve([])]);
   katlariKur(katlar);
   donusumKur(donusum);
   const aracGunluk=_aracGunluk;           /* elde varsa korunur, yoksa boş */
@@ -852,7 +864,9 @@ async function loadAll(zorla){
     employees:employees.map(r=>({id:r.id,companyId:r.company_id,departmentId:r.department_id,
       name:r.name,title:r.title||'',bayiMuduru:!!r.bayi_muduru,
       ...(salMap[r.id]||SIFIR_HAK),
-      birimId:r.birim_id||null,cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
+      birimId:r.birim_id||null,takimLideriId:r.takim_lideri_id||null,
+      birimMuduruId:r.birim_muduru_id||null,
+      cikisTarihi:r.cikis_tarihi||'',cikisNedeni:r.cikis_nedeni||''})),
     accounts:accounts.map(r=>({id:r.id,name:r.name,type:r.type,companyId:r.company_id,opening:num(r.opening)})),
     transactions:transactions.map(r=>({id:r.id,date:r.date,dir:r.dir,accountId:r.account_id,category:r.category,
       amount:num(r.amount),companyId:r.company_id,departmentId:r.department_id,employeeId:r.employee_id,
@@ -889,6 +903,8 @@ async function loadAll(zorla){
     users:users.map(r=>({userId:r.user_id,email:r.email||'',role:r.role,employeeId:r.employee_id})),
     leads:leads.map(mapLead),
     hgs:hgsGecis.map(mapHgs),
+    firsatlar:firsatlar.map(mapFirsat),
+    firsatTakip:firsatTakip.map(mapFirsatTakip),
     krediler:krediler.map(mapKredi),
     krediOdemeler:krediOdemeler.map(mapKrediOdeme),
     havuz:havuz
@@ -944,7 +960,7 @@ function emptyDb(){
     products:[],warehouses:[],stock:[],
     sales:[],targets:[],customers:[],appointments:[],
     assets:[],repairs:[],users:[],leads:[],krediler:[],krediOdemeler:[],hgs:[],
-    aracKonum:[],aracGunluk:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
+    firsatlar:[],firsatTakip:[],aracKonum:[],aracGunluk:[],havuz:0,birimler:[],denetim:[],carpan:{NT:1.4,BASE:1},gelirCarpan:{NT:1.2,BASE:1},primCarpan:{NT:1,BASE:0.85},ayar:{saha_gunluk_potansiyel:15},bugunkuPotansiyel:0};
   donusumKur([]);        /* çıkışta önceki kullanıcının kümesi kalmasın */
   save();
 }
@@ -6154,6 +6170,226 @@ function potTable(){
     '<td class="nowrap">'+telBtn(l.telefon)+' <button class="btn sm" data-act="lead" data-id="'+l.id+'">Aç</button></td></tr>').join('')+
   '</tbody></table></div>'+nav;
 }
+
+/* ====================== FIRSAT TAKİBİ =============================
+   "Teklif verildi" ile kapatılan her randevu, veritabanındaki
+   tetikleyici sayesinde buraya kendiliğinden düşer (71-firsatlar.sql).
+   Elle ekleme adımı yoktur; ekranda "Fırsat ekle" düğmesi de yok.
+
+   Görünürlük sunucuda firsat_kapsamimda() ile kısıtlı: temsilci
+   kendi fırsatını, takım lideri takımınınkini (employees.takim_lideri_id),
+   birim müdürü biriminkini (employees.birim_muduru_id), bayi müdürü ve
+   master tümünü görür. Buradaki ekran yalnızca gelen veriyi gösterir.
+   ---------------------------------------------------------------- */
+const FIRSAT_DURUM=['Takipte','Satışa Döndü','Kayıp'];
+const FIRSAT_ROZET={'Takipte':'warn','Satışa Döndü':'ok','Kayıp':'bad'};
+const firsat=id=>byId(db.firsatlar,id);
+const firsatTakipleri=fid=>(db.firsatTakip||[]).filter(t=>t.firsatId===fid)
+  .sort((a,b)=>a.tarih<b.tarih?1:a.tarih>b.tarih?-1:(a.createdAt<b.createdAt?1:-1));
+const firsatSonTakip=fid=>firsatTakipleri(fid)[0]||null;
+/* Takibi gecikmiş fırsat: hâlâ takipteyken sonraki takip günü geçmiş */
+const firsatGecikti=f=>f.durum==='Takipte'&&!!f.sonrakiTakip&&f.sonrakiTakip<TODAY;
+const firsatBugun=f=>f.durum==='Takipte'&&f.sonrakiTakip===TODAY;
+/* Teklif sonrası bu müşteriye satış yapılmış mı? Durumu kendiliğinden
+   değiştirmiyoruz; yalnızca işaret koyup tek tıkla kapatma sunuyoruz. */
+function firsatSatisVar(f){
+  if(!f.customerId)return false;
+  return db.sales.some(s=>s.customerId===f.customerId&&(!f.teklifTarihi||s.date>=f.teklifTarihi));
+}
+function firsatListesi(){
+  const fl=state.firsat,q=trl(fl.q).trim();
+  let list=(db.firsatlar||[]).slice();
+  if(fl.durum)list=list.filter(f=>f.durum===fl.durum);
+  if(fl.emp)list=list.filter(f=>f.employeeId===fl.emp);
+  if(fl.odak==='geciken')list=list.filter(firsatGecikti);
+  else if(fl.odak==='bugun')list=list.filter(firsatBugun);
+  if(q)list=list.filter(f=>{const c=f.customerId?byId(db.customers,f.customerId):null,e=emp(f.employeeId);
+    const son=firsatSonTakip(f.id);
+    return trl([c?c.unvan:'',c?c.yetkili:'',e?e.name:'',f.kapanisNot,son?son.aciklama:''].join(' ')).includes(q);});
+  /* Önce takipte olanlar, içlerinde takibi en yakın olan üstte */
+  return list.sort((a,b)=>{
+    const aa=a.durum==='Takipte'?0:1,bb=b.durum==='Takipte'?0:1;
+    if(aa!==bb)return aa-bb;
+    const at=a.sonrakiTakip||'9999',bt=b.sonrakiTakip||'9999';
+    return at<bt?-1:at>bt?1:0;
+  });
+}
+/* Ekranda personel kutusunda yalnızca fırsatı görünen kişiler olsun */
+function firsatPersoneli(){
+  const m={};
+  (db.firsatlar||[]).forEach(f=>{const e=f.employeeId?emp(f.employeeId):null;if(e)m[e.id]=e;});
+  return Object.keys(m).map(k=>m[k]);
+}
+function firsatOzet(){
+  const l=db.firsatlar||[];
+  const takip=l.filter(f=>f.durum==='Takipte');
+  return {
+    takip:takip.length,
+    tutar:takip.reduce((t,f)=>t+f.teklifTutar,0),
+    geciken:l.filter(firsatGecikti).length,
+    bugun:l.filter(firsatBugun).length,
+    satis:l.filter(f=>f.durum==='Satışa Döndü').length,
+    satisTutar:l.filter(f=>f.durum==='Satışa Döndü').reduce((t,f)=>t+f.teklifTutar,0),
+    kayip:l.filter(f=>f.durum==='Kayıp').length
+  };
+}
+function firsatTablo(){
+  const list=firsatListesi();
+  if(!list.length)return '<div class="empty">Bu filtrede fırsat yok. Randevular “Teklif verildi” ile kapatıldıkça buraya kendiliğinden düşer.</div>';
+  const shown=list.slice(0,200);
+  return (list.length>shown.length?'<div class="panel-b muted sm">İlk 200 fırsat gösteriliyor; aramayı daraltın.</div>':'')+
+  '<div class="scroll"><table><thead><tr><th>Müşteri</th><th>Sorumlu</th>'+
+  '<th class="num">Teklif</th><th>Teklif tarihi</th><th>Durum</th><th>Sonraki takip</th>'+
+  '<th>Son takip notu</th><th></th></tr></thead><tbody>'+
+  shown.map(f=>{
+    const c=f.customerId?byId(db.customers,f.customerId):null,e=emp(f.employeeId);
+    const son=firsatSonTakip(f.id),gec=firsatGecikti(f),bug=firsatBugun(f);
+    return '<tr class="click" tabindex="0" data-act="firsat" data-id="'+f.id+'">'+
+      '<td><b>'+esc(c?c.unvan:'Silinmiş müşteri')+'</b>'+
+        (c&&c.yetkili?'<div class="muted sm">'+esc(c.yetkili)+'</div>':'')+
+        (f.durum==='Takipte'&&firsatSatisVar(f)?' <span class="badge ok">satış var</span>':'')+'</td>'+
+      '<td><div>'+esc(e?e.name:'—')+'</div><div class="muted sm">'+esc(e?((dept(e.departmentId)||{}).name||''):'')+'</div></td>'+
+      '<td class="num">'+(f.teklifTutar?money(f.teklifTutar):'—')+'</td>'+
+      '<td class="nowrap muted sm">'+(f.teklifTarihi?fmtDate(f.teklifTarihi):'—')+'</td>'+
+      '<td><span class="badge '+FIRSAT_ROZET[f.durum]+'">'+esc(f.durum)+'</span></td>'+
+      '<td class="nowrap'+(gec?' out':'')+'">'+(f.durum!=='Takipte'?'<span class="muted">—</span>'
+        :f.sonrakiTakip?fmtDate(f.sonrakiTakip)+(gec?' <span class="badge bad">gecikti</span>':bug?' <span class="badge warn">bugün</span>':'')
+        :'<span class="muted">—</span>')+'</td>'+
+      '<td class="muted sm">'+esc(son?son.aciklama:(f.kapanisNot||''))+'</td>'+
+      '<td class="num nowrap">'+
+        (f.durum==='Takipte'
+          ?'<button class="btn sm" data-act="firsat-takip" data-id="'+f.id+'">Takip ekle</button> '+
+           '<button class="btn sm danger" data-act="firsat-kayip" data-id="'+f.id+'">Kayıp</button>'
+          :'<button class="btn sm" data-act="firsat" data-id="'+f.id+'">Detay</button>')+
+      '</td></tr>';}).join('')+
+  '</tbody></table></div>';
+}
+function viewFirsat(){
+  const fl=state.firsat,o=firsatOzet();
+  if(!(db.firsatlar||[]).length)
+    return head('Fırsatlar','Teklif verilen müşterilerin takibi. Randevu “Teklif verildi” ile kapatıldığında fırsat kendiliğinden açılır.','')+
+      '<div class="panel"><div class="empty">Henüz fırsat yok. Bir randevuyu <b>Teklif verildi</b> sonucuyla kapattığınızda burada görünecek.</div></div>';
+  const odakBtn=(k,l,n)=>'<button class="btn sm" data-act="firsat-odak" data-v="'+k+'" aria-pressed="'+(fl.odak===k)+'">'+l+' ('+n+')</button>';
+  return head('Fırsatlar','Teklif verilen müşterilerin takibi. Randevu “Teklif verildi” ile kapatıldığında fırsat kendiliğinden açılır; elle eklemek gerekmez.','')+
+  '<div class="kpis">'+
+  '<div class="kpi"><span>Takipte</span><b>'+o.takip+'</b><span class="muted sm">'+money(o.tutar)+' teklif</span></div>'+
+  '<div class="kpi"><span>Takibi gecikmiş</span><b'+(o.geciken?' class="out"':'')+'>'+o.geciken+'</b></div>'+
+  '<div class="kpi"><span>Bugün aranacak</span><b>'+o.bugun+'</b></div>'+
+  '<div class="kpi"><span>Satışa dönen</span><b>'+o.satis+'</b><span class="muted sm">'+money(o.satisTutar)+'</span></div>'+
+  '<div class="kpi"><span>Kayıp</span><b>'+o.kayip+'</b></div></div>'+
+  '<section class="panel"><div class="panel-h">'+
+  '<input id="frq" type="search" placeholder="Müşteri, yetkili, personel veya not ara" value="'+esc(fl.q)+'" style="max-width:320px" aria-label="Ara">'+
+  '<div class="tools">'+
+  odakBtn('','Tümü',(db.firsatlar||[]).length)+
+  odakBtn('geciken','Gecikmiş',o.geciken)+
+  odakBtn('bugun','Bugün',o.bugun)+
+  '<select data-set="firsat.durum" aria-label="Durum">'+opt(FIRSAT_DURUM.map(d=>[d,d]),fl.durum,'Tüm durumlar')+'</select>'+
+  (firsatPersoneli().length>1?'<select data-set="firsat.emp" aria-label="Sorumlu">'+empOptGroups(firsatPersoneli(),fl.emp,'Tüm personel')+'</select>':'')+
+  '</div></div><div id="frlist">'+firsatTablo()+'</div></section>';
+}
+
+/* ---------------- Fırsat detayı ve takip ---------------- */
+function openFirsat(id){
+  const f=firsat(id);if(!f)return;
+  const c=f.customerId?byId(db.customers,f.customerId):null,e=emp(f.employeeId);
+  const a=f.apptId?byId(db.appointments,f.apptId):null;
+  const log=firsatTakipleri(id);
+  dlgState={kind:'firsat',id:id};
+  openDlg(dlgHtml(c?c.unvan:'Fırsat',
+    '<dl class="kv">'+
+    '<dt>Durum</dt><dd><span class="badge '+FIRSAT_ROZET[f.durum]+'">'+esc(f.durum)+'</span>'+
+      (f.durum==='Takipte'&&firsatSatisVar(f)?' <span class="badge ok">bu müşteriye satış görünüyor</span>':'')+'</dd>'+
+    '<dt>Sorumlu personel</dt><dd>'+esc(e?e.name:'—')+(e?' <span class="muted sm">'+esc((dept(e.departmentId)||{}).name||'')+'</span>':'')+'</dd>'+
+    (c&&c.yetkili?'<dt>Yetkili</dt><dd>'+esc(c.yetkili)+(c.telefon?' · '+esc(c.telefon):'')+'</dd>':'')+
+    '<dt>Teklif</dt><dd>'+(f.teklifTutar?money(f.teklifTutar):'—')+
+      (f.sonFatura?' <span class="muted sm">(son fatura '+money(f.sonFatura)+')</span>':'')+
+      (f.teklifTarihi?' <span class="muted sm">· '+fmtDate(f.teklifTarihi)+'</span>':'')+'</dd>'+
+    (f.durum==='Takipte'
+      ?'<dt>Sonraki takip</dt><dd'+(firsatGecikti(f)?' class="out"':'')+'>'+(f.sonrakiTakip?fmtDate(f.sonrakiTakip):'—')+(firsatGecikti(f)?' (gecikti)':'')+'</dd>'
+      :'<dt>Kapanış</dt><dd>'+(f.kapanisTarihi?fmtDate(f.kapanisTarihi):'—')+(f.kapanisNot?' · '+esc(f.kapanisNot):'')+'</dd>')+
+    (a&&a.desc?'<dt>Randevu notu</dt><dd class="muted sm">'+esc(a.desc)+'</dd>':'')+
+    '</dl>'+
+    '<section class="dsec"><h3>Takip geçmişi</h3>'+
+    (log.length
+      ?'<div class="scroll" style="max-height:34vh"><table><thead><tr><th>Tarih</th><th>Durum</th><th>Açıklama</th></tr></thead><tbody>'+
+       log.map(t=>'<tr><td class="nowrap">'+fmtDate(t.tarih)+'</td>'+
+         '<td>'+(t.durum?'<span class="badge '+(FIRSAT_ROZET[t.durum]||'')+'">'+esc(t.durum)+'</span>':'<span class="muted">—</span>')+'</td>'+
+         '<td>'+esc(t.aciklama||'—')+
+           (t.sonrakiTakip?'<div class="muted sm">Sonraki takip: '+fmtDate(t.sonrakiTakip)+'</div>':'')+'</td></tr>').join('')+
+       '</tbody></table></div>'
+      :'<div class="empty">Henüz takip kaydı yok.</div>')+
+    '</section><p class="err" id="fr-err"></p>',
+    '<button class="btn" data-act="close">Kapat</button>'+
+    (c?'<button class="btn" data-act="cust-info" data-id="'+c.id+'">Müşteri bilgileri</button>':'')+
+    (f.durum==='Takipte'
+      ?'<button class="btn danger" data-act="firsat-kayip" data-id="'+id+'">Kayıp olarak kapat</button>'+
+       '<button class="btn" data-act="firsat-satis" data-id="'+id+'">Satışa döndü</button>'+
+       '<button class="btn primary" data-act="firsat-takip" data-id="'+id+'">Takip ekle</button>'
+      :'<button class="btn" data-act="firsat-geri" data-id="'+id+'">Takibe geri al</button>')));
+}
+function openFirsatTakip(id){
+  const f=firsat(id);if(!f)return;
+  dlgState={kind:'firsattakip',id:id};
+  openDlg(dlgHtml('Takip ekle','<div class="fields">'+
+    '<div class="field"><label for="ft-tarih">Görüşme tarihi</label><input id="ft-tarih" type="date" value="'+TODAY+'"></div>'+
+    '<div class="field"><label for="ft-sonraki">Sonraki takip tarihi</label><input id="ft-sonraki" type="date" value="'+esc(gunEkle(TODAY,7))+'"></div>'+
+    '<div class="field full"><label for="ft-not">Görüşme notu</label>'+
+      '<textarea id="ft-not" rows="3" placeholder="Örn. Fiyatı değerlendiriyor, hafta sonu dönecek"></textarea></div>'+
+    '</div><p class="hint">Fırsat <b>Takipte</b> kalır, yalnızca geçmişe not düşülür ve sonraki takip tarihi güncellenir.</p>'+
+    '<p class="err" id="ft-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="save-firsat-takip" data-id="'+id+'">Takibi kaydet</button>'));
+}
+function saveFirsatTakip(id){
+  const f=firsat(id);if(!f)return;
+  const g=i=>{const el=$('#'+i);return el?el.value.trim():'';};
+  const err=m=>{$('#ft-err').textContent=m;};
+  const tarih=g('ft-tarih'),sonraki=g('ft-sonraki'),notu=g('ft-not');
+  if(!tarih)return err('Görüşme tarihini seçin.');
+  if(!notu)return err('Görüşme notunu yazın.');
+  run('ft-err',async()=>{
+    await ins('firsat_takip',{firsat_id:id,tarih:tarih,durum:null,
+      aciklama:notu,sonraki_takip:nz(sonraki)});
+    await upd('firsatlar',id,{sonraki_takip:nz(sonraki)});
+  },'Takip kaydedildi');
+}
+/* Kayıp kapatma TEK ADIM: durum + kısa not aynı pencerede, tek düğme */
+function openFirsatKayip(id){
+  const f=firsat(id);if(!f)return;
+  const c=f.customerId?byId(db.customers,f.customerId):null;
+  dlgState={kind:'firsatkayip',id:id};
+  openDlg(dlgHtml('Fırsatı kayıp olarak kapat',
+    '<p>“<b>'+esc(c?c.unvan:'Bu fırsat')+'</b>” kaybedildi olarak kapatılacak.'+
+      (f.teklifTutar?' Teklif tutarı '+money(f.teklifTutar)+'.':'')+'</p>'+
+    '<div class="fields"><div class="field full"><label for="fk-not">Kayıp nedeni (kısa not)</label>'+
+      '<textarea id="fk-not" rows="2" placeholder="Örn. Rakip daha düşük fiyat verdi"></textarea></div></div>'+
+    '<p class="hint">Kayıt silinmez; durumu <b>Kayıp</b> olur ve not takip geçmişine yazılır. Gerekirse detaydan tekrar takibe alabilirsiniz.</p>'+
+    '<p class="err" id="fk-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn danger" data-act="save-firsat-kayip" data-id="'+id+'">Kayıp olarak kapat</button>'));
+}
+function saveFirsatKayip(id){
+  const f=firsat(id);if(!f)return;
+  const notu=($('#fk-not')||{}).value.trim();
+  const err=m=>{$('#fk-err').textContent=m;};
+  if(!notu)return err('Kayıp nedenini kısaca yazın.');
+  run('fk-err',async()=>{
+    await upd('firsatlar',id,{durum:'Kayıp',kapanis_not:notu,kapanis_tarihi:TODAY,sonraki_takip:null});
+    await ins('firsat_takip',{firsat_id:id,tarih:TODAY,durum:'Kayıp',aciklama:notu,sonraki_takip:null});
+  },'Fırsat kayıp olarak kapatıldı');
+}
+function firsatDurumDegistir(id,durum,mesaj){
+  const f=firsat(id);if(!f)return;
+  run(null,async()=>{
+    const kapandi=durum!=='Takipte';
+    await upd('firsatlar',id,{durum:durum,
+      kapanis_tarihi:kapandi?TODAY:null,
+      kapanis_not:kapandi?f.kapanisNot:'',
+      sonraki_takip:kapandi?null:gunEkle(TODAY,7)});
+    await ins('firsat_takip',{firsat_id:id,tarih:TODAY,durum:durum,
+      aciklama:mesaj,sonraki_takip:kapandi?null:gunEkle(TODAY,7)});
+  },mesaj);
+}
 function viewPotansiyel(){
   const f=state.pot;
   const bende=potFiltre('bende').length,tekrar=potFiltre('tekrar').length;
@@ -6940,10 +7176,10 @@ function delKrediOdeme(id){
   },'Ödeme silindi');
 }
 
-const VIEWS={anasayfa:viewAnasayfa,ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,harita:viewHarita,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim,kredi:viewKredi};
+const VIEWS={anasayfa:viewAnasayfa,ozet:viewOzet,kasa:viewKasa,maas:viewMaas,urun:viewUrun,stok:viewStok,arac:viewArac,harita:viewHarita,satis:viewSatis,hedef:viewHedef,musteri:viewMusteri,potansiyel:viewPotansiyel,randevu:viewRandevu,zimmet:viewZimmet,personel:viewPersonel,org:viewOrg,rapor:viewRapor,kullanici:viewKullanici,denetim:viewDenetim,kredi:viewKredi,firsat:viewFirsat};
 const NAV=[
   {g:'',items:[['anasayfa','Ana sayfa'],['ozet','Genel bakış']]},
-  {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular']]},
+  {g:'Müşteri',items:[['potansiyel','Potansiyel müşteriler'],['musteri','Müşteriler'],['randevu','Randevular'],['firsat','Fırsatlar']]},
   {g:'Satış',items:[['satis','Satışlar'],['hedef','Satış hedefleri']]},
   {g:'Saha',items:[['arac','Araç takip'],['harita','Harita']]},
   {g:'Envanter',items:[['urun','Ürünler'],['stok','Stok ve depo'],['zimmet','Envanter ve zimmet']]},
@@ -7805,6 +8041,12 @@ function openEmp(id){
     '<div class="field full"><label for="p-birim">Bağlı olduğu birim</label><select id="p-birim">'+
       opt((db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)).map(b=>[b.id,b.name+((emp(b.mudurId)||{}).name?' — '+(emp(b.mudurId)||{}).name:'')]),e?(e.birimId||''):'','Birime bağlı değil')+
       '</select></div>'+
+    /* Hiyerarşi: fırsat görünürlüğü bu iki alandan okunur.
+       Boş bırakılırsa birim yapısındaki eski kapsam geçerli olur. */
+    '<div class="field"><label for="p-tlider">Takım lideri</label><select id="p-tlider">'+
+      empSecim(e?(e.takimLideriId||''):'','Takım lideri yok',aktifPersonel().filter(x=>!e||x.id!==e.id))+'</select></div>'+
+    '<div class="field"><label for="p-bmudur">Birim müdürü</label><select id="p-bmudur">'+
+      empSecim(e?(e.birimMuduruId||''):'','Birim müdürü yok',aktifPersonel().filter(x=>!e||x.id!==e.id))+'</select></div>'+
     '<div class="field"><label for="p-title">Unvan</label><input id="p-title" type="text" value="'+esc(e?e.title:'')+'"></div><div class="field"><label for="p-salary">Net maaş (₺)</label><input id="p-salary" type="number" min="0" step="1" value="'+(e?e.salary:'')+'"></div>'+
     /* Düzenli ek ödemeler. Ödeme penceresinde hazır gelir; orada
        değiştirilebilir, kart değişmez. */
@@ -7815,7 +8057,7 @@ function openEmp(id){
     '<div class="field"><label for="p-ekodeme">Ek ödeme (₺)</label><input id="p-ekodeme" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekOdeme?e.ekOdeme:'')+'" placeholder="0"></div>'+
     '<div class="field"><label for="p-ekprim">Prim (₺)</label><input id="p-ekprim" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekPrim?e.ekPrim:'')+'" placeholder="0"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
-    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar.</p>'+
+    '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar. <b>Takım lideri</b> ve <b>birim müdürü</b> alanları fırsat görünürlüğünü belirler: bu kişinin fırsatlarını burada yazan yöneticiler görür. Boş bırakılırsa birim yapısındaki kapsam geçerli olur.</p>'+
     (e&&ayrildi(e)?'<div class="ro-banner"><b>Bu personel işten ayrıldı.</b><div class="sm">Çıkış tarihi: '+fmtDate(e.cikisTarihi)+(e.cikisNedeni?' · '+esc(e.cikisNedeni):'')+'</div>'+
       '<div class="sm">Kayıtları duruyor, yeni satış ve randevu listelerinde görünmüyor.</div></div>':'')+
     '<p class="err" id="p-err"></p>',
@@ -7836,8 +8078,11 @@ function saveEmp(){
   if(!(salary>=0))return err('Net maaşı girin.');
   for(const [ad,v] of [['Ticket',ticket],['Yol parası',yol],['Ek ödeme',ekOdeme],['Prim',ekPrim]])
     if(!(v>=0))return err(ad+' tutarı negatif olamaz.');
+  const tl=nz(($('#p-tlider')||{}).value),bm=nz(($('#p-bmudur')||{}).value);
+  if(id&&(tl===id||bm===id))return err('Personel kendi takım lideri veya birim müdürü olamaz.');
   const row={name,company_id:$('#p-company').value,department_id:deptId,
              birim_id:nz($('#p-birim').value),
+             takim_lideri_id:tl,birim_muduru_id:bm,
              title:$('#p-title').value.trim(),bayi_muduru:bayi};
   run('p-err',async()=>{
     // Bayi Müdürü tek kişi: önce diğerlerinden yetkiyi al
@@ -8399,6 +8644,8 @@ const EKRAN_YETKI={
   /* Büyük düğmeli ana sayfa yalnızca saha personelinde */
   anasayfa :()=>isSaha(),
   potansiyel:()=>!isMuhasebe(),
+  /* Fırsat, teklif verilen müşterinin takibidir; muhasebeyi ilgilendirmez */
+  firsat   :()=>!isMuhasebe(),
   randevu  :()=>!isMuhasebe(),
   arac     :()=>!isSaha()&&takipliAraclar().length>0,
   /* Harita saha yönlendirmesi içindir; satış destek saha işi yapmıyor */
@@ -8803,6 +9050,14 @@ const actions={
   'save-cikis'(el){saveCikis(el.dataset.id);},
   'emp-geri'(el){geriAl(el.dataset.id);},
   'per-ayrilan'(){state.perAyrilan=!state.perAyrilan;render();},
+  firsat(el){openFirsat(el.dataset.id);},
+  'firsat-odak'(el){state.firsat.odak=el.dataset.v;render();},
+  'firsat-takip'(el){openFirsatTakip(el.dataset.id);},
+  'save-firsat-takip'(el){saveFirsatTakip(el.dataset.id);},
+  'firsat-kayip'(el){openFirsatKayip(el.dataset.id);},
+  'save-firsat-kayip'(el){saveFirsatKayip(el.dataset.id);},
+  'firsat-satis'(el){firsatDurumDegistir(el.dataset.id,'Satışa Döndü','Fırsat satışa döndü olarak işaretlendi');},
+  'firsat-geri'(el){firsatDurumDegistir(el.dataset.id,'Takipte','Fırsat yeniden takibe alındı');},
   'open-kredi'(el){openKredi(el.dataset.id||null);},
   'save-kredi'(){saveKredi();},
   'kredi-detay'(el){openKrediDetay(el.dataset.id);},
@@ -8874,7 +9129,7 @@ const actions={
 };
 const gunOnce=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 function defaultState(){
-  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:'',cat:'',prod:'',bas:'',bit:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),kredi:{kapsam:'gelecek'},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
+  return {view:ilkEkran(),period:defaultPeriod(),dim:'departman',gpKirilim:'personel',kasa:{account:'all',q:'',dir:'all',cat:''},payMonth:TODAY.slice(0,7),assetType:'all',navAcik:'',inv:{q:''},aracQ:'',arac:{bas:TODAY,bit:TODAY},hrt:{sekme:'canli',emp:'',katArac:true,katRnd:true,bas:gunOnce(30),bit:TODAY},prod:{q:'',cat:''},stok:{q:'',wh:'',status:'',prod:''},sat:{group:'personel',q:'',emp:'',cat:'',prod:'',bas:'',bit:''},cust:{q:''},perAyrilan:false,invPasif:false,den:{q:'',kul:'',tablo:'',islem:'',bas:'',bit:'',finans:false,yuklendi:false,hata:''},pot:{q:'',durum:'',emp:'',page:0,sekme:(me&&(isSaha()||isDestek()))?'ekledigim':'bende'},rand:{status:'',emp:'',q:'',odak:''},xlAy:defaultPeriod(),kredi:{kapsam:'gelecek'},firsat:{q:'',durum:'',emp:'',odak:''},rep:{company:'',dept:'',emp:'',cat:'',group:'departman'}};
 }
 
 /* Tüm yazma eylemleri sunucuya bağlandı */
@@ -8968,6 +9223,7 @@ function init(){
       const pre=el.id.split('-')[0];
       dlgState.apDup=false;dlgState.slDup=false;
       hizliBenzerYenile(pre);}
+    else if(el.id==='frq'){state.firsat.q=el.value;const box=$('#frlist');if(box)box.innerHTML=firsatTablo();}
     else if(el.id==='rq'){state.rand.q=el.value;const box=$('#randlist');if(box)box.innerHTML=randListe();}
     else if((el.id==='c-unvan'||el.id==='c-tel'||el.id==='c-vkn'||el.id==='c-yetkili'||el.id==='c-adres')&&dlgState.kind==='cust'){
       dlgState.dupConfirmed=false;const b=$('#c-benzer');if(b)b.innerHTML='';}
