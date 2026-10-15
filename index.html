@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-y';
+const SURUM='15.10.2026-z';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -6293,9 +6293,28 @@ function openLead(id){
     (!id&&limitVarMi()
       ?'<p class="hint">Bugün <b>'+kalanHak()+'</b> kayıt hakkınız kaldı (günlük sınır '+gunlukLimit()+').</p>'
       :'')+
+    /* Havuzu olmayan kişinin kaydı hiçbir telesatış takımına
+       düşmüyor ve sessizce kayboluyordu; artık giriş anında
+       söylüyoruz. */
     (!id&&havuzaDuser()
-      ?'<p class="hint">Bu kayıt <b>takımınızın havuzuna</b> eklenecek; telesatış sırası geldiğinde arayacak.'+
-        (isSaha()?' Randevu alınırsa randevu otomatik olarak <b>size</b> atanır.':'')+'</p>'
+      ?(havuzTakimim()
+        ?'<p class="hint">Bu kayıt <b>'+esc(takimAdi(havuzTakimim()))+'</b> havuzuna eklenecek; '+
+          'telesatış sırası geldiğinde arayacak.'+
+          (isSaha()?' Randevu alınırsa randevu otomatik olarak <b>size</b> atanır.':'')+'</p>'
+        :(function(){
+           /* İki ayrı sebep, iki ayrı çözüm: ya takım yok, ya da
+              takım bir telesatış havuzuna eşlenmemiş. */
+           const be=me.employeeId?emp(me.employeeId):null;
+           const bt=be&&be.takimId?takim(be.takimId):null;
+           return '<p class="hint"><b>Dikkat:</b> bu kayıt hiçbir telesatış havuzuna '+
+             'düşmeyecek ve kimse arayamayacak. '+
+             (bt
+               ? 'Takımınız (<b>'+esc(bt.ad||'')+'</b>) bir telesatış havuzuna eşlenmemiş. '+
+                 'Yöneticinizden Şirket ve birimler → Takımlar bölümünde bu takımın '+
+                 '<b>Havuz</b> alanını doldurmasını isteyin.'
+               : 'Personel kartınızda <b>Takım</b> alanı boş. Yöneticinizden doldurmasını isteyin.')+
+             '</p>';
+         })())
       :'')+
     (id&&v.telefon?'<p class="hint">Aramak için: '+telBtn(v.telefon,'☎ '+esc(v.telefon)+' — ara')+'</p>':'')+
     (id&&!v.customerId?sonucDugmeleri(id):'')+
