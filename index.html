@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-s';
+const SURUM='15.10.2026-t';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1159,20 +1159,30 @@ function relCell(t){
 /* Saha satışçısı mı?
    Önce kullanıcı rolüne bakılır (görülebiliyorsa), yoksa departman
    adına. Departman adında "saha" geçen personel saha sayılır. */
+/* Kişi hangi tarafta çalışıyor? Önce TAKIMININ TÜRÜ, takımı yoksa
+   departman adı. Rol artık ayrım taşımıyor (tek "Takım lideri"). */
+function takimTuru(e){
+  const t=e&&e.takimId?takim(e.takimId):null;
+  if(t)return t.tur;
+  const d=trl((dept(e&&e.departmentId)||{}).name||'');
+  return d.indexOf('telesat')>=0?'telesatis':(d.indexOf('saha')>=0?'saha':'');
+}
+const telesatisTarafi=e=>takimTuru(e)==='telesatis';
+const sahaTarafi=e=>takimTuru(e)==='saha';
 function sahaPersoneliMi(e){
   if(!e)return false;
-  /* Birim müdürleri ve Bayi Müdürü saha personeli sayılmaz */
+  /* Bayi Müdürü ve takım liderleri "saf saha ekibi" sayılmaz */
   if(e.bayiMuduru)return false;
-  if((db.birimler||[]).some(b=>b.mudurId===e.id||b.tliderId===e.id))return false;
-  const u=(db.users||[]).find(x=>x.employeeId===e.id);
-  if(u&&u.role)return rolAdi(u.role)==='saha';
-  return trl((dept(e.departmentId)||{}).name||'').indexOf('saha')>=0;
+  if((db.takimlar||[]).some(t=>t.liderId===e.id))return false;
+  return sahaTarafi(e);
 }
 /* Birim müdürü yalnızca saha personelini görür */
+/* Saha takım lideri saha tarafını, telesatış lideri telesatış
+   tarafını görür; ikisi de kendini listede tutar. */
 const ekipSuzgeci=list=>{
   if(isUst()||isMuhasebe())return list;
-  if(isBirim())return list.filter(sahaPersoneliMi);
-  if(isTLider())return list.filter(e=>telesatisciMi(e.id));
+  if(isBirim())return list.filter(e=>sahaTarafi(e)||e.id===me.employeeId);
+  if(isTLider())return list.filter(e=>telesatisTarafi(e)||e.id===me.employeeId);
   return list;
 };
 function birimOzetKpi(list,p){
@@ -1187,45 +1197,50 @@ function birimOzetKpi(list,p){
     puan,prim,satisAdet:ss.length
   };
 }
-function digerBirimler(p,kendi){
-  const list=(db.birimler||[]).filter(b=>b.id!==kendi);
+function digerTakimlar(p,kendi){
+  const list=(db.takimlar||[]).filter(t=>t.id!==kendi)
+    .slice().sort((a,b)=>String(a.ad||'').localeCompare(String(b.ad||''),'tr',SAYISAL));
   if(!list.length)return '';
-  const satir=b=>{
-    const ekip=ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===b.id));
+  const satir=t=>{
+    const ekip=aktifPersonel().filter(e=>e.takimId===t.id);
     if(!ekip.length)return '';
-    return '<tr><td><div>'+esc(b.name)+'</div><div class="muted sm">'+ekip.length+' personel</div></td>'+
+    return '<tr><td><div>'+esc(t.ad||'')+'</div><div class="muted sm">'+
+      esc(t.tur==='saha'?'Saha':'Telesatış')+' · '+ekip.length+' personel</div></td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(ekip,k,p)+'</td>').join('')+'</tr>';
   };
   const satirlar=list.map(satir).join('');
   if(!satirlar)return '';
-  return '<section class="panel"><div class="panel-h"><h2>Diğer birimler</h2>'+
+  return '<section class="panel"><div class="panel-h"><h2>Diğer takımlar</h2>'+
     '<span class="muted sm">Yalnızca toplam gerçekleşme</span></div>'+
-    '<div class="scroll"><table><thead><tr><th>Birim</th>'+
+    '<div class="scroll"><table><thead><tr><th>Takım</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
     satirlar+'</tbody></table></div>'+
-    '<div class="panel-b"><p class="hint">Diğer birimlerin personel detayları size kapalıdır; yalnızca birim toplamları görünür.</p></div></section>';
+    '<div class="panel-b"><p class="hint">Diğer takımların personel detayları size kapalıdır; yalnızca takım toplamları görünür.</p></div></section>';
 }
 function viewOzetBirim(){
-  const p=state.period,hepsi=isUst();          /* bayi müdürü: tüm birimler */
-  const bid=hepsi?null:birimKapsamim();
-  const birim=bid?byId(db.birimler,bid):null;
-  const ekip=hepsi?aktifPersonel():ekipSuzgeci(aktifPersonel().filter(e=>e.birimId===bid));
+  const p=state.period,hepsi=isUst();          /* bayi müdürü: tüm takımlar */
+  /* Kapsam takımdan geliyor (73/74): lideri olduğum takımdaki herkes.
+     Önceden birim_id'ye bakıyordu; takıma atanmış ama birimi boş
+     kalan personel ekipte görünmüyordu. */
+  const tid=hepsi?null:takimKapsamim();
+  const takimim=tid?takim(tid):null;
+  const ekip=hepsi?aktifPersonel():ekipSuzgeci(aktifPersonel().filter(e=>ekipte(e.id)));
   const k=birimOzetKpi(ekip,p);
   const ss=salesIn(p);
   const perfRows=ekip.slice().sort(personelSirasi).map(e=>{
-    const bi=e.birimId?byId(db.birimler,e.birimId):null;
+    const bi=e.takimId?takim(e.takimId):null;
     const my=ss.filter(x=>x.employeeId===e.id);
     const rnd=db.appointments.filter(a=>inPeriod(a,p)&&!iptalMi(a)&&alanOf(a)===e.id);
     const acik=db.appointments.filter(a=>a.employeeId===e.id&&a.status==='Açık').length;
     return '<tr><td><div>'+esc(empAd(e))+'</div><div class="muted sm">'+
-      esc([(bi?bi.name:''),((dept(e.departmentId)||{}).name||'')].filter(Boolean).join(' · '))+'</div></td>'+
+      esc([(bi?bi.ad:''),((dept(e.departmentId)||{}).name||'')].filter(Boolean).join(' · '))+'</div></td>'+
       '<td class="num">'+acik+'</td><td class="num">'+rnd.length+'</td>'+
       '<td class="num">'+my.length+'</td><td class="num"><b>'+nf.format(my.reduce((a,x)=>a+x.puan,0))+'</b></td>'+
       (primGor()?'<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td>':'')+'</tr>';
   }).join('');
   return head('Genel bakış',
-    hepsi?'Tüm birimlerin hedefleri, randevuları ve performansı.'
-         :(birim?birim.name+' birimi':'Biriminiz')+' — saha satış ekibinin hedefleri, randevuları ve performansı.',periodSel())+
+    hepsi?'Tüm takımların hedefleri, randevuları ve performansı.'
+         :(takimim?takimim.ad+' takımı':'Takımınız')+' — ekibin hedefleri, randevuları ve performansı.',periodSel())+
   '<div class="kpis">'+
     '<div class="kpi"><span>'+(hepsi?'Personel':'Ekip personeli')+'</span><b>'+ekip.length+'</b></div>'+
     '<div class="kpi"><span>Açık randevu</span><b>'+k.acik+'</b></div>'+
@@ -1236,17 +1251,21 @@ function viewOzetBirim(){
   '</div>'+
   '<div class="stack">'+
   kapamaPaneli(hepsi?aktifPersonel():ekip)+
-  (hepsi?genelToplamBolumu(ekip,(db.birimler||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'tr',SAYISAL)),p):'')+
+  (hepsi?genelToplamBolumu(ekip,
+      (db.takimlar||[]).slice()
+        .sort((a,b)=>String(a.ad||'').localeCompare(String(b.ad||''),'tr',SAYISAL))
+        .map(t=>({ad:t.ad||'',list:ekip.filter(e=>e.takimId===t.id)})),
+      p,'Takım karşılaştırması','Takım'):'')+
   (ekip.length
-    ?(hepsi?'':hedefGrubu(birim?birim.name:'Biriminiz',
-        'Saha satış ekibi · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p))+
+    ?(hepsi?'':hedefGrubu(takimim?takimim.ad:'Takımınız',
+        'Takım · hedef ve gerçekleşme — '+(p==='all'?'tüm dönemler':monthLabel(p)),ekip,p))+
      '<section class="panel"><div class="panel-h"><h2>Ekip performansı</h2>'+
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
        '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
        (primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
-    :'<div class="empty">Biriminize bağlı saha satış personeli bulunamadı. Yöneticinizden personelin birim ve departman atamasını kontrol etmesini isteyin.</div>')+
-  (hepsi?'':digerBirimler(p,bid))+
+    :'<div class="empty">Takımınıza bağlı personel bulunamadı. Yöneticinizden Şirket ve birimler sayfasındaki takım atamalarını kontrol etmesini isteyin.</div>')+
+  (hepsi?'':digerTakimlar(p,tid))+
   '</div>';
 }
 function viewOzet(){
@@ -2029,12 +2048,15 @@ function viewHarita(){
   if(!f.katArac&&!f.katRnd)f.katRnd=true;
 
   /* Süzgeç iki katmanı birden kapsar: kişinin hem aracı hem randevuları */
+  /* Harita saha işidir: listede yalnızca saha tarafındaki personel
+     olsun. Randevuyu alan telesatışçılar alan_id üzerinden listeye
+     giriyordu, haritada aranacak bir şeyleri yok. */
   const kisiler=uniq(list.map(a=>a.holderId)
       .concat(acikRnd.map(a=>a.employeeId))
       .concat(acikRnd.map(a=>a.alanId))
       .filter(Boolean))
-    .map(id=>[id,(emp(id)||{}).name||''])
-    .filter(x=>x[1])
+    .map(id=>emp(id)).filter(e=>e&&e.name&&!telesatisTarafi(e))
+    .map(e=>[e.id,empAd(e)])
     .sort((a,b)=>a[1].localeCompare(b[1],'tr',SAYISAL));
   haritaCiz();
 
@@ -3540,14 +3562,14 @@ function hedefGrubu(baslik,altBaslik,list,period,toplamGoster){
       HEDEF_KATS.map(k=>'<td class="num">'+hedefCell(e.id,k,period)+'</td>').join('')+'</tr>').join('')+
     '</tbody></table></div></section>';
 }
-/* Birimleri yan yana karşılaştıran özet tablo */
-function genelToplamBolumu(gorunur,birimler,period){
-  const gruplar=birimler.map(b=>({ad:b.name,list:gorunur.filter(e=>e.birimId===b.id)}))
-    .filter(g=>g.list.length);
+/* Grupları yan yana karşılaştıran özet tablo. Grupları çağıran
+   hazırlar: Genel bakış takımlara, Hedefler birimlere göre. */
+function genelToplamBolumu(gorunur,hamGruplar,period,baslik,kolon){
+  const gruplar=hamGruplar.filter(g=>g.list.length);
   if(gruplar.length<2)return '';
-  return '<section class="panel"><div class="panel-h"><h2>Birim karşılaştırması</h2>'+
+  return '<section class="panel"><div class="panel-h"><h2>'+esc(baslik||'Karşılaştırma')+'</h2>'+
     '<span class="muted sm">'+(period==='all'?'Tüm dönemler':monthLabel(period))+'</span></div>'+
-    '<div class="scroll"><table><thead><tr><th>Birim</th>'+
+    '<div class="scroll"><table><thead><tr><th>'+esc(kolon||'Grup')+'</th>'+
     HEDEF_KATS.map(k=>'<th class="num">'+esc(k.name)+'</th>').join('')+'</tr></thead><tbody>'+
     '<tr class="total-top"><td>Genel toplam</td>'+
       HEDEF_KATS.map(k=>'<td class="num">'+toplamHucre(gorunur,k,period)+'</td>').join('')+'</tr>'+
@@ -3591,7 +3613,9 @@ function viewHedef(){
   const katBtn=isFinans()?'<button class="btn" data-act="open-hedefkats">Kategoriler</button>':'';
   return head('Satış hedefleri','Önce birim toplamları, altında birim birim personel hedefleri. Hedefler aya bağlıdır: bir hücreye tıklayıp seçili ayın hedefini girin, sonraki aylar yenisi girilene kadar o hedefi devralır. ↳ imi, değerin önceki bir aydan devrettiğini gösterir.'+(state.period==='all'?' Düzenlemek için bir ay seçin.':''),periodSel()+katBtn)+
   '<div class="stack">'+
-  (birimler.length>1?genelToplamBolumu(gorunur,birimler,p):'')+
+  (birimler.length>1?genelToplamBolumu(gorunur,
+      birimler.map(b=>({ad:b.name,list:gorunur.filter(e=>personelBirimi(e)===b.id)})),
+      p,'Birim karşılaştırması','Birim'):'')+
   (bloklar||'<div class="empty">Henüz birim tanımlanmadı. Şirket ve birimler sayfasından birim ekleyip personeli birimlere bağlayın.</div>')+
   hedefGrubu('Birime bağlı olmayan personel','Bu kişileri Personel sayfasından bir birime bağlayın',birimsiz,p)+
   '</div>'+
@@ -3825,7 +3849,27 @@ function haftaBasi(){
   d.setDate(d.getDate()-((d.getDay()+6)%7));
   return d;
 }
-function ayniBirim(x){return !!x&&x.birimId!=null&&x.birimId===birimKapsamim();}
+/* Bu takımın lideri miyim? Sunucudaki takim_liderimmi() ile aynı. */
+function takimLiderimMi(tid){
+  if(!tid||!me||!me.employeeId)return false;
+  return (db.takimlar||[]).some(t=>t.id===tid&&t.liderId===me.employeeId);
+}
+/* Kaydı giren kullanıcının personel kaydı (sunucu: kayit_eden_emp) */
+function kayitEdenEmp(uid){
+  const u=uid?(db.users||[]).find(x=>x.userId===uid):null;
+  return u?(u.employeeId||null):null;
+}
+/* Müşteri ekibimin işi mi? Sunucudaki cu_sel/cu_upd ile aynı kural (74):
+   sahası ekibimden biri, kaydı ekibimden biri girmiş ya da randevusunu
+   ekibimden biri almış olacak. Birim kapsamı kalktı; "aynı birim"
+   ölçütü takıma atanmış personelde yanlış sonuç veriyordu. */
+function ekipMusterisi(c){
+  if(!c||!me||!me.employeeId)return false;
+  if(ekipte(c.sahaId))return true;
+  if(ekipte(kayitEdenEmp(c.createdBy)))return true;
+  return db.appointments.some(a=>a.customerId===c.id&&
+    (ekipte(a.employeeId)||ekipte(alanOf(a))));
+}
 /* Bu müşteri benim işim mi? Randevusunu ben aldıysam ya da satışını
    ben yaptıysam evet. Telesatışçı yalnızca bunlara erişir; birimdeki
    diğer müşteriler ona kapalıdır. */
@@ -3835,9 +3879,8 @@ function kendiMusterim(c){
       || db.sales.some(x=>x.customerId===c.id&&x.employeeId===me.employeeId);
 }
 function duzenlenebilirMusteri(c){
-  if(isUst()||isMuhasebe()||isDestek()||capraz())return true;
-  if(caprazMusteri(c))return true;
-  if((isBirim()||isTLider())&&ayniBirim(c))return true;
+  if(isUst()||isMuhasebe()||isDestek())return true;
+  if((isBirim()||isTLider())&&ekipMusterisi(c))return true;
   if(isTelesatis()&&kendiMusterim(c))return true;
   if(!c||!c.createdAt||c.createdBy!==me.userId)return false;
   return new Date(c.createdAt)>=haftaBasi();
@@ -3845,7 +3888,7 @@ function duzenlenebilirMusteri(c){
 /* Onay bekleyen müşteriyi kim onaylayabilir */
 function onaylayabilir(c){
   if(!c||c.onay!=='bekliyor')return false;
-  return isUst()||(isBirim()&&ayniBirim(c));
+  return isUst()||(isBirim()&&ekipMusterisi(c));
 }
 function onayRozet(c){
   if(!c||c.onay==='onayli')return '';
@@ -5494,10 +5537,9 @@ const excelYetkisi=()=>isUst()||isMuhasebe()||isBirim()||isTLider();
    İşten ayrılanlar kapsamda kalır; geçmiş kayıtları aktarılabilsin. */
 function xlKapsam(){
   if(isUst()||isMuhasebe())return null;            /* tümü */
-  const bid=birimKapsamim();
-  let list=tumPersonel();
-  if(bid)list=list.filter(e=>e.birimId===bid);
-  if(isTLider())list=list.filter(e=>telesatisciMi(e.id));
+  /* Kapsam takımdan geliyor: lideri olduğum takımdaki herkes ve ben.
+     İşten ayrılanlar da kalsın diye tumPersonel() üzerinden bakılıyor. */
+  const list=tumPersonel().filter(e=>ekipte(e.id));
   return new Set(list.map(e=>e.id));
 }
 const xlAyi=()=>(state&&state.xlAy!==undefined)?state.xlAy:'all';
@@ -6208,7 +6250,7 @@ function openLead(id){
   const v=id?(lead(id)||{}):{durum:'Yeni',atananId:me.employeeId||''};
   dlgState={kind:'lead',id:id||null};
   const atanabilir=v.atananId||'';
-  const silinebilir=id&&(isUst()||((isBirim()||isTLider())&&ayniBirim(v))||v.atananId===me.employeeId||v.createdBy===me.userId);
+  const silinebilir=id&&(isUst()||takimLiderimMi(v.takimId)||v.atananId===me.employeeId||v.createdBy===me.userId);
   openDlg(dlgHtml(id?'Potansiyel müşteri':'Potansiyel müşteri ekle','<div class="fields">'+
     '<div class="field full"><label for="l-unvan">Firma ünvanı</label><input id="l-unvan" type="text" value="'+esc(v.unvan||'')+'" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
     '<div class="field"><label for="l-yetkili">Yetkili adı soyadı</label><input id="l-yetkili" type="text" value="'+esc(v.yetkili||'')+'" placeholder="Örn. Ahmet Yılmaz"></div>'+
@@ -8566,12 +8608,6 @@ function openBirim(id){
     '<div class="field"><label for="bi-company">Şirket</label><select id="bi-company">'+companyOptions(v.companyId)+'</select></div>'+
     '<div class="field"><label for="bi-mudur">Birim müdürü</label><select id="bi-mudur">'+empSecim(v.mudurId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
     '<div class="field"><label for="bi-tlider">Telesatış takım lideri</label><select id="bi-tlider">'+empSecim(v.tliderId||'','Seçilmedi',aktifPersonel())+'</select></div>'+
-    '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400">'+
-      '<input id="bi-capraz" type="checkbox" style="width:auto"'+(v.capraz?' checked':'')+'>'+
-      ' Tüm birimlere hizmet veren ekip</label>'+
-      '<p class="hint" style="margin-top:4px">İşaretlenirse bu birimin personeli bütün birimlerin müşterilerini görür, '+
-      'düzenler ve onlara randevu alabilir; takım lideri de birimin tamamını kapsar. '+
-      'Potansiyel müşteri havuzu yine yalnızca bu birime aittir.</p></div>'+
     '</div>'+
     '<p class="hint">Seçtiğiniz kişilerin kullanıcı yetkisini Kullanıcılar sayfasından “Birim müdürü” ve “Telesatış takım lideri” yapmayı unutmayın; yetki oradan gelir. Birim müdürü birimin saha ekibini, takım lideri telesatış ekibini yönetir.</p>'+
     (ekip.length?'<div class="dsec"><h3>Bu birimdeki personel ('+ekip.length+')</h3><p class="muted sm">'+ekip.map(e=>esc(empAd(e))).join(', ')+'</p></div>'
@@ -8594,8 +8630,8 @@ function saveBirim(){
   if(tid&&tid===mid)return err('Aynı kişi hem birim müdürü hem takım lideri olamaz.');
   /* Kısaltma rapor ve listelerde personel adının önüne yazılır */
   const kisa=norm((($('#bi-kisa')||{}).value||'')).toLocaleUpperCase('tr').slice(0,10);
-  const row={name,kisa:kisa,company_id:nz(cid),mudur_id:nz(mid),tlider_id:nz(tid),
-    capraz:!!(($('#bi-capraz')||{}).checked)};
+  /* capraz alanı artık okunmuyor: görünürlük takımdan geliyor (74) */
+  const row={name,kisa:kisa,company_id:nz(cid),mudur_id:nz(mid),tlider_id:nz(tid)};
   run('bi-err',()=>id?upd('birimler',id,row):ins('birimler',row),'Birim kaydedildi');
 }
 function openAccount(id){
@@ -8945,34 +8981,33 @@ function birimKapsamim(){
   const e=emp(me.employeeId);
   return e?(e.birimId||null):null;
 }
+/* Yönettiğim takım; bir takımın lideriysem o, değilsem bağlı olduğum
+   takım. Sunucuda karşılığı yok çünkü orada kapsam doğrudan
+   takim_liderimmi() ile sorgulanıyor; buradaki tek işi ekranın
+   başlığını ve "diğer takımlar" karşılaştırmasını kurmak. */
+function takimKapsamim(){
+  if(!me||!me.employeeId)return null;
+  const l=(db.takimlar||[]).find(t=>t.liderId===me.employeeId);
+  if(l)return l.id;
+  const e=emp(me.employeeId);
+  return e?(e.takimId||null):null;
+}
 /* Personel telesatış departmanında mı? */
 function telesatisciMi(eid){
   const e=emp(eid);if(!e)return false;
   const d=dept(e.departmentId);
   return !!d&&trl(d.name).indexOf('telesat')>=0;
 }
-/* Tüm birimlere hizmet veren ekipte miyim? */
-function capraz(){
-  const b=byId(db.birimler,birimKapsamim());
-  return !!b&&!!b.capraz;
-}
-/* Bu müşteri, tüm birimlere hizmet veren bir birime mi ait?
-   Öyleyse her birim görebilir, düzenleyebilir, satış ve randevu
-   yapabilir. */
-function caprazMusteri(c){
-  const b=c&&byId(db.birimler,c.birimId);
-  return !!b&&!!b.capraz;
-}
 /* Bu personel benim kapsamımda mı? (kendim dahil) */
+/* Kapsam artık TAKIMDAN geliyor: lideri olduğum takımdaki herkes,
+   bir de kendim. Sunucudaki ekipte() ile aynı kural (73/74). */
 function ekipte(eid){
   if(!eid||!me)return false;
   if(eid===me.employeeId)return true;
-  const k=birimKapsamim();if(!k)return false;
   const e=emp(eid);
-  if(!e||e.birimId!==k)return false;
-  /* Takım lideri yalnızca telesatış personelini kapsar. Çapraz
-     birimde bu ayrım yok; birimin tamamı tek ekiptir. */
-  return isTLider()?(capraz()||telesatisciMi(eid)):true;
+  if(!e||!e.takimId||!me.employeeId)return false;
+  const t=takim(e.takimId);
+  return !!t&&t.liderId===me.employeeId;
 }
 /* Hangi personeller adına kayıt girilebilir (satış, randevu, liste atama) */
 function adinaYazabilecekler(){
