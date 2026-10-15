@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-m';
+const SURUM='15.10.2026-n';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1621,7 +1621,7 @@ function invTable(){
   if(q)list=list.filter(a=>[a.category,a.model,a.serial,a.note,(emp(a.holderId)||{}).name].join(' ').toLocaleLowerCase('tr').includes(q));
   if(!list.length)return '<div class="empty">Bu filtrede cihaz yok.</div>';
   return '<div class="scroll"><table><thead><tr><th>Model</th><th>Kategori</th><th>Zimmetli personel</th><th>Durum</th><th class="num">Tamir masrafı</th><th></th></tr></thead><tbody>'+
-  list.map(a=>{const h=emp(a.holderId);return '<tr class="click'+(pasifCihaz(a)?' muted':'')+'" tabindex="0" data-act="asset" data-id="'+a.id+'"><td><div>'+esc(a.model)+pasifRozet(a)+'</div><div class="muted sm">'+(a.serial?esc(a.serial):'Seri no yok')+'</div>'+(a.note?'<div class="muted sm clamp">'+esc(a.note)+'</div>':'')+'</td><td>'+esc(a.category)+'</td><td>'+(h?'<div>'+esc(h.name)+'</div><div class="muted sm">'+esc((dept(h.departmentId)||{}).name)+'</div>':'<span class="muted">Zimmetli değil</span>')+'</td><td>'+statusBadge(a.status)+'</td><td class="num">'+(assetCost(a.id)?money(assetCost(a.id)):'-')+'</td><td class="num"><button class="btn sm" data-act="asset" data-id="'+a.id+'">Detay</button></td></tr>';}).join('')+
+  list.map(a=>{const h=emp(a.holderId);return '<tr class="click'+(pasifCihaz(a)?' muted':'')+'" tabindex="0" data-act="asset" data-id="'+a.id+'"><td><div>'+esc(a.model)+pasifRozet(a)+'</div><div class="muted sm">'+(a.serial?esc(a.serial):'Seri no yok')+'</div>'+(a.note?'<div class="muted sm clamp">'+esc(a.note)+'</div>':'')+'</td><td>'+esc(a.category)+'</td><td>'+(h?'<div>'+esc(empAd(h))+'</div><div class="muted sm">'+esc((dept(h.departmentId)||{}).name)+'</div>':'<span class="muted">Zimmetli değil</span>')+'</td><td>'+statusBadge(a.status)+'</td><td class="num">'+(assetCost(a.id)?money(assetCost(a.id)):'-')+'</td><td class="num"><button class="btn sm" data-act="asset" data-id="'+a.id+'">Detay</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 /* Birim müdürü yalnızca kendi saha ekibinin üzerindeki cihazları görür */
@@ -2053,9 +2053,19 @@ function viewZimmet(){
   const all=zimmetKapsami(state.invPasif?db.assets:aktifCihazlar()),
         pasifAdet=zimmetKapsami(db.assets.filter(pasifCihaz)).length,cats=uniq(all.map(a=>a.category));
   if(state.assetType!=='all'&&!cats.includes(state.assetType))state.assetType='all';
-  const ty=state.assetType,cnt=s=>all.filter(a=>a.status===s).length;
-  const totRep=sum(db.repairs.filter(r=>all.some(a=>a.id===r.assetId)).map(r=>({amount:r.cost})));
-  const tabs=[['all','Tümü']].concat(cats.map(t=>[t,t])).map(([k,l])=>'<button data-act="assettype" data-v="'+esc(k)+'" aria-pressed="'+(ty===k)+'">'+esc(l)+' ('+(k==='all'?all.length:all.filter(a=>a.category===k).length)+')</button>').join('');
+  const ty=state.assetType;
+  /* Üstteki kutular ve tamir toplamı listeyle aynı kümeyi sayar:
+     kategori sekmesi ve arama ikisini de daraltır. Sekme sayıları
+     yalnızca aramaya göre daralır; kendi kategorisine göre değil,
+     yoksa her sekme kendi sayısını gösterirdi. */
+  const invQ=state.inv.q.trim().toLocaleLowerCase('tr');
+  const invAra=a=>!invQ||[a.category,a.model,a.serial,a.note,(emp(a.holderId)||{}).name]
+    .join(' ').toLocaleLowerCase('tr').includes(invQ);
+  const aranan=all.filter(invAra);
+  const suzulu=aranan.filter(a=>ty==='all'||a.category===ty);
+  const cnt=s=>suzulu.filter(a=>a.status===s).length;
+  const totRep=sum(db.repairs.filter(r=>suzulu.some(a=>a.id===r.assetId)).map(r=>({amount:r.cost})));
+  const tabs=[['all','Tümü']].concat(cats.map(t=>[t,t])).map(([k,l])=>'<button data-act="assettype" data-v="'+esc(k)+'" aria-pressed="'+(ty===k)+'">'+esc(l)+' ('+(k==='all'?aranan.length:aranan.filter(a=>a.category===k).length)+')</button>').join('');
   return head('Envanter ve zimmet',
     isFinans()?'Cihazlar kategori, model, seri no ve açıklamayla kaydedilir. Satılan veya hurdaya ayrılan cihaz silinmez, pasife alınır.'
     :isBirim()?'Ekibinizdeki personelin üzerindeki cihazlar. Görüntüleyebilirsiniz; zimmet işlemleri muhasebe tarafından yapılır.'
@@ -2256,11 +2266,15 @@ function satTable(){
       (metroEtiket(s)?' · '+esc(metroEtiket(s)):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?empAd(e):'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num"><b>'+money(s.prim)+'</b></td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>';
 }
 function viewSatis(){
-  const st=state.sat,list=salesIn(state.period);
+  /* Üstteki kutular ve kırılım tablosu LİSTEYLE aynı kümeyi sayar:
+     kategori, ürün, personel, tarih aralığı ve arama hepsini daraltır.
+     Eskiden kutular dönemin tamamını gösteriyordu, filtre uygulanınca
+     liste değişip kutular sabit kalıyordu. */
+  const st=state.sat,list=satFiltreli();
   const qty=list.reduce((a,x)=>a+x.qty,0),puan=list.reduce((a,x)=>a+x.puan,0),prim=list.reduce((a,x)=>a+x.prim,0),people=new Set(list.map(x=>x.employeeId)).size;
-  /* Bugün yapılan satış: satış tarihi bugün olanlar. Dönem seçiminden
-     bağımsızdır; eylül seçiliyken de bugünün rakamını gösterir. */
-  const bugunList=db.sales.filter(x=>x.date===TODAY);
+  /* Bugünkü satış da aynı filtrenin içinden sayılır; "bu filtrede
+     bugün kaç satış" sorusunun cevabı. */
+  const bugunList=list.filter(x=>x.date===TODAY);
   const bugunAdet=bugunList.reduce((a,x)=>a+x.qty,0);
   const groups=satGroups(list,st.group),gl={personel:'Personel',departman:'Departman',urun:'Ürün',kategori:'Kategori'};
   return head('Satışlar',isSaha()
@@ -4322,8 +4336,20 @@ function ekipTabloBolumu(){
 }
 function viewRandevu(){
   const f=state.rand,rows=apptStatsRows(state.period),bm=bayiMuduru();
-  const totalOpen=db.appointments.filter(a=>a.status==='Açık').length;
-  const inPeriodList=db.appointments.filter(a=>inPeriod(a,state.period));
+  /* Üstteki kutular PERSONEL ve ARAMA filtresine göre daralır.
+     Durum kutusu ve kutuların kendi odakları bu kümenin ÜZERİNDE
+     gezinme filtresidir; onları da uygulasaydık "Açık randevu"
+     kutusu "Kapandı" seçiliyken sıfırlanır ve geri dönülemezdi. */
+  const randQ=trl(f.q).trim();
+  const randTaban=db.appointments.filter(a=>{
+    if(f.emp&&!(a.employeeId===f.emp||alanOf(a)===f.emp))return false;
+    if(!randQ)return true;
+    const c=apptCustomer(a),al=emp(alanOf(a));
+    return [c?c.unvan:'',c?c.yetkili:'',c?c.operator:'',a.desc,al?al.name:'']
+      .join(' ').toLocaleLowerCase('tr').includes(randQ);
+  });
+  const totalOpen=randTaban.filter(a=>a.status==='Açık').length;
+  const inPeriodList=randTaban.filter(a=>inPeriod(a,state.period));
   const iptalSayi=inPeriodList.filter(iptalMi).length;
   const gecerliList=inPeriodList.filter(a=>!iptalMi(a));
   const convCount=gecerliList.filter(donustu).length;
@@ -4336,10 +4362,10 @@ function viewRandevu(){
       '<button type="button" class="kpi" data-act="rand-odak" data-v="'+k+'"'+
       ' aria-pressed="'+(f.odak===k)+'" title="'+esc(etiket)+' kayıtlarını listele">'+
       '<span>'+esc(etiket)+'</span><b'+(sinif?' class="'+sinif+'"':'')+'>'+deger+'</b></button>';
-    const beyan=beyanAcik(state.period).length;
+    const beyan=beyanAcik(state.period).filter(a=>randTaban.indexOf(a)>=0).length;
     return '<div class="kpis">'+
       kutu('acik','Açık randevu',totalOpen)+
-      kutu('bugun','Bugün alınan randevu',bugunAlinan().length)+
+      kutu('bugun','Bugün alınan randevu',bugunAlinan().filter(a=>randTaban.indexOf(a)>=0).length)+
       kutu('donem','Bu dönem randevu',gecerliList.length)+
       kutu('kapanan','Bu dönem kapanan',gecerliList.filter(a=>a.status==='Kapandı').length)+
       kutu('satisa','Satışa dönen',convCount)+
