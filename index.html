@@ -417,7 +417,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-z';
+const SURUM='16.10.2026-b';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -1622,7 +1622,8 @@ function viewMaas(){
   const monthSel='<select data-set="payMonth" aria-label="Ödeme dönemi">'+monthsList().map(x=>'<option value="'+x+'"'+(x===m?' selected':'')+'>'+monthLabel(x)+'</option>').join('')+'</select>';
   const kirilim=e=>{const h=hakedisler(e).filter(x=>x.tutar>0);
     return h.length?'<div class="muted sm">'+h.map(x=>esc(x.t.ad)+' '+money(x.tutar)).join(' · ')+'</div>':'';};
-  return head('Maaş ve ödemeler','Maaş, avans, ticket, yol parası, ek ödeme ve prim. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır; böylece departman ve şirket giderlerine de girer.',monthSel+'<button class="btn primary" data-act="open-adv">Avans ver</button>')+
+  return head('Maaş ve ödemeler','Maaş, avans, ticket, yol parası, ek ödeme ve prim. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır; böylece departman ve şirket giderlerine de girer.',monthSel+(isFinans()?'<button class="btn" data-act="open-odeme-xl">Excel ile toplu ödeme</button>':'')+
+    '<button class="btn primary" data-act="open-adv">Avans ver</button>')+
   '<div class="kpis"><div class="kpi"><span>Ödenmemiş maaşlar (net, mahsup sonrası)</span><b>'+money(dueSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen maaş</span><b>'+money(paidSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen ek kalemler</span><b>'+money(ekOdenen)+'</b></div><div class="kpi"><span>Açık avans toplamı</span><b>'+money(openSum)+'</b></div></div>'+
   '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th><th>Departman</th><th class="num">Net maaş</th><th class="num">Düzenli ek ödeme</th><th class="num">Açık avans</th><th class="num">Maaş ödenecek</th><th>Durum</th><th></th></tr></thead><tbody>'+
   rows.map(r=>{
@@ -8069,6 +8070,309 @@ function saveAdv(){
     descr:desc||'Personel avansı',source:'avans'}),'Avans kaydedildi');
 }
 
+/* ---------- Banka toplu ödeme dosyası (Garanti TGB şablonu) --------
+   Avans ve maaş ödemeleri bankaya bu dosyayla gönderiliyor; aynı
+   dosyayı buraya yükleyip kayıtları tek tek girmekten kurtuluyoruz.
+   Dosyanın üst bloğunda ödeme tipi, tarih ve açıklama var; 12.
+   satırdan sonra kişi listesi geliyor. */
+const ODEME_TIPI={
+  M:{ad:'MAAŞ',           tur:'maas'},
+  N:{ad:'AVANS',          tur:'avans'},
+  R:{ad:'PRİM ÖDEMESİ',   tur:'odeme', kat:'Prim ödemesi'},
+  Y:{ad:'YOLLUK',         tur:'odeme', kat:'Yol parası'},
+  O:{ad:'SOSYAL YARDIM',  tur:'odeme', kat:'Ek ödeme'},
+  S:{ad:'EK DERS ÜCRETİ', tur:'odeme', kat:'Ek ödeme'},
+  H:{ad:'HUZUR HAKKI',    tur:'odeme', kat:'Ek ödeme'},
+  F:{ad:'FAZLA MESAİ',    tur:'odeme', kat:'Ek ödeme'},
+  I:{ad:'İKRAMİYE',       tur:'odeme', kat:'Ek ödeme'},
+  C:{ad:'KOMİSYON',       tur:'odeme', kat:'Diğer personel ödemesi'},
+  D:{ad:'DÖNER SERMAYE',  tur:'odeme', kat:'Diğer personel ödemesi'},
+  G:{ad:'PROMOSYON',      tur:'odeme', kat:'Diğer personel ödemesi'},
+  K:{ad:'KIDEM TAZMİNATI',tur:'odeme', kat:'Diğer personel ödemesi'},
+  V:{ad:'ASGARİ GEÇİM İNDİRİMİ',tur:'odeme',kat:'Diğer personel ödemesi'},
+  Z:{ad:'DİĞER',          tur:'odeme', kat:'Diğer personel ödemesi'},
+  X:{ad:'KESİNTİ',        tur:'kesinti'}
+};
+/* GGAAYYYY -> YYYY-AA-GG. Hücre sayı da olabiliyor, metin de. */
+function tgbTarih(v){
+  const s=String(v==null?'':v).replace(/\D/g,'');
+  if(s.length!==8)return '';
+  const g=s.slice(0,2),a=s.slice(2,4),y=s.slice(4);
+  if(+a<1||+a>12||+g<1||+g>31)return '';
+  return y+'-'+a+'-'+g;
+}
+const tgbTutar=v=>{
+  if(typeof v==='number')return v;
+  const s=String(v==null?'':v).replace(/[^\d,.-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.');
+  const n=parseFloat(s);
+  return isNaN(n)?0:n;
+};
+function tgbOku(aoa){
+  const hucre=(r,c)=>{const row=aoa[r];return row?(row[c]==null?'':row[c]):'';};
+  /* Üst bloktaki etiketleri ara: satır numarası şablona göre kayabilir */
+  let tip='',tarih='',izahat='',baslik=-1;
+  for(let r=0;r<Math.min(aoa.length,40);r++){
+    const et=trl(String(hucre(r,0)||'')).trim();
+    if(et.indexOf('ödeme tipi')===0||et.indexOf('odeme tipi')===0)
+      tip=String(hucre(r,1)||'').trim().toLocaleUpperCase('tr');
+    else if(et.indexOf('ödeme tarihi')===0||et.indexOf('odeme tarihi')===0)
+      tarih=tgbTarih(hucre(r,1));
+    else if(et.indexOf('borç izahat')===0||et.indexOf('borc izahat')===0)
+      izahat=String(hucre(r,1)||'').trim();
+    const satir=(aoa[r]||[]).map(x=>trl(String(x||'')).trim());
+    if(baslik<0&&satir.indexOf('isim')>=0&&satir.some(x=>x.indexOf('tutar')>=0))baslik=r;
+  }
+  if(baslik<0)return {hata:'Bu dosya banka toplu ödeme şablonuna benzemiyor: “İsim” ve “Tutar” başlıklarının olduğu satır bulunamadı.'};
+  if(!tip)return {hata:'Dosyada “Ödeme Tipi” boş. Şablonun üst bölümünden doldurup tekrar yükleyin.'};
+  const t=ODEME_TIPI[tip];
+  if(!t)return {hata:'Tanınmayan ödeme tipi: “'+tip+'”.'};
+  if(t.tur==='kesinti')return {hata:'Bu dosya bir KESİNTİ dosyası. Kesintiler bu ekrandan işlenmiyor; ödeme dosyalarını (maaş, avans, prim, yolluk) yükleyebilirsiniz.'};
+  if(!tarih)return {hata:'Dosyadaki “Ödeme Tarihi” okunamadı. GGAAYYYY biçiminde olmalı (örnek: 15102026).'};
+  const satirlar=[];const bos=[];
+  const kolon=(aoa[baslik]||[]).map(x=>trl(String(x||'')).trim());
+  const ix=ad=>kolon.findIndex(x=>x.indexOf(ad)>=0);
+  const cAd=Math.max(0,kolon.indexOf('isim')),
+        cTutar=ix('tutar'),
+        cIban=ix('iban'),
+        cIzahat=kolon.findIndex(x=>x.indexOf('borç izahat')>=0||x.indexOf('borc izahat')>=0);
+  if(cTutar<0)return {hata:'Dosyada “Tutar” sütunu bulunamadı.'};
+  for(let r=baslik+1;r<aoa.length;r++){
+    const ad=norm(String(hucre(r,cAd)||''));
+    const tutar=tgbTutar(hucre(r,cTutar));
+    /* Şablonda binlerce boş satır var; ad da tutar da boşsa bitti say */
+    if(!ad&&!tutar)continue;
+    if(!ad){bos.push({satir:r+1,sebep:'ad boş',tutar});continue;}
+    if(!(tutar>0)){bos.push({satir:r+1,sebep:'tutar yok ya da sıfır',ad});continue;}
+    satirlar.push({satir:r+1,ad,tutar,
+      iban:cIban>=0?String(hucre(r,cIban)||'').replace(/\s/g,''):'',
+      izahat:cIzahat>=0?String(hucre(r,cIzahat)||'').trim():''});
+  }
+  if(!satirlar.length)return {hata:'Dosyada ödenecek satır bulunamadı.'};
+  return {tip,tipAd:t.ad,tur:t.tur,kat:t.kat||'',tarih,izahat,satirlar,bos};
+}
+/* Dosyadaki adı personel kaydıyla eşler. Önce birebir (Türkçe harf
+   katlamasıyla), sonra tek ve belirgin bir benzer varsa o. */
+function tgbEsle(ad){
+  const k=adKey(ad);
+  if(!k)return {emp:null,neden:''};
+  /* Önce çalışanlar. Bulunamazsa ayrılanlara da bakılır: kıdem
+     tazminatı ve son maaş, kişi ayrıldıktan SONRA ödeniyor; yalnızca
+     aktif listeye bakmak bu ödemeleri hiç eşleştiremezdi. */
+  const dene=liste=>{
+    const tam=liste.filter(e=>adKey(e.name)===k);
+    if(tam.length===1)return {emp:tam[0],neden:'ad birebir'};
+    if(tam.length>1)return {emp:null,neden:'aynı adda '+tam.length+' personel var',coklu:true};
+    const puanli=liste.map(e=>({e,p:benzerlikOrani(k,adKey(e.name))}))
+      .filter(x=>x.p>=0.82).sort((a,b)=>b.p-a.p);
+    if(puanli.length===1||(puanli.length>1&&puanli[0].p-puanli[1].p>=0.08))
+      return {emp:puanli[0].e,neden:'benzer ad (%'+Math.round(puanli[0].p*100)+')'};
+    if(puanli.length>1)return {emp:null,neden:'birden çok benzer ad',coklu:true};
+    return null;
+  };
+  const a=dene(aktifPersonel());
+  if(a)return a;
+  const b=dene(tumPersonel().filter(ayrildi));
+  if(b&&b.emp)return {emp:b.emp,neden:b.neden+' · ayrılmış personel'};
+  if(b)return b;
+  return {emp:null,neden:'eşleşme yok'};
+}
+/* Kısaltmaya göre hesap önerisi: "MERCAN" kısaltmalı personelin
+   ödemesi adında MERCAN geçen hesaptan, "SDM" ise SDM hesabından
+   çıkar. Bulamazsa takımın şirketine bağlı hesaba düşer. */
+function tgbHesapOner(kisa,tid){
+  const k=katla(kisa||'');
+  if(k){
+    const ad=db.accounts.filter(a=>katla(a.name).indexOf(k)>=0);
+    if(ad.length)return ad[0].id;
+  }
+  const t=tid?takim(tid):null;
+  if(t&&t.companyId){
+    const c=db.accounts.filter(a=>a.companyId===t.companyId);
+    if(c.length)return c[0].id;
+  }
+  return '';
+}
+/* Aynı dosyanın ikinci kez yüklenmesi tutarı iki katına çıkarmasın */
+function tgbVarMi(r){
+  if(r.tur==='maas')
+    return (db.payrolls||[]).some(p=>p.employeeId===r.empId&&p.month===r.ay);
+  return (db.transactions||[]).some(t=>t.employeeId===r.empId&&t.date===r.tarih
+    &&t.category===r.kat&&Math.abs(t.amount-r.tutar)<0.005);
+}
+function openOdemeXl(){
+  if(!isFinans())return needDlg('Excel ile ödeme','Bu işlemi yalnızca master ve muhasebe yapabilir.');
+  if(!db.accounts.length)return needDlg('Excel ile ödeme','Önce bir kasa veya banka hesabı ekleyin.');
+  if(!aktifPersonel().length)return needDlg('Excel ile ödeme','Önce personel ekleyin.');
+  dlgState={kind:'tgb',veri:null};
+  openDlg(dlgHtml('Excel ile toplu ödeme',
+    '<p>Bankaya gönderdiğiniz <b>toplu ödeme dosyasını</b> olduğu gibi yükleyin. Dosyanın üst bölümündeki <b>ödeme tipi</b> ve <b>tarih</b> okunur; kişiler adlarından personel kayıtlarıyla eşleştirilir.</p>'+
+    '<div class="fields">'+
+    '<div class="field full"><label for="tg-file">Ödeme dosyası (.xlsx)</label>'+
+      '<input id="tg-file" type="file" accept=".xlsx,.xls"></div>'+
+    '</div>'+
+    '<div id="tg-prev"></div>'+
+    '<p class="err" id="tg-err"></p>',
+    '<button class="btn" data-act="close">Vazgeç</button>'+
+    '<button class="btn primary" data-act="tgb-yukle">Kaydet</button>'));
+}
+function tgbDosyaOku(file){
+  const err=m=>{const e=$('#tg-err');if(e)e.textContent=m;};
+  if(!XL_HAZIR())return err('Excel bileşeni yüklenemedi. Sayfayı yenileyin.');
+  const fr=new FileReader();
+  fr.onerror=()=>err('Dosya okunamadı.');
+  fr.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const sh=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:''});
+      const o=tgbOku(aoa);
+      if(o.hata){dlgState.veri=null;err(o.hata);return tgbOnizleme();}
+      /* Satırları personelle eşle, hesabı kısaltmadan öner */
+      o.satirlar.forEach(s=>{
+        const m=tgbEsle(s.ad);
+        s.empId=m.emp?m.emp.id:'';
+        s.neden=m.neden;
+        const e=m.emp;
+        s.kisa=e?takimKisa(e.takimId):'';
+        s.hesap=e?tgbHesapOner(s.kisa,e.takimId):'';
+      });
+      dlgState.veri=o;
+      err('');
+      tgbOnizleme();
+    }catch(e){dlgState.veri=null;err('Dosya okunamadı: '+((e&&e.message)||e));tgbOnizleme();}
+  };
+  fr.readAsArrayBuffer(file);
+}
+/* Ekrandaki seçimleri satırlara geri yazar; kaydetme ve önizleme
+   ikisi de bunu kullanır, böylece gördüğünüz ile kaydedilen aynıdır. */
+function tgbSatirlariTopla(){
+  const o=dlgState.veri;if(!o)return [];
+  const ay=o.tarih.slice(0,7);
+  return o.satirlar.map((s,i)=>{
+    const se=$('#tg-emp-'+i),sh=$('#tg-acc-'+i);
+    if(se)s.empId=se.value||'';
+    if(sh)s.hesap=sh.value||'';
+    const e=s.empId?emp(s.empId):null;
+    /* Avansın kategorisi tipler tablosunda yok, sabit. Burada tek
+       yerde belirleniyor: hem mükerrer kontrolü hem yazma aynı
+       değeri kullansın diye. */
+    const kat=o.tur==='avans'?'Personel avansı':(o.tur==='maas'?'Maaş':o.kat);
+    const r={i,ad:s.ad,tutar:s.tutar,empId:s.empId,hesap:s.hesap,neden:s.neden,
+             tur:o.tur,kat,tarih:o.tarih,ay,izahat:s.izahat||o.izahat,
+             kisa:e?takimKisa(e.takimId):''};
+    if(o.tur==='maas'&&e){
+      /* Dosyadaki tutar bankaya giden NET tutardır. Kart maaşıyla
+         arasındaki fark avans mahsubudur; açık avansı aşamaz.
+         Böylece her zaman: maaş = ödenen + mahsup. */
+      const kart=num(e.salary)||0,acik=openAdvance(e.id);
+      r.kartMaas=kart;
+      r.mahsup=Math.min(Math.max(0,kart-s.tutar),acik);
+      r.maas=s.tutar+r.mahsup;
+      r.acikAvans=acik;
+    }
+    r.zaten=r.empId?tgbVarMi(r):false;
+    return r;
+  });
+}
+function tgbOnizleme(){
+  const kutu=$('#tg-prev');if(!kutu)return;
+  const o=dlgState.veri;
+  if(!o){kutu.innerHTML='';return;}
+  const rows=tgbSatirlariTopla();
+  const yazilacak=rows.filter(r=>r.empId&&!r.zaten);
+  const eksik=rows.filter(r=>!r.empId);
+  const atlanan=rows.filter(r=>r.empId&&r.zaten);
+  const toplam=yazilacak.reduce((t,r)=>t+r.tutar,0);
+  const hesapsiz=yazilacak.filter(r=>!r.hesap);
+  const maas=o.tur==='maas';
+  /* empSecim ayrılanları gizliyor; burada göstermek gerekiyor çünkü
+     kıdem tazminatı ayrılmış kişiye ödeniyor. */
+  const empSec=(i,sel)=>'<select id="tg-emp-'+i+'" style="min-width:180px">'+
+    opt(tumPersonel().map(e=>[e.id,empAd(e)+(ayrildi(e)?' (ayrıldı)':'')]),
+        sel||'','— eşleşmedi, seçin —')+'</select>';
+  const accSec=(i,sel)=>'<select id="tg-acc-'+i+'" style="min-width:150px">'+
+    opt(db.accounts.map(a=>[a.id,a.name]),sel||'','— hesap seçin —')+'</select>';
+  const satir=r=>'<tr'+(r.zaten?' class="muted"':'')+'>'+
+    '<td>'+esc(r.ad)+(r.neden&&r.empId&&r.neden!=='ad birebir'
+      ?'<div class="muted sm">'+esc(r.neden)+'</div>':'')+'</td>'+
+    '<td>'+empSec(r.i,r.empId)+'</td>'+
+    '<td>'+accSec(r.i,r.hesap)+(r.kisa?'<div class="muted sm">kısaltma: '+esc(r.kisa)+'</div>':'')+'</td>'+
+    '<td class="num"><b>'+money(r.tutar)+'</b></td>'+
+    (maas?'<td class="num">'+(r.empId?money(r.kartMaas):'—')+
+      (r.empId&&r.mahsup?'<div class="muted sm">'+money(r.mahsup)+' avans mahsup</div>':'')+
+      /* Mahsuptan sonra da kartla tutmuyorsa farkı göster: en çok
+         karıştıran durum buydu ve önceden sessiz kalıyordu. */
+      (r.empId&&r.kartMaas&&Math.abs(r.maas-r.kartMaas)>0.005
+        ?'<div class="muted sm">karttan '+money(Math.abs(r.kartMaas-r.maas))+
+          (r.maas<r.kartMaas?' eksik':' fazla')+'</div>':'')+'</td>':'')+
+    '<td>'+(r.zaten?'<span class="badge">zaten kayıtlı, atlanacak</span>'
+      :r.empId?(r.hesap?'<span class="badge ok">kaydedilecek</span>':'<span class="badge bad">hesap seçin</span>')
+      :'<span class="badge bad">personel seçin</span>')+'</td></tr>';
+  kutu.innerHTML=
+    '<div class="ro-banner" style="margin:10px 0"><b>'+esc(o.tipAd)+'</b> · '+esc(fmtDate(o.tarih))+
+      (o.izahat?' · '+esc(o.izahat):'')+
+      '<div class="sm">'+rows.length+' satır okundu'+
+      (o.bos&&o.bos.length?', '+o.bos.length+' satır atlandı (ad ya da tutar boş)':'')+
+      (maas?' · maaş olarak işlenecek: hem gider hareketi hem maaş kaydı açılır'
+           :' · “'+esc(o.tur==='avans'?'Personel avansı':o.kat)+'” gideri olarak işlenecek')+'</div></div>'+
+    '<div class="scroll" style="max-height:340px"><table><thead><tr>'+
+      '<th>Dosyadaki ad</th><th>Personel</th><th>Ödeme hesabı</th><th class="num">Tutar</th>'+
+      (maas?'<th class="num">Kart maaşı</th>':'')+'<th>Durum</th></tr></thead><tbody>'+
+      rows.map(satir).join('')+'</tbody></table></div>'+
+    '<div class="kpis" style="margin-top:10px">'+
+      '<div class="kpi"><span>Kaydedilecek</span><b>'+yazilacak.length+' kişi</b></div>'+
+      '<div class="kpi"><span>Toplam</span><b>'+money(toplam)+'</b></div>'+
+      (eksik.length?'<div class="kpi"><span>Eşleşmeyen</span><b class="out">'+eksik.length+'</b></div>':'')+
+      (atlanan.length?'<div class="kpi"><span>Zaten kayıtlı</span><b>'+atlanan.length+'</b></div>':'')+
+    '</div>'+
+    (hesapsiz.length?'<p class="hint">'+hesapsiz.length+' satırda ödeme hesabı seçili değil. Kısaltmaya uyan bir hesap bulunamadı; elle seçin.</p>':'')+
+    (maas?'<p class="hint">Dosyadaki tutar bankaya giden <b>net</b> tutardır. Personel kartındaki maaşla arasındaki fark, açık avansı aşmamak kaydıyla <b>avans mahsubu</b> olarak yazılır.</p>':'');
+}
+function tgbYukle(){
+  const err=m=>{const e=$('#tg-err');if(e)e.textContent=m;};
+  const o=dlgState.veri;
+  if(!o)return err('Önce bir ödeme dosyası seçin.');
+  const rows=tgbSatirlariTopla().filter(r=>r.empId&&!r.zaten);
+  if(!rows.length)return err('Kaydedilecek satır yok.');
+  const hesapsiz=rows.filter(r=>!r.hesap);
+  if(hesapsiz.length)return err(hesapsiz.length+' satırda ödeme hesabı seçili değil.');
+  const ikiKez={};
+  for(const r of rows){
+    const k=r.empId+(o.tur==='maas'?('|'+r.ay):('|'+r.tarih+'|'+r.tutar));
+    if(ikiKez[k])return err('Aynı personel dosyada iki kez var: '+r.ad+'. Satırlardan birini boşaltın.');
+    ikiKez[k]=1;
+  }
+  run('tg-err',async()=>{
+    const ref=crypto.randomUUID();
+    if(o.tur==='maas'){
+      /* Maaşta her kişi için hem hareket hem maaş kaydı gerekiyor;
+         maaş kaydı hareketin kimliğini tutuyor, o yüzden sırayla. */
+      for(const r of rows){
+        const e=emp(r.empId);
+        let txId=null;
+        if(r.tutar>0){
+          const t=await ins('transactions',{date:r.tarih,dir:'out',account_id:r.hesap,
+            category:'Maaş',amount:r.tutar,company_id:nz(e.companyId),
+            department_id:nz(e.departmentId),employee_id:e.id,
+            descr:monthLabel(r.ay)+' maaşı'+(r.mahsup?' (avans mahsubu '+money(r.mahsup)+')':''),
+            source:'maas',ref_id:ref});
+          txId=t.id;
+        }
+        await ins('payrolls',{employee_id:e.id,month:r.ay,salary:r.maas,
+          advance_deducted:r.mahsup,paid:r.tutar,date:r.tarih,tx_id:txId,account_id:r.hesap});
+      }
+    }else{
+      const kaynak=o.tur==='avans'?'avans':'odeme';
+      await insCok('transactions',rows.map(r=>{
+        const e=emp(r.empId);
+        return {date:r.tarih,dir:'out',account_id:r.hesap,category:r.kat,amount:r.tutar,
+          company_id:nz(e.companyId),department_id:nz(e.departmentId),employee_id:e.id,
+          descr:r.izahat||(o.tipAd+' — '+monthLabel(r.ay)),source:kaynak,ref_id:ref};
+      }));
+    }
+  },rows.length+' ödeme kaydedildi');
+}
+
 function openAsset(id){
   const a=asset(id);if(!a)return;dlgState={kind:'asset',id};
   const h=emp(a.holderId),reps=db.repairs.filter(r=>r.assetId===id);
@@ -9567,6 +9871,8 @@ const actions={
   'confirm-del-kredi-odeme'(el){delKrediOdeme(el.dataset.id);},
   'open-hgs'(){openHgs();},
   'hgs-yukle'(){hgsYukle();},
+  'open-odeme-xl'(){openOdemeXl();},
+  'tgb-yukle'(){tgbYukle();},
   'open-takim'(el){openTakim(el.dataset.id||null);},
   'save-takim'(){saveTakim();},
   'del-takim'(el){confirmDlg('Takımı sil',
@@ -9655,6 +9961,8 @@ function init(){
     const el=e.target;
     if(el.id==='mut-file'){const f=el.files&&el.files[0];if(f)mutDosyaOku(f);return;}
     if(el.id==='hg-file'){const f=el.files&&el.files[0];if(f)hgsDosyaOku(f);return;}
+    if(el.id==='tg-file'){const f=el.files&&el.files[0];if(f)tgbDosyaOku(f);return;}
+    if(dlgState.kind==='tgb'&&/^tg-(emp|acc)-\d+$/.test(el.id||'')){tgbOnizleme();return;}
     if(el.id==='hg-asset'&&dlgState.kind==='hgs'){
       /* Araç elle değişti: personeli o aracın zimmetinden doldur */
       const a=el.value?asset(el.value):null,h=a&&a.holderId?emp(a.holderId):null;
