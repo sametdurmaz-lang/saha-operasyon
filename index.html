@@ -412,7 +412,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='15.10.2026-g';
+const SURUM='15.10.2026-h';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2981,8 +2981,12 @@ function openSale(){
         :'<div class="field"><label for="sl-emp">Satışı yapan</label><select id="sl-emp">'+empSecim(me.employeeId||'','Personel seçin',ks)+'</select></div>';})()+
     '<div class="field full"><label for="sl-cust">Kayıtlı müşteri (isteğe bağlı)</label><select id="sl-cust"><option value="">Serbest müşteri adı gireceğim</option><option value="'+NEW_CUST+'">+ Yeni müşteri ekle</option>'+custs.map(c=>'<option value="'+c.id+'">'+esc(c.unvan+' — '+c.yetkili)+'</option>').join('')+'</select></div>'+
     quickCustomerFields('sl')+
-    '<div class="field full"><label for="sl-customer">Müşteri</label><input id="sl-customer" type="text" placeholder="Örn. Yılmaz Gıda A.Ş."></div>'+
+    '<div class="field full"><label for="sl-customer">Müşteri</label><input id="sl-customer" type="text" placeholder="Örn. Yılmaz Gıda A.Ş." autocomplete="off"></div>'+
     '<div class="field full" id="sl-vknwarn"></div></div>'+
+    /* Serbest ad yazılırken benzer kayıtlı müşteriler burada çıkar.
+       id'si sl-benzer DEĞİL: onu quickCustomerFields("sl") yeni
+       müşteri bloğu için üretiyor ve o blok gizli duruyor. */
+    '<div id="sl-sbenzer"></div>'+
     '<div id="sl-lines"></div>'+
     '<div class="row" style="margin-top:12px"><button class="btn" type="button" data-act="sl-add">+ Ürün satırı ekle</button></div>'+
     '<div class="preview" id="sl-total" style="margin-top:12px">Ürünleri seçtikçe toplam burada görünür.</div>'+
@@ -5854,6 +5858,51 @@ function benzerPanel(list,son,secimPre){
     list.map(m=>benzerSatir(m,secimPre)).join('')+
     (son?'<div class="sm" style="margin-top:10px">'+son+'</div>':'')+'</div>';
 }
+/* Satışta serbest müşteri adı yazılırken benzer kayıtlı müşterileri
+   gösterir; "Bu müşteriyi seç" ile kayıtlı müşteriye bağlanır.
+   Böylece aynı firma hem serbest adla hem kayıtlı müşteri olarak
+   satışa girmez. Önce yerel liste, sonra tüm birimler taranır. */
+let slBenzerTimer=null;
+function saleBenzerYenile(){
+  const box=$('#sl-sbenzer');if(!box)return;
+  /* Yalnızca serbest ad modunda; kayıtlı müşteri seçiliyse gerek yok */
+  const sel=$('#sl-cust');
+  if(!sel||sel.value!==''){box.innerHTML='';return;}
+  const ad=norm(($('#sl-customer')||{}).value||'');
+  if(ad.length<3){box.innerHTML='';clearTimeout(slBenzerTimer);return;}
+  const x={unvan:ad,yetkili:'',telefon:'',vkn:'',adres:''};
+  const son='Aynı firmaysa <b>Bu müşteriyi seç</b> deyin; satış kayıtlı müşteriye bağlansın.';
+  box.innerHTML=benzerPanel(saleAdaylari(ad),son,'sl');
+  clearTimeout(slBenzerTimer);
+  slBenzerTimer=setTimeout(async()=>{
+    const hepsi=await cifteBak(x,null);
+    const b2=$('#sl-sbenzer');
+    /* Pencere kapandıysa ya da kayıtlı müşteriye geçildiyse yazma */
+    const s2=$('#sl-cust');
+    if(b2&&dlgState.kind==='sale'&&s2&&s2.value==='')
+      b2.innerHTML=benzerPanel(saleAdaylari(ad,hepsi),son,'sl');
+  },450);
+}
+/* Satışta aday müşteriler. benzerKayitlar() mükerrer YAKALAMAK için
+   yazıldı, eşiği yüksek: "YILMAZ" yazınca "YILMAZ GIDA A.Ş."yi
+   getirmez. Burada yazdıkça arama da istiyoruz, o yüzden ünvanın ya
+   da yetkilinin İÇİNDE geçen kayıtları da ekliyoruz. */
+function saleAdaylari(ad,temel){
+  const out=(temel||benzerKayitlar({unvan:ad,yetkili:'',telefon:'',vkn:'',adres:''})).slice();
+  const secili=new Set(out.map(m=>m.kind+':'+m.rec.id));
+  const k=unvanKey(ad),a=adKey(ad);
+  if(k.length>=3||a.length>=3){
+    db.customers.forEach(c=>{
+      if(secili.has('musteri:'+c.id))return;
+      const ck=unvanKey(c.unvan),yk=adKey(c.yetkili||'');
+      if((k.length>=3&&ck.indexOf(k)>=0)||(a.length>=3&&yk&&yk.indexOf(a)>=0)){
+        secili.add('musteri:'+c.id);
+        out.push({kind:'musteri',rec:c,nedenler:['Ad benziyor'],w:2});
+      }
+    });
+  }
+  return out.sort((x,y)=>y.w-x.w).slice(0,8);
+}
 let benzerTimer=null;
 function leadBenzerYenile(){
   const box=$('#l-benzer');if(!box)return;
@@ -8382,9 +8431,11 @@ function dialogChange(el){
         if(nw)nw.style.display='block';
         $('#sl-customer').value='';
         const w0=$('#sl-vknwarn');if(w0)w0.innerHTML='';
+        const b0=$('#sl-sbenzer');if(b0)b0.innerHTML='';
         return;
       }
       if(nw)nw.style.display='none';
+      const bz=$('#sl-sbenzer');if(bz)bz.innerHTML='';
       const c=byId(db.customers,el.value);
       if(c)$('#sl-customer').value=c.unvan;
       const w=$('#sl-vknwarn');
@@ -9278,6 +9329,7 @@ function init(){
       const pre=el.id.split('-')[0];
       dlgState.apDup=false;dlgState.slDup=false;
       hizliBenzerYenile(pre);}
+    else if(el.id==='sl-customer'&&dlgState.kind==='sale'){saleBenzerYenile();}
     else if(el.id==='frq'){state.firsat.q=el.value;const box=$('#frlist');if(box)box.innerHTML=firsatListeAlani();}
     else if(el.id==='rq'){state.rand.q=el.value;const box=$('#randlist');if(box)box.innerHTML=randListe();}
     else if((el.id==='c-unvan'||el.id==='c-tel'||el.id==='c-vkn'||el.id==='c-yetkili'||el.id==='c-adres')&&dlgState.kind==='cust'){
