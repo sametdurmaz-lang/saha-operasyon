@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-d';
+const SURUM='16.10.2026-e';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -8143,6 +8143,87 @@ const tgbTutar=v=>{
   const n=parseFloat(s);
   return isNaN(n)?0:n;
 };
+/* Sayfayı satır dizisine çevirir. Bazı üreticiler sayfanın boyut
+   bilgisini (!ref) eksik yazıyor; SheetJS buna güvendiği için
+   Ticket dosyasının 66 satırından yalnızca 2'si okunuyordu. Gerçek
+   aralığı hücre adreslerinden hesaplıyoruz. */
+function sayfaAoa(sh){
+  let maxR=0,maxC=0;
+  Object.keys(sh).forEach(k=>{
+    if(!k||k[0]==='!')return;
+    const a=XLSX.utils.decode_cell(k);
+    if(!a||isNaN(a.r)||isNaN(a.c))return;
+    if(a.r>maxR)maxR=a.r;
+    if(a.c>maxC)maxC=a.c;
+  });
+  const ref=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:maxR,c:maxC}});
+  return XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:'',range:ref});
+}
+/* ---------- Ticket (yemek kartı) sipariş dosyası -------------------
+   Garanti şablonundan bambaşka: üstte sipariş bilgileri, 19. satırda
+   "Kart Numarası | Ad | Referans No | Teslimat Adresi | Toplam Tutar".
+   Kişi başı tutarlar farklı olabiliyor (ay içinde işe girene oranlı
+   yükleniyor), o yüzden tutar satırdan okunuyor. */
+function ticketTarih(v){
+  if(v==null||v==='')return '';
+  if(typeof v==='number'){
+    /* Excel seri numarası: 1899-12-30 başlangıçlı */
+    const d=new Date(Date.UTC(1899,11,30)+v*86400000);
+    if(isNaN(d))return '';
+    return d.toISOString().slice(0,10);
+  }
+  const s=String(v).trim();
+  let m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if(m)return m[3]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m?m[0]:'';
+}
+function ticketOku(aoa){
+  const hucre=(r,c)=>{const row=aoa[r];return row?(row[c]==null?'':row[c]):'';};
+  let baslik=-1;
+  for(let r=0;r<Math.min(aoa.length,40);r++){
+    const satir=(aoa[r]||[]).map(x=>trl(String(x||'')).trim());
+    if(satir.some(x=>x.indexOf('kart numaras')>=0)&&satir.some(x=>x.indexOf('tutar')>=0)){
+      baslik=r;break;
+    }
+  }
+  if(baslik<0)return null;              /* bu dosya Ticket dosyası değil */
+  /* Üst bloktaki sipariş bilgileri: etiket solda, değer sağındaki
+     ilk dolu hücrede. Etiketlerin satırı sürümden sürüme kayabiliyor. */
+  let siparisNo='',tarih='',ay='',kredi=0;
+  for(let r=0;r<baslik;r++){
+    for(let c=0;c<6;c++){
+      const et=trl(String(hucre(r,c)||'')).trim();
+      if(!et)continue;
+      const sag=()=>{for(let k=c+1;k<c+4;k++){const v=hucre(r,k);if(v!=='')return v;}return '';};
+      if(et.indexOf('sipariş no')===0||et.indexOf('siparis no')===0)siparisNo=String(sag()).trim();
+      else if(et.indexOf('ilk geçerlilik')===0||et.indexOf('ilk gecerlilik')===0)tarih=ticketTarih(sag());
+      else if(et.indexOf('sipariş ayı')===0||et.indexOf('siparis ayi')===0)ay=String(sag()).trim();
+      else if(et.indexOf('toplam kredi')===0)kredi=tgbTutar(sag());
+    }
+  }
+  const kolon=(aoa[baslik]||[]).map(x=>trl(String(x||'')).trim());
+  const ix=t=>kolon.findIndex(x=>x.indexOf(t)>=0);
+  const cAd=ix('ad'),cTutar=ix('tutar'),cKart=ix('kart numaras');
+  if(cAd<0||cTutar<0)return null;
+  const satirlar=[],bos=[];
+  for(let r=baslik+1;r<aoa.length;r++){
+    const ad=norm(String(hucre(r,cAd)||''));
+    const tutar=tgbTutar(hucre(r,cTutar));
+    if(!ad&&!tutar)continue;
+    if(!ad){bos.push({satir:r+1,sebep:'ad boş',tutar});continue;}
+    if(!(tutar>0)){bos.push({satir:r+1,sebep:'tutar yok ya da sıfır',ad});continue;}
+    satirlar.push({satir:r+1,ad,tutar,
+      kart:cKart>=0?String(hucre(r,cKart)||'').trim():'',izahat:''});
+  }
+  if(!satirlar.length)return null;
+  const kisiToplam=satirlar.reduce((t,s)=>t+s.tutar,0);
+  return {tip:'TICKET',tipAd:'TICKET (yemek kartı)',tur:'odeme',kat:'Ticket',
+    tarih:tarih||TODAY,
+    izahat:('Ticket'+(ay?' — '+ay:'')+(siparisNo?' · sipariş '+siparisNo:'')).trim(),
+    satirlar,bos,
+    ek:{siparisNo,ay,kredi,kisiToplam}};
+}
 function tgbOku(aoa){
   const hucre=(r,c)=>{const row=aoa[r];return row?(row[c]==null?'':row[c]):'';};
   /* Üst bloktaki etiketleri ara: satır numarası şablona göre kayabilir */
@@ -8253,7 +8334,7 @@ function openOdemeXl(){
   if(!aktifPersonel().length)return needDlg('Excel ile ödeme','Önce personel ekleyin.');
   dlgState={kind:'tgb',veri:null};
   openDlg(dlgHtml('Excel ile toplu ödeme',
-    '<p>Bankaya gönderdiğiniz <b>toplu ödeme dosyasını</b> olduğu gibi yükleyin. Dosyanın üst bölümündeki <b>ödeme tipi</b> ve <b>tarih</b> okunur; kişiler adlarından personel kayıtlarıyla eşleştirilir.</p>'+
+    '<p>Dosyayı olduğu gibi yükleyin: <b>bankaya gönderdiğiniz toplu ödeme dosyası</b> (maaş, avans, prim, yolluk) ya da <b>Ticket sipariş dosyası</b>. Biçimi uygulama kendisi tanır; tutar, tarih ve kişiler dosyadan okunur, adlardan personel kayıtlarıyla eşleştirilir.</p>'+
     '<div class="fields">'+
     '<div class="field full"><label for="tg-file">Ödeme dosyası (.xlsx)</label>'+
       '<input id="tg-file" type="file" accept=".xlsx,.xls"></div>'+
@@ -8272,8 +8353,10 @@ function tgbDosyaOku(file){
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
       const sh=wb.Sheets[wb.SheetNames[0]];
-      const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:''});
-      const o=tgbOku(aoa);
+      const aoa=sayfaAoa(sh);
+      /* İki biçim de aynı düğmeden yükleniyor: dosyanın kendisi
+         hangisi olduğunu söylüyor. */
+      const o=ticketOku(aoa)||tgbOku(aoa);
       if(o.hata){dlgState.veri=null;err(o.hata);return tgbOnizleme();}
       /* Satırları personelle eşle, hesabı kısaltmadan öner */
       o.satirlar.forEach(s=>{
@@ -8414,7 +8497,22 @@ function tgbOnizleme(){
       '<div class="sm">'+rows.length+' satır okundu'+
       (o.bos&&o.bos.length?', '+o.bos.length+' satır atlandı (ad ya da tutar boş)':'')+
       (maas?' · maaş olarak işlenecek: hem gider hareketi hem maaş kaydı açılır'
-           :' · “'+esc(o.tur==='avans'?'Personel avansı':o.kat)+'” gideri olarak işlenecek')+'</div></div>'+
+           :' · “'+esc(o.tur==='avans'?'Personel avansı':o.kat)+'” gideri olarak işlenecek')+'</div>'+
+      /* Ticket dosyasında sipariş toplamı ile kişi toplamı birbirini
+         tutmuyor (iskonto/komisyon). Sessiz kalırsa kasadan çıkan
+         para ile gidere yazılan tutar ayrışır; açıkça söylüyoruz. */
+      (function(){
+        const e=o.ek;
+        if(!e||!e.kredi)return '';
+        const fark=e.kisiToplam-e.kredi;
+        if(Math.abs(fark)<0.5)return '';
+        return '<div class="sm" style="margin-top:6px">Kişilere yazılacak toplam <b>'+
+          money(e.kisiToplam)+'</b>, dosyadaki sipariş kredi tutarı <b>'+money(e.kredi)+
+          '</b>. Aradaki <b>'+money(Math.abs(fark))+'</b> (%'+
+          pct(Math.abs(fark),e.kisiToplam)+') kişilere yazılmaz; '+
+          (fark>0?'tedarikçi iskontosu':'ek masraf')+
+          ' olarak Kasa ve banka ekranından ayrıca işlenmelidir.</div>';
+      })()+'</div>'+
     grupSerit+
     '<div class="scroll" style="max-height:340px"><table><thead><tr>'+
       '<th>Dosyadaki ad</th><th>Personel</th><th>Ödeme hesabı</th><th class="num">Tutar</th>'+
