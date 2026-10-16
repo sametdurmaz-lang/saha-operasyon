@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-g';
+const SURUM='16.10.2026-h';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -9462,8 +9462,20 @@ async function updCok(t,ids,row){
 async function upd(t,id,row){
   const r=await sb.from(t).update(row).eq('id',id).select('id');
   if(r.error)throw r.error;
-  if(!r.data||!r.data.length)
+  if(!r.data||!r.data.length){
+    /* Sıfır satır iki ayrı şey demek olabiliyordu ve ikisine de
+       "yetkiniz yok" diyorduk:
+         a) kayıt artık yok ya da size görünmüyor (başkası silmiş,
+            kapatmış, devretmiş; sizdeki liste eski)
+         b) kayıt duruyor ama yetki kuralı güncellemeyi kesiyor
+       Hangisi olduğunu kaydı tekrar sorarak ayırıyoruz. */
+    const c=await sb.from(t).select('id').eq('id',id).maybeSingle();
+    if(c.error)throw c.error;
+    if(!c.data)
+      throw new Error('Bu kayıt artık yok ya da size görünmüyor. '+
+        'Büyük ihtimalle başka biri değiştirdi. Sayfayı yenileyip tekrar deneyin.');
     throw new Error('Kayıt güncellenemedi: bu kayıt üzerinde değişiklik yapma yetkiniz yok.');
+  }
   if(t==='leads')leadsYama(id,row);
 }
 async function del(t,id){
