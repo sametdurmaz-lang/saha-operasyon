@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-j';
+const SURUM='16.10.2026-l';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -2295,13 +2295,12 @@ const satFiltreVar=()=>{const st=state.sat;
    tamamını gösterdiği için, filtreli sonucun toplamı burada. */
 function satFiltreOzeti(list){
   const adet=list.reduce((a,x)=>a+x.qty,0);
-  const tutar=list.reduce((a,x)=>a+(+x.amount||0),0);
   const puan=list.reduce((a,x)=>a+x.puan,0);
   const prim=primTopla(list);
   return '<div class="panel-b"><div class="tools muted sm">'+
     '<span><b>'+list.length+'</b> satış</span><span>·</span>'+
     '<span><b>'+adet+'</b> adet</span><span>·</span>'+
-    '<span>tutar <b>'+money(tutar)+'</b></span><span>·</span>'+
+
     '<span>puan <b>'+nf.format(puan)+'</b></span>'+
     (primGor()?'<span>·</span><span>fatura <b>'+money(prim)+'</b></span>':'')+
     '</div></div>';
@@ -2375,11 +2374,11 @@ function satTable(){
   if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
   const sf=satSayfa(list),shown=sf.liste;
   return satFiltreOzeti(list)+
-    '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Fatura</th>':'')+'<th></th></tr></thead><tbody>'+
+    '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Fatura</th>':'')+'<th></th></tr></thead><tbody>'+
   shown.map(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
     return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+
       (s.upcellYeni?' · '+esc((byId(db.products,s.upcellEski)||{}).name||'')+' → '+esc((byId(db.products,s.upcellYeni)||{}).name||''):'')+
-      (metroEtiket(s)?' · '+esc(metroEtiket(s)):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?empAd(e):'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num">'+(primGor(s.employeeId)?'<b>'+money(s.prim)+'</b>':'<span class="muted">—</span>')+'</td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>'+
+      (metroEtiket(s)?' · '+esc(metroEtiket(s)):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?empAd(e):'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num">'+(primGor(s.employeeId)?'<b>'+money(s.prim)+'</b>':'<span class="muted">—</span>')+'</td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>'+
     sayfaNav('sat-page',sf.sayfa,sf.adet,sf.bas,shown.length,list.length);
 }
 function viewSatis(){
