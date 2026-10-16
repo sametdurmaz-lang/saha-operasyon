@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-e';
+const SURUM='16.10.2026-g';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -4583,7 +4583,7 @@ function topluDevirSeridi(){
     (gorunen<acik.length?' Dönem filtresi yüzünden tabloda '+gorunen+' tanesi görünüyor; devir <b>'+acik.length+'</b> randevunun hepsini kapsar.':'')+'</div>'+
     '<div class="tools" style="margin-top:8px">'+
     '<select id="td-emp" aria-label="Devredilecek personel">'+
-      empSecim('','Devredilecek personeli seçin',aktifPersonel().filter(x=>x.id!==e.id))+'</select>'+
+      empSecim('','Devredilecek personeli seçin',adinaYazabilecekler().filter(x=>x.id!==e.id))+'</select>'+
     '<button class="btn primary" data-act="toplu-devir" data-id="'+e.id+'">'+acik.length+' randevuyu devret</button>'+
     '</div><p class="err" id="td-err"></p></div></div>';
 }
@@ -4736,7 +4736,10 @@ function openTransferAppt(id){
         '<div class="sm">Şu an üzerinde '+sayi+' açık randevu var.</div>'+
         '<div class="tools" style="margin-top:8px"><button class="btn primary" data-act="save-transferappt" data-id="'+id+'" data-emp="'+sh.id+'">'+esc(sh.name)+'\u2019e aktar</button></div></div>'
       :'')+
-    '<div class="field full"><label for="tr-emp">Devredilecek personel</label><select id="tr-emp">'+empSecim('','Personel seçin',aktifPersonel().filter(e=>e.id!==a.employeeId))+'</select></div><p class="err" id="tr-err"></p>',
+    /* Liste kapsamla aynı olmalı: lider yalnızca kendi ekibine
+       atayabiliyor, dışarıdan biri seçilirse sunucu reddediyor ve
+       ekrana yalnızca "yetkiniz yok" düşüyordu. */
+    '<div class="field full"><label for="tr-emp">Devredilecek personel</label><select id="tr-emp">'+empSecim('','Personel seçin',adinaYazabilecekler().filter(e=>e.id!==a.employeeId))+'</select></div><p class="err" id="tr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button><button class="btn primary" data-act="save-transferappt" data-id="'+id+'">Devret</button>'));
 }
 function saveTransferAppt(id,hedef){
@@ -8498,20 +8501,20 @@ function tgbOnizleme(){
       (o.bos&&o.bos.length?', '+o.bos.length+' satır atlandı (ad ya da tutar boş)':'')+
       (maas?' · maaş olarak işlenecek: hem gider hareketi hem maaş kaydı açılır'
            :' · “'+esc(o.tur==='avans'?'Personel avansı':o.kat)+'” gideri olarak işlenecek')+'</div>'+
-      /* Ticket dosyasında sipariş toplamı ile kişi toplamı birbirini
-         tutmuyor (iskonto/komisyon). Sessiz kalırsa kasadan çıkan
-         para ile gidere yazılan tutar ayrışır; açıkça söylüyoruz. */
+      /* Ticket dosyasında üstteki "Toplam Kredi Tutarı" ile kişi
+         toplamı birbirini tutmuyor. Ödenen tutar kişi toplamıdır;
+         fark tedarikçide birikiyor ve kayıtlara girmiyor. Yine de
+         yazıyoruz, yoksa iki rakamı görüp "içe aktarma satır mı
+         atladı" diye düşünmek kolay. */
       (function(){
         const e=o.ek;
         if(!e||!e.kredi)return '';
         const fark=e.kisiToplam-e.kredi;
         if(Math.abs(fark)<0.5)return '';
         return '<div class="sm" style="margin-top:6px">Kişilere yazılacak toplam <b>'+
-          money(e.kisiToplam)+'</b>, dosyadaki sipariş kredi tutarı <b>'+money(e.kredi)+
-          '</b>. Aradaki <b>'+money(Math.abs(fark))+'</b> (%'+
-          pct(Math.abs(fark),e.kisiToplam)+') kişilere yazılmaz; '+
-          (fark>0?'tedarikçi iskontosu':'ek masraf')+
-          ' olarak Kasa ve banka ekranından ayrıca işlenmelidir.</div>';
+          money(e.kisiToplam)+'</b>. Dosyanın üstündeki “Toplam Kredi Tutarı” <b>'+
+          money(e.kredi)+'</b>; aradaki <b>'+money(Math.abs(fark))+'</b> farkı '+
+          'kayıt oluşturmaz, gider kişi başı tutarlardan yazılır.</div>';
       })()+'</div>'+
     grupSerit+
     '<div class="scroll" style="max-height:340px"><table><thead><tr>'+
