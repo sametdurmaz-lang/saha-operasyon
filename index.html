@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-i';
+const SURUM='16.10.2026-j';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -491,7 +491,7 @@ function yeniSurumUyar(){
 }   /* yayına alınan sürümün tarihi */
 const TODAY=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 const DEFAULT_ASSET_CATS=['Araç','Bilgisayar','Tablet','Cep telefonu'];
-const CAT_IN=['Operatör hakediş ve prim','Diğer gelir'];
+const CAT_IN=['Operatör hakediş ve fatura','Diğer gelir'];
 const CAT_ENV='Envanter bakım';
 /* Banka kredisi taksidi. Yalnızca Krediler ekranından yazılır;
    elle hareket girişinde kapalıdır ki taksit iki kez işlenmesin. */
@@ -505,7 +505,7 @@ const ODEME_TURU=[
   {k:'ticket', ad:'Ticket',      kat:'Ticket',                  alan:'ticket'},
   {k:'yol',    ad:'Yol parası',  kat:'Yol parası',              alan:'yol'},
   {k:'ek',     ad:'Ek ödeme',    kat:'Ek ödeme',                alan:'ekOdeme'},
-  {k:'prim',   ad:'Prim',        kat:'Prim ödemesi',            alan:'ekPrim'},
+  {k:'prim',   ad:'Fatura',      kat:'Fatura ödemesi',          alan:'ekPrim'},
   {k:'diger',  ad:'Diğer',       kat:'Diğer personel ödemesi',  alan:''}
 ];
 const CAT_ODEME=ODEME_TURU.map(t=>t.kat);
@@ -1200,7 +1200,7 @@ const ekipSuzgeci=list=>{
 };
 function birimOzetKpi(list,p){
   const ss=salesIn(p).filter(x=>list.some(e=>e.id===x.employeeId));
-  const puan=ss.reduce((a,x)=>a+x.puan,0),prim=ss.reduce((a,x)=>a+x.prim,0);
+  const puan=ss.reduce((a,x)=>a+x.puan,0),prim=primTopla(ss);
   const rnd=db.appointments.filter(a=>list.some(e=>e.id===a.employeeId||e.id===alanOf(a)));
   const donem=rnd.filter(a=>inPeriod(a,p)&&!iptalMi(a));
   return {
@@ -1249,7 +1249,7 @@ function viewOzetBirim(){
       esc([(bi?bi.ad:''),((dept(e.departmentId)||{}).name||'')].filter(Boolean).join(' · '))+'</div></td>'+
       '<td class="num">'+acik+'</td><td class="num">'+rnd.length+'</td>'+
       '<td class="num">'+my.length+'</td><td class="num"><b>'+nf.format(my.reduce((a,x)=>a+x.puan,0))+'</b></td>'+
-      (primGor()?'<td class="num">'+money(my.reduce((a,x)=>a+x.prim,0))+'</td>':'')+'</tr>';
+      (primGor()?'<td class="num">'+(primGor(e.id)?money(my.reduce((a,x)=>a+x.prim,0)):'<span class="muted">—</span>')+'</td>':'')+'</tr>';
   }).join('');
   return head('Genel bakış',
     hepsi?'Tüm takımların hedefleri, randevuları ve performansı.'
@@ -1260,7 +1260,7 @@ function viewOzetBirim(){
     '<div class="kpi"><span>Bu dönem randevu</span><b>'+k.donem+'</b></div>'+
     '<div class="kpi"><span>Satışa dönen</span><b>'+k.satisaDonen+'</b></div>'+
     '<div class="kpi"><span>Dönem puanı</span><b>'+nf.format(k.puan)+'</b></div>'+
-    (primGor()?'<div class="kpi"><span>Dönem primi</span><b>'+money(k.prim)+'</b></div>':'')+
+    (primGor()?'<div class="kpi"><span>Dönem faturası</span><b>'+money(k.prim)+'</b></div>':'')+
   '</div>'+
   '<div class="stack">'+
   kapamaPaneli(hepsi?aktifPersonel():ekip)+
@@ -1276,7 +1276,7 @@ function viewOzetBirim(){
        '<span class="muted sm">'+(p==='all'?'Tüm dönemler':monthLabel(p))+'</span></div>'+
        '<div class="scroll"><table><thead><tr><th>Personel</th><th class="num">Açık randevu</th>'+
        '<th class="num">Dönem randevusu</th><th class="num">Satış</th><th class="num">Puan</th>'+
-       (primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
+       (primGor()?'<th class="num">Fatura</th>':'')+'</tr></thead><tbody>'+perfRows+'</tbody></table></div></section>'
     :'<div class="empty">Takımınıza bağlı personel bulunamadı. Yöneticinizden Şirket ve birimler sayfasındaki takım atamalarını kontrol etmesini isteyin.</div>')+
   (hepsi?'':digerTakimlar(p,tid))+
   '</div>';
@@ -1292,11 +1292,11 @@ function viewOzet(){
   const accRows=db.accounts.map(a=>{const b=balance(a.id);return '<tr><td>'+esc(a.name)+'<div class="muted sm">'+esc(coShort(a.companyId))+'</div></td><td class="num '+(b<0?'out':'')+'"><b>'+money(b)+'</b></td></tr>';}).join('');
   const att=attention();
   return head('Genel bakış',
-    isMaster()?'Personel ve birim bazında gelir ile prim, günlük ve aylık. Altında gider dağılımı ve randevu özeti.'
+    isMaster()?'Personel ve birim bazında gelir ile fatura, günlük ve aylık. Altında gider dağılımı ve randevu özeti.'
               :'Kasa, banka ve giderlerin şirket, departman ve personel kırılımında özeti.',periodSel())+
   '<div class="stack">'+setupPanel()+
   kapamaPaneli(aktifPersonel())+
-  /* Master'ın ana sayfasında en üstte gelir ve prim tablosu durur.
+  /* Master'ın ana sayfasında en üstte gelir ve fatura tablosu durur.
      Kasa bakiyeleri ve dönem özeti master'da gösterilmez; ikisi de
      Kasa ve banka ekranında zaten var. Muhasebede olduğu gibi kalır. */
   gelirPrimPanel()+
@@ -1363,7 +1363,7 @@ function gelirPrimPanel(){
     aGelir:o.aGelir+r.aGelir,aPrim:o.aPrim+r.aPrim}),{gGelir:0,gPrim:0,aGelir:0,aPrim:0});
   const seg=[['personel','Personel'],['birim','Takım']]
     .map(([k,l])=>'<button data-act="gp-kirilim" data-v="'+k+'" aria-pressed="'+(kir===k)+'">'+l+'</button>').join('');
-  return '<section class="panel"><div class="panel-h"><div><h2>Gelir ve prim</h2>'+
+  return '<section class="panel"><div class="panel-h"><div><h2>Gelir ve fatura</h2>'+
     '<p class="muted sm">Solda bugün, sağda '+(state.period==='all'?'tüm dönemler':monthLabel(state.period))+'.</p></div>'+
     '<div class="seg" role="group" aria-label="Kırılım">'+seg+'</div></div>'+
     (satir.length
@@ -1371,8 +1371,8 @@ function gelirPrimPanel(){
         '<tr><th rowspan="2">'+(kir==='birim'?'Takım':'Personel')+'</th>'+
         '<th class="num" colspan="2">Bugün</th><th class="num" colspan="2">'+
           (state.period==='all'?'Tüm dönemler':monthLabel(state.period))+'</th></tr>'+
-        '<tr><th class="num">Gelir</th><th class="num">Prim</th>'+
-            '<th class="num">Gelir</th><th class="num">Prim</th></tr></thead><tbody>'+
+        '<tr><th class="num">Gelir</th><th class="num">Fatura</th>'+
+            '<th class="num">Gelir</th><th class="num">Fatura</th></tr></thead><tbody>'+
         '<tr class="total-top"><td>Toplam</td>'+
           '<td class="num">'+money(t.gGelir)+'</td><td class="num">'+money(t.gPrim)+'</td>'+
           '<td class="num"><b>'+money(t.aGelir)+'</b></td><td class="num">'+money(t.aPrim)+'</td></tr>'+
@@ -1383,7 +1383,7 @@ function gelirPrimPanel(){
           '<td class="num"><b>'+money(r.aGelir)+'</b></td>'+
           '<td class="num">'+money(r.aPrim)+'</td></tr>').join('')+
         '</tbody></table></div>'
-      :'<div class="panel-b"><div class="empty">Bu dönemde gelir veya prim kaydı yok.</div></div>')+
+      :'<div class="panel-b"><div class="empty">Bu dönemde gelir veya fatura kaydı yok.</div></div>')+
     '</section>';
 }
 function startOfWeek(dateStr){
@@ -1634,7 +1634,7 @@ function viewMaas(){
   const monthSel='<select data-set="payMonth" aria-label="Ödeme dönemi">'+monthsList().map(x=>'<option value="'+x+'"'+(x===m?' selected':'')+'>'+monthLabel(x)+'</option>').join('')+'</select>';
   const kirilim=e=>{const h=hakedisler(e).filter(x=>x.tutar>0);
     return h.length?'<div class="muted sm">'+h.map(x=>esc(x.t.ad)+' '+money(x.tutar)).join(' · ')+'</div>':'';};
-  return head('Maaş ve ödemeler','Maaş, avans, ticket, yol parası, ek ödeme ve prim. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır; böylece departman ve şirket giderlerine de girer.',monthSel+(isFinans()?'<button class="btn" data-act="open-odeme-xl">Excel ile toplu ödeme</button>':'')+
+  return head('Maaş ve ödemeler','Maaş, avans, ticket, yol parası, ek ödeme ve fatura. Ödeme yapıldığı anda gider yazılır ve personele, departmanına ve şirketine bağlanır; böylece departman ve şirket giderlerine de girer.',monthSel+(isFinans()?'<button class="btn" data-act="open-odeme-xl">Excel ile toplu ödeme</button>':'')+
     '<button class="btn primary" data-act="open-adv">Avans ver</button>')+
   '<div class="kpis"><div class="kpi"><span>Ödenmemiş maaşlar (net, mahsup sonrası)</span><b>'+money(dueSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen maaş</span><b>'+money(paidSum)+'</b></div><div class="kpi"><span>'+monthLabel(m)+' ödenen ek kalemler</span><b>'+money(ekOdenen)+'</b></div><div class="kpi"><span>Açık avans toplamı</span><b>'+money(openSum)+'</b></div></div>'+
   '<section class="panel"><div class="scroll"><table><thead><tr><th>Personel</th><th>Departman</th><th class="num">Net maaş</th><th class="num">Düzenli ek ödeme</th><th class="num">Açık avans</th><th class="num">Maaş ödenecek</th><th>Durum</th><th></th></tr></thead><tbody>'+
@@ -2166,7 +2166,7 @@ function prodTable(){
   if(q)list=list.filter(p=>[p.category,p.brand,p.name].join(' ').toLocaleLowerCase('tr').includes(q));
   list.sort((a,b)=>a.category.localeCompare(b.category,'tr',SAYISAL)||a.brand.localeCompare(b.brand,'tr',SAYISAL)||a.name.localeCompare(b.name,'tr',SAYISAL));
   if(!list.length)return '<div class="empty">Bu filtrede ürün yok. Yeni ürün eklemek için "Ürün ekle" düğmesini kullanın.</div>';
-  return '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Marka</th><th>Ürün adı</th><th>Hedef kategorisi</th><th class="num">Gelir</th><th class="num">Prim</th><th class="num">Puan</th><th>Stok</th><th></th></tr></thead><tbody>'+
+  return '<div class="scroll"><table><thead><tr><th>Kategori</th><th>Marka</th><th>Ürün adı</th><th>Hedef kategorisi</th><th class="num">Gelir</th><th class="num">Fatura</th><th class="num">Puan</th><th>Stok</th><th></th></tr></thead><tbody>'+
   list.map(p=>{const kat=hedefKat(p.hedefKat),isPct=p.calcType==='yuzde';
     const primCell=isPct?'%'+nf.format(p.primPct||0):money(p.prim||0);
     const puanCell=isPct?'%'+nf.format(p.puanPct||0):nf.format(p.puan||0);
@@ -2246,7 +2246,12 @@ function satGroups(list,group){
     else if(group==='departman'){k=s.departmentId||'';l=k?(dept(k)||{name:'Silinmiş departman'}).name:'Departmansız';}
     else if(group==='urun'){k=s.productId;l=prodLabel(p);sub=p?p.category:'';}
     else{k=p?p.category:'';l=k||'Kategorisiz';}
-    const g=m.get(k)||{k,l,sub,qty:0,puan:0,prim:0,n:0};g.qty+=s.qty;g.puan+=s.puan;g.prim+=s.prim;g.n++;m.set(k,g);
+    const g=m.get(k)||{k,l,sub,qty:0,puan:0,prim:0,n:0,primGizli:false};
+    g.qty+=s.qty;g.puan+=s.puan;g.n++;
+    /* Primi göremediğimiz bir satır gruba girdiyse o grubun prim
+       toplamını hiç göstermiyoruz: yarım toplam yanıltıcı olur. */
+    if(primGor(s.employeeId))g.prim+=s.prim;else g.primGizli=true;
+    m.set(k,g);
   });
   return [...m.values()].sort((a,b)=>b.puan-a.puan||b.prim-a.prim);
 }
@@ -2292,13 +2297,13 @@ function satFiltreOzeti(list){
   const adet=list.reduce((a,x)=>a+x.qty,0);
   const tutar=list.reduce((a,x)=>a+(+x.amount||0),0);
   const puan=list.reduce((a,x)=>a+x.puan,0);
-  const prim=list.reduce((a,x)=>a+x.prim,0);
+  const prim=primTopla(list);
   return '<div class="panel-b"><div class="tools muted sm">'+
     '<span><b>'+list.length+'</b> satış</span><span>·</span>'+
     '<span><b>'+adet+'</b> adet</span><span>·</span>'+
     '<span>tutar <b>'+money(tutar)+'</b></span><span>·</span>'+
     '<span>puan <b>'+nf.format(puan)+'</b></span>'+
-    (primGor()?'<span>·</span><span>prim <b>'+money(prim)+'</b></span>':'')+
+    (primGor()?'<span>·</span><span>fatura <b>'+money(prim)+'</b></span>':'')+
     '</div></div>';
 }
 /* Numaralı sayfalama. Çok sayfa olduğunda baş, son ve geçerli
@@ -2370,11 +2375,11 @@ function satTable(){
   if(!list.length)return '<div class="empty">Bu filtrede satış kaydı yok.</div>';
   const sf=satSayfa(list),shown=sf.liste;
   return satFiltreOzeti(list)+
-    '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'<th></th></tr></thead><tbody>'+
+    '<div class="scroll"><table><thead><tr><th>Tarih</th><th>Müşteri</th><th>Ürün</th><th>Abone no</th><th>Satışı yapan</th><th class="num">Adet</th><th class="num">Tutar</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Fatura</th>':'')+'<th></th></tr></thead><tbody>'+
   shown.map(s=>{const p=byId(db.products,s.productId),e=emp(s.employeeId);
     return '<tr class="click" tabindex="0" data-act="sale" data-id="'+s.id+'"><td class="nowrap">'+fmtDate(s.date)+'</td><td>'+esc(s.customer)+'</td><td><div>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</div><div class="muted sm">'+esc(p?p.category:'')+(s.items.length?', seri no ile':'')+
       (s.upcellYeni?' · '+esc((byId(db.products,s.upcellEski)||{}).name||'')+' → '+esc((byId(db.products,s.upcellYeni)||{}).name||''):'')+
-      (metroEtiket(s)?' · '+esc(metroEtiket(s)):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?empAd(e):'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num"><b>'+money(s.prim)+'</b></td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>'+
+      (metroEtiket(s)?' · '+esc(metroEtiket(s)):'')+'</div></td><td>'+((s.abone&&s.abone.length)?s.abone.slice(0,2).map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+(s.abone.length>2?'<span class="muted sm">+'+(s.abone.length-2)+' tane</span>':''):'<span class="muted">—</span>')+'</td><td><div>'+esc(e?empAd(e):'')+'</div><div class="muted sm">'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</div></td><td class="num">'+s.qty+'</td><td class="num">'+(s.amount?money(s.amount):'-')+'</td><td class="num">'+nf.format(s.puan)+'</td>'+(primGor()?'<td class="num">'+(primGor(s.employeeId)?'<b>'+money(s.prim)+'</b>':'<span class="muted">—</span>')+'</td>':'')+'<td class="num"><button class="btn sm" data-act="sale" data-id="'+s.id+'">Detay</button></td></tr>';}).join('')+'</tbody></table></div>'+
     sayfaNav('sat-page',sf.sayfa,sf.adet,sf.bas,shown.length,list.length);
 }
 function viewSatis(){
@@ -2383,15 +2388,15 @@ function viewSatis(){
      Eskiden kutular dönemin tamamını gösteriyordu, filtre uygulanınca
      liste değişip kutular sabit kalıyordu. */
   const st=state.sat,list=satFiltreli();
-  const qty=list.reduce((a,x)=>a+x.qty,0),puan=list.reduce((a,x)=>a+x.puan,0),prim=list.reduce((a,x)=>a+x.prim,0),people=new Set(list.map(x=>x.employeeId)).size;
+  const qty=list.reduce((a,x)=>a+x.qty,0),puan=list.reduce((a,x)=>a+x.puan,0),prim=primTopla(list),people=new Set(list.map(x=>x.employeeId)).size;
   /* Bugünkü satış da aynı filtrenin içinden sayılır; "bu filtrede
      bugün kaç satış" sorusunun cevabı. */
   const bugunList=list.filter(x=>x.date===TODAY);
   const bugunAdet=bugunList.reduce((a,x)=>a+x.qty,0);
   const groups=satGroups(list,st.group),gl={personel:'Personel',departman:'Departman',urun:'Ürün',kategori:'Kategori'};
   return head('Satışlar',isSaha()
-      ?'Satışlarınız, kazandığınız puan ve prim.'
-      :'Satış girildiğinde ürünün puanı ve primi otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',
+      ?'Satışlarınız, kazandığınız puan ve fatura.'
+      :'Satış girildiğinde ürünün puanı ve faturası otomatik hesaplanır. Stoklu ürünlerde seçilen seri numaraları stoktan düşer.',
     periodSel()+xlBtn('satis','Excel’e aktar')+
     (isSaha()?'':'<button class="btn primary" data-act="open-sale">Satış ekle</button>'))+
   /* Saha personeli yalnızca kendi satışlarını gördüğü için kutular
@@ -2403,8 +2408,8 @@ function viewSatis(){
       '<div class="kpi"><span>Bugünkü satış adedi</span><b>'+bugunList.length+'</b></div>'+
       '<div class="kpi"><span>Toplam satış adedi</span><b>'+qty+'</b><span class="muted sm">hat / hizmet adedi</span></div>'+
       '<div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+
-      '<div class="kpi"><span>Toplam prim</span><b>'+money(prim)+'</b></div></div>'
-    :'<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Bugün yapılan satış</span><b>'+bugunAdet+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+(primGor()?'<div class="kpi"><span>Toplam satış primi</span><b>'+money(prim)+'</b></div>':'')+'<div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>')+
+      '<div class="kpi"><span>Toplam fatura</span><b>'+money(prim)+'</b></div></div>'
+    :'<div class="kpis"><div class="kpi"><span>Satış adedi</span><b>'+qty+'</b></div><div class="kpi"><span>Bugün yapılan satış</span><b>'+bugunAdet+'</b></div><div class="kpi"><span>Toplam puan</span><b>'+nf.format(puan)+'</b></div>'+(primGor()?'<div class="kpi"><span>Toplam satış faturası</span><b>'+money(prim)+'</b></div>':'')+'<div class="kpi"><span>Satış yapan personel</span><b>'+people+'</b></div></div>')+
   '<div class="stack">'+
   '<section class="panel"><div class="panel-h"><input id="slq" type="search" placeholder="'+(isSaha()?'Müşteri, ürün veya abone no ara':'Müşteri, ürün, personel veya abone no ara')+'" value="'+esc(st.q)+'" style="max-width:320px" aria-label="Ara">'+
     /* Saha personeli zaten yalnızca kendi satışlarını görüyor */
@@ -2414,9 +2419,9 @@ function viewSatis(){
   /* Kırılım tablosu artık listenin ALTINDA; önce satışlar, sonra özet.
      Saha personelinde hiç gösterilmez, kendi satışlarını tekrar
      eden bir blok oluyordu. */
-  (isSaha()?'':'<section class="panel"><div class="panel-h"><h2>Puan ve prim dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
-  (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Prim</th>':'')+'</tr></thead><tbody>'+
-    groups.map(g=>'<tr><td><div>'+esc(g.l)+'</div>'+(g.sub?'<div class="muted sm">'+esc(g.sub)+'</div>':'')+'</td><td class="num">'+g.n+'</td><td class="num">'+g.qty+'</td><td class="num"><b>'+nf.format(g.puan)+'</b></td>'+(primGor()?'<td class="num">'+money(g.prim)+'</td>':'')+'</tr>').join('')+
+  (isSaha()?'':'<section class="panel"><div class="panel-h"><h2>Puan ve fatura dağılımı</h2><div class="seg" role="group" aria-label="Kırılım">'+Object.keys(gl).map(k=>'<button data-act="satgroup" data-v="'+k+'" aria-pressed="'+(st.group===k)+'">'+gl[k]+'</button>').join('')+'</div></div>'+
+  (groups.length?'<div class="scroll"><table><thead><tr><th>'+gl[st.group]+'</th><th class="num">Satış</th><th class="num">Adet</th><th class="num">Puan</th>'+(primGor()?'<th class="num">Fatura</th>':'')+'</tr></thead><tbody>'+
+    groups.map(g=>'<tr><td><div>'+esc(g.l)+'</div>'+(g.sub?'<div class="muted sm">'+esc(g.sub)+'</div>':'')+'</td><td class="num">'+g.n+'</td><td class="num">'+g.qty+'</td><td class="num"><b>'+nf.format(g.puan)+'</b></td>'+(primGor()?'<td class="num">'+(g.primGizli?'<span class="muted">—</span>':money(g.prim))+'</td>':'')+'</tr>').join('')+
     '<tr class="total"><td>Toplam</td><td class="num">'+list.length+'</td><td class="num">'+qty+'</td><td class="num">'+nf.format(puan)+'</td>'+(primGor()?'<td class="num">'+money(prim)+'</td>':'')+'</tr></tbody></table></div>':'<div class="empty">Bu dönemde satış kaydı yok.</div>')+'</section>')+
   '</div>';
 }
@@ -3081,7 +3086,7 @@ function lineHtml(L,i){
       ?(function(){const tl=tarifeler().slice().sort((a,b)=>(a.prim||0)-(b.prim||0));
           /* Tarifenin yanındaki tutar operatör hakedişidir; prim
              görmeyen kullanıcıya gösterilmez. */
-          const ops=tl.map(x=>[x.id,x.name+(primGor()?' — '+money(x.prim||0):'')]);
+          const ops=tl.map(x=>[x.id,x.name+(primAyarGor()?' — '+money(x.prim||0):'')]);
           return '<div class="field"><label for="sle-'+L.id+'">Eski tarife</label><select id="sle-'+L.id+'">'+
             opt(ops,L.eski||'','Eski tarifeyi seçin')+'</select></div>'+
             '<div class="field"><label for="sly-'+L.id+'">Yeni tarife</label><select id="sly-'+L.id+'">'+
@@ -3120,7 +3125,7 @@ function lineSummary(L){
     const tipAd=(c.p&&L.tip?L.tip:'BASE');
     return c.qty+' hat · '+tipAd+
       ' → '+nf.format(c.puan)+' puan (×'+nf.format(c.carpan)+')'+
-      (primGor()?', '+money(c.prim)+' prim (baz '+money(c.bazPrim)+' ×'+nf.format(c.primCarpan)+')':'')+
+      (slPrimGor()?', '+money(c.prim)+' fatura (baz '+money(c.bazPrim)+' ×'+nf.format(c.primCarpan)+')':'')+
       (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir (×'+nf.format(c.gelirCarpan)+')':'');
   }
   if(c.metro){
@@ -3129,7 +3134,7 @@ function lineSummary(L){
     if(!c.qty)return 'Adet girin veya hizmet numarası yazın.';
     return c.bant+' · '+(c.simetri==='asimetrik'?'asimetrik':'simetrik')+
       ' → '+nf.format(c.birimPuan)+' puan × '+c.qty+' adet = '+nf.format(c.puan)+' puan'+
-      (primGor()?', '+money(c.prim)+' prim':'')+
+      (slPrimGor()?', '+money(c.prim)+' fatura':'')+
       (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
   }
   if(c.upcell){
@@ -3137,11 +3142,11 @@ function lineSummary(L){
     if(c.fark<=0)return 'Yeni tarife eskisinden yüksek olmalı. Seçilen fark: '+money(c.fark)+'.';
     if(!c.qty)return 'Adet girin veya hizmet numarası yazın.';
     return c.eski.name+' → '+c.yeni.name+' · fark '+money(c.fark)+' × '+c.qty+' adet = '+money(c.amount)+
-      ' → '+nf.format(c.puan)+' puan'+(primGor()?', '+money(c.prim)+' prim':'')+
+      ' → '+nf.format(c.puan)+' puan'+(slPrimGor()?', '+money(c.prim)+' fatura':'')+
       (gelirGor()?', '+money(c.gelir)+' gelir':'');
   }
   return c.qty+' adet'+(c.amount?', '+money(c.amount):'')+' → '+nf.format(c.puan)+' puan'+
-    (primGor()?', '+money(c.prim)+' prim':'')+
+    (slPrimGor()?', '+money(c.prim)+' fatura':'')+
     (gelirGor()&&c.gelir?', '+money(c.gelir)+' gelir':'');
 }
 function updateLinePreview(lid){
@@ -3159,7 +3164,7 @@ function updateSaleTotals(){
   const box=$('#sl-total');if(!box)return;
   let qty=0,prim=0,puan=0,n=0,ab=0;
   (dlgState.lines||[]).forEach(L=>{const c=lineCalc(L);if(c.p){n++;qty+=c.qty;prim+=c.prim;puan+=c.puan;ab+=parseSerials(L.abone).length;}});
-  box.textContent=n?(n+' ürün, '+qty+' adet'+(ab?', '+ab+' abone no':'')+' · toplam '+nf.format(puan)+' puan'+(primGor()?', '+money(prim)+' prim':''))
+  box.textContent=n?(n+' ürün, '+qty+' adet'+(ab?', '+ab+' abone no':'')+' · toplam '+nf.format(puan)+' puan'+(slPrimGor()?', '+money(prim)+' fatura':''))
                    :'Ürünleri seçtikçe toplam burada görünür.';
 }
 function openSale(){
@@ -3347,7 +3352,7 @@ function saveSale(){
           text:'Satış: '+customer+' ('+e.name+')'})));
       }
     }
-  },hazir.length+' ürün kaydedildi: '+nf.format(tPuan)+' puan'+(primGor()?', '+money(tPrim)+' prim':'')+
+  },hazir.length+' ürün kaydedildi: '+nf.format(tPuan)+' puan'+(slPrimGor()?', '+money(tPrim)+' fatura':'')+
     (tUnit?', '+tUnit+' adet stoktan düştü':'')+(tAbone?', '+tAbone+' abone no':''));
 }
 function openSaleDetail(id){
@@ -3355,9 +3360,9 @@ function openSaleDetail(id){
   const serials=s.items.map(it=>{const u=byId(db.stock,it.unitId);return u?u.serial:'';}).filter(Boolean);
   const kardes=s.batchId?db.sales.filter(x=>x.batchId===s.batchId&&x.id!==s.id):[];
   const rateLine=s.calcType==='yuzde'
-    ?(primGor()?'Satış tutarının %'+nf.format(s.unitPrim)+'’i prim, %'+nf.format(s.unitPuan)+'’i puan'
+    ?(primGor(s.employeeId)?'Satış tutarının %'+nf.format(s.unitPrim)+'’i fatura, %'+nf.format(s.unitPuan)+'’i puan'
                :'Satış tutarının %'+nf.format(s.unitPuan)+'’i puan')
-    :(primGor()?'Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim)
+    :(primGor(s.employeeId)?'Adet başına '+nf.format(s.unitPuan)+' puan, '+money(s.unitPrim)
                :'Adet başına '+nf.format(s.unitPuan)+' puan');
   const custBtn=s.customerId&&byId(db.customers,s.customerId)?'<button class="btn" data-act="cust-info" data-id="'+s.customerId+'">Müşteri kaydını gör</button>':'';
   openDlg(dlgHtml('Satış detayı','<dl class="kv"><dt>Tarih</dt><dd>'+fmtDate(s.date)+'</dd><dt>Müşteri</dt><dd>'+esc(s.customer)+'</dd><dt>Ürün</dt><dd>'+esc(s.hatTip?hatEtiket(s):prodLabel(p))+'</dd><dt>Kategori</dt><dd>'+esc(p?p.category:'')+'</dd><dt>Hedef kategorisi</dt><dd>'+esc(kat?kat.name:'Yok')+(kat2?' <b>+ '+esc(kat2.name)+'</b>':'')+'</dd>'+
@@ -3370,16 +3375,16 @@ function openSaleDetail(id){
       (s.qty>1?' · '+s.qty+' hizmet':'')+'</dd>':'')+
     '<dt>Satışı yapan</dt><dd>'+esc(e?empAd(e):'')+'</dd><dt>Departman</dt><dd>'+esc(e?(dept(e.departmentId)||{}).name||'':'')+'</dd><dt>Adet</dt><dd>'+s.qty+'</dd>'+
     (s.amount?'<dt>Satış tutarı</dt><dd>'+money(s.amount)+'</dd>':'')+
-    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd>'+(primGor()?'<dt>Toplam prim</dt><dd>'+money(s.prim)+'</dd>':'')+'</dl>'+
+    '<dt>Hesaplama</dt><dd>'+rateLine+'</dd><dt>Toplam puan</dt><dd>'+nf.format(s.puan)+'</dd>'+(primGor(s.employeeId)?'<dt>Toplam fatura</dt><dd>'+money(s.prim)+'</dd>':'')+'</dl>'+
     ((s.abone&&s.abone.length)?'<section class="dsec"><h3>Abone / hizmet numaraları</h3><div>'+
       s.abone.map(x=>'<span class="svc-chip">'+esc(x)+'</span>').join('')+'</div></section>':'')+
     (kardes.length?'<section class="dsec"><h3>Aynı satıştaki diğer ürünler</h3><ul class="log">'+
       kardes.map(k=>'<li><span class="muted">'+esc(prodLabel(byId(db.products,k.productId)))+'</span><span>'+
-        k.qty+' adet, '+nf.format(k.puan)+' puan'+(primGor()?', '+money(k.prim)+' prim':'')+
+        k.qty+' adet, '+nf.format(k.puan)+' puan'+(primGor(k.employeeId)?', '+money(k.prim)+' fatura':'')+
         ((k.abone&&k.abone.length)?' · '+esc(k.abone.join(', ')):'')+'</span></li>').join('')+
       '</ul><p class="hint">Bu satırı iptal etmek diğer ürünleri etkilemez.</p></section>':'')+
     (serials.length?'<section class="dsec"><h3>Satılan seri numaraları</h3><ul class="log">'+serials.map(x=>'<li><span></span><span>'+esc(x)+'</span></li>').join('')+'</ul></section>':'')+
-    '<p class="hint">Puan ve prim, satış anındaki ürün değerleriyle kaydedilir. Sonradan değişen ürün primi bu satışı etkilemez.</p>',
+    '<p class="hint">Puan ve fatura, satış anındaki ürün değerleriyle kaydedilir. Sonradan değişen ürün faturası bu satışı etkilemez.</p>',
     custBtn+'<button class="btn danger" data-act="del-sale" data-id="'+id+'">Satışı iptal et</button><button class="btn" data-act="close">Kapat</button>'));
 }
 function cancelSale(id){
@@ -3895,7 +3900,7 @@ function openCustomer(id){
     svcSection('pstn','PSTN sabit telefon',v)+
     svcSection('metro','Metro ethernet',v)+
     (appts.length?'<section class="dsec"><h3>Randevu geçmişi</h3><ul class="log">'+appts.map(a=>'<li><span class="muted">'+fmtDate(a.date)+'</span><span>'+esc(empAdId(a.employeeId)||'')+' — '+esc(a.desc)+' <span class="badge '+(a.status==='Açık'?'warn':'ok')+'">'+a.status+'</span></span></li>').join('')+'</ul></section>':'')+
-    (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(s=>'<li><span class="muted">'+fmtDate(s.date)+'</span><span>'+esc(prodLabel(byId(db.products,s.productId)))+', '+(primGor()?money(s.prim)+' prim':'')+'</span></li>').join('')+'</ul></section>':'')+
+    (sales.length?'<section class="dsec"><h3>Satış geçmişi</h3><ul class="log">'+sales.map(s=>'<li><span class="muted">'+fmtDate(s.date)+'</span><span>'+esc(prodLabel(byId(db.products,s.productId)))+', '+(primGor(s.employeeId)?money(s.prim)+' fatura':'')+'</span></li>').join('')+'</ul></section>':'')+
     (c?onayBolumu(c):'')+'<div id="c-benzer"></div><p class="err" id="c-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(c?'<button class="btn" data-act="open-appt-for" data-id="'+c.id+'">Randevu oluştur</button>':'')+'<button class="btn primary" data-act="save-cust">Kaydet</button>'));
 }
@@ -5517,7 +5522,7 @@ function satisExportRows(){
   const head=['Tarih','Personel','Departman','Şirket','Müşteri','Ürün','Dakika paketi','GB paketi','Hat tipi','Tarife yükseltme',
               'Metro hızı (Mbps)','Metro bağlantı tipi',
               'Kategori','Marka',
-              'Adet','Tutar','Puan'].concat(primGor()?['Prim']:[]).concat(
+              'Adet','Tutar','Puan'].concat(primGor()?['Fatura']:[]).concat(
               ['Abone no','Seri no','Satır','Hedef kategorisi','Satış no']);
   const rows=[],kap=xlKapsam(),ay=xlAyi();
   db.sales.slice()
@@ -5546,7 +5551,7 @@ function satisExportRows(){
                      ((byId(db.products,x.upcellYeni)||{}).name||''):'',
         x.metroHiz||'',x.metroHiz?(x.metroSimetri==='asimetrik'?'Asimetrik':'Simetrik'):'',
         adOf(p,'category'),adOf(p,'brand'),
-        miktar[i],tutar[i],puan[i]].concat(primGor()?[prim[i]]:[]).concat(
+        miktar[i],tutar[i],puan[i]].concat(primGor()?[primGor(x.employeeId)?prim[i]:'']:[]).concat(
         [abone[i]||'',seri[i]||'',(i+1)+'/'+adet,
          [adOf(hedefKat(x.hedefKat),'name')||x.hedefKat||'',
           adOf(hedefKat(x.hedefKat2),'name')||x.hedefKat2||''].filter(Boolean).join(' · '),
@@ -5843,7 +5848,7 @@ function mutSatirlar(list,tip){
   (list.length>göster.length?'<div class="panel-b muted sm">İlk 200 kayıt gösteriliyor; tamamı için Excel’e aktarın.</div>':'');
 }
 function mutBolumu(){
-  if(!primGor())return '';
+  if(!primAyarGor())return '';
   const r=_mutSonuc;
   const aySec=_mutAylar.length?'<select id="mut-ay" aria-label="Dönem">'+
       '<option value=""'+(_mutAy?'':' selected')+'>Dosyanın tamamı</option>'+
@@ -5878,11 +5883,11 @@ function mutBolumu(){
     (hic&&!bosAy?'<div class="ro-banner"><b>Hiç eşleşme bulunamadı.</b><div class="sm">Büyük ihtimalle bu dönemin satışları henüz girilmemiş ya da abone/hizmet numarası alanı boş bırakılmış. Bir satış kaydını açıp numarayı raporla karşılaştırın.</div></div>':'')+
     '</div>'+
     '<section class="panel"><div class="panel-h"><div><h2>Operatörde var, sistemde yok</h2>'+
-      '<p class="muted sm">Aktivasyon olmuş ama kaydedilmemiş. Gelir ve prim hesabının dışında kalmış satışlar.</p></div>'+
+      '<p class="muted sm">Aktivasyon olmuş ama kaydedilmemiş. Gelir ve fatura hesabının dışında kalmış satışlar.</p></div>'+
       (r.operatorde.length?'<button class="btn sm" data-act="mut-xl" data-v="operatorde">Excel’e aktar</button>':'')+'</div>'+
       mutSatirlar(r.operatorde,'operatorde')+'</section>'+
     '<section class="panel"><div class="panel-h"><div><h2>Sistemde var, operatörde yok</h2>'+
-      '<p class="muted sm">Girilmiş ama aktivasyonu görünmüyor. Prim ödendiyse karşılığı gelmemiş olabilir.</p></div>'+
+      '<p class="muted sm">Girilmiş ama aktivasyonu görünmüyor. Fatura ödendiyse karşılığı gelmemiş olabilir.</p></div>'+
       (r.sistemde.length?'<button class="btn sm" data-act="mut-xl" data-v="sistemde">Excel’e aktar</button>':'')+'</div>'+
       mutSatirlar(r.sistemde,'sistemde')+'</section>'+
     '<section class="panel"><div class="panel-h"><div><h2>Eşleşen</h2>'+
@@ -8123,7 +8128,7 @@ function saveAdv(){
 const ODEME_TIPI={
   M:{ad:'MAAŞ',           tur:'maas'},
   N:{ad:'AVANS',          tur:'avans'},
-  R:{ad:'PRİM ÖDEMESİ',   tur:'odeme', kat:'Prim ödemesi'},
+  R:{ad:'FATURA ÖDEMESİ', tur:'odeme', kat:'Fatura ödemesi'},
   Y:{ad:'YOLLUK',         tur:'odeme', kat:'Yol parası'},
   O:{ad:'SOSYAL YARDIM',  tur:'odeme', kat:'Ek ödeme'},
   S:{ad:'EK DERS ÜCRETİ', tur:'odeme', kat:'Ek ödeme'},
@@ -8252,7 +8257,7 @@ function tgbOku(aoa){
   if(!tip)return {hata:'Dosyada “Ödeme Tipi” boş. Şablonun üst bölümünden doldurup tekrar yükleyin.'};
   const t=ODEME_TIPI[tip];
   if(!t)return {hata:'Tanınmayan ödeme tipi: “'+tip+'”.'};
-  if(t.tur==='kesinti')return {hata:'Bu dosya bir KESİNTİ dosyası. Kesintiler bu ekrandan işlenmiyor; ödeme dosyalarını (maaş, avans, prim, yolluk) yükleyebilirsiniz.'};
+  if(t.tur==='kesinti')return {hata:'Bu dosya bir KESİNTİ dosyası. Kesintiler bu ekrandan işlenmiyor; ödeme dosyalarını (maaş, avans, fatura, yolluk) yükleyebilirsiniz.'};
   if(!tarih)return {hata:'Dosyadaki “Ödeme Tarihi” okunamadı. GGAAYYYY biçiminde olmalı (örnek: 15102026).'};
   const satirlar=[];const bos=[];
   const kolon=(aoa[baslik]||[]).map(x=>trl(String(x||'')).trim());
@@ -8343,7 +8348,7 @@ function openOdemeXl(){
   if(!aktifPersonel().length)return needDlg('Excel ile ödeme','Önce personel ekleyin.');
   dlgState={kind:'tgb',veri:null};
   openDlg(dlgHtml('Excel ile toplu ödeme',
-    '<p>Dosyayı olduğu gibi yükleyin: <b>bankaya gönderdiğiniz toplu ödeme dosyası</b> (maaş, avans, prim, yolluk) ya da <b>Ticket sipariş dosyası</b>. Biçimi uygulama kendisi tanır; tutar, tarih ve kişiler dosyadan okunur, adlardan personel kayıtlarıyla eşleştirilir.</p>'+
+    '<p>Dosyayı olduğu gibi yükleyin: <b>bankaya gönderdiğiniz toplu ödeme dosyası</b> (maaş, avans, fatura, yolluk) ya da <b>Ticket sipariş dosyası</b>. Biçimi uygulama kendisi tanır; tutar, tarih ve kişiler dosyadan okunur, adlardan personel kayıtlarıyla eşleştirilir.</p>'+
     '<div class="fields">'+
     '<div class="field full"><label for="tg-file">Ödeme dosyası (.xlsx)</label>'+
       '<input id="tg-file" type="file" accept=".xlsx,.xls"></div>'+
@@ -8726,9 +8731,9 @@ function prodGelirField(v){
     '<p class="hint" style="margin-top:4px">'+ornek+'</p></div>';
 }
 function prodCalcFields(v){
-  if(v.calcType==='yuzde')return '<div class="field"><label for="pr-primpct">Satış primi (satış tutarının %’si)</label><input id="pr-primpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.primPct==null?'':v.primPct)+'" placeholder="0"></div>'+
+  if(v.calcType==='yuzde')return '<div class="field"><label for="pr-primpct">Satış faturası (satış tutarının %’si)</label><input id="pr-primpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.primPct==null?'':v.primPct)+'" placeholder="0"></div>'+
     '<div class="field"><label for="pr-puanpct">Satış puanı (satış tutarının %’si)</label><input id="pr-puanpct" type="number" min="0" max="100" step="0.01" inputmode="decimal" value="'+esc(v.puanPct==null?'':v.puanPct)+'" placeholder="0"></div>';
-  return '<div class="field"><label for="pr-prim">Satış primi (₺ / adet)</label><input id="pr-prim" type="number" min="0" step="0.01" inputmode="decimal" value="'+esc(v.prim==null?'':v.prim)+'" placeholder="0"></div>'+
+  return '<div class="field"><label for="pr-prim">Satış faturası (₺ / adet)</label><input id="pr-prim" type="number" min="0" step="0.01" inputmode="decimal" value="'+esc(v.prim==null?'':v.prim)+'" placeholder="0"></div>'+
     '<div class="field"><label for="pr-puan">Satış puanı (puan / adet)</label><input id="pr-puan" type="number" min="0" step="0.1" inputmode="decimal" value="'+esc(v.puan==null?'':v.puan)+'" placeholder="0"></div>';
 }
 function openProd(id,pre){
@@ -8755,7 +8760,7 @@ function openProd(id,pre){
     '<div id="pr-gelirwrap" style="display:contents">'+prodGelirField(v)+'</div>'+
     '<div class="field full"><label for="pr-mobil">Satırdaki özel rol</label><select id="pr-mobil">'+
       opt([['dakika','Mobil hat — dakika (tarife) paketi'],['gb','Mobil hat — GB paketi'],
-           ['tarife','PSTN tarifesi — prim alanına operatör hakedişini yazın'],
+           ['tarife','PSTN tarifesi — fatura alanına operatör hakedişini yazın'],
            ['upcell','PSTN Upcell — satışta eski ve yeni tarife seçilir'],
            ['metro','Metro Ethernet — satışta hız ve simetri seçilir, puan hızdan gelir']],
           v.mobilTip||'','Hayır, normal ürün')+'</select>'+
@@ -8764,7 +8769,7 @@ function openProd(id,pre){
     '<div class="field"><label for="pr-calc">Hesaplama şekli</label><select id="pr-calc"><option value="sabit"'+(v.calcType!=='yuzde'?' selected':'')+'>Sabit tutar (adet başına)</option><option value="yuzde"'+(v.calcType==='yuzde'?' selected':'')+'>Satış tutarının yüzdesi</option></select></div>'+
     '<div id="pr-calcwrap" style="display:contents">'+prodCalcFields(v)+'</div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="pr-stock" type="checkbox" style="width:auto"'+(v.stocked?' checked':'')+'> Stok takibi yapılır (her adet seri numarasıyla izlenir)</label></div></div>'+
-    dl('dl-pcat',prodCats())+dl('dl-pbrand',prodBrands())+'<p class="hint">Gelir, bu ürünün şirkete kazandırdığı tutardır; puan ve primden bağımsızdır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. Mobil hatlarda sabit tutar kullanın.</p>'+
+    dl('dl-pcat',prodCats())+dl('dl-pbrand',prodBrands())+'<p class="hint">Gelir, bu ürünün şirkete kazandırdığı tutardır; puan ve faturadan bağımsızdır. Satış bir randevudan geldiyse gelirin %'+nf.format(randevuPayi())+'\u2019u randevuyu alan personele, kalanı satışı yapana yazılır. Mobil hatlarda sabit tutar kullanın.</p>'+
     '<p class="hint">Mobil hat bileşeni işaretlerseniz bu ürün satış ekranında tek başına satılmaz; dakika paketi ile GB paketi birlikte seçilip tek telefon numarası satırı oluşturur. Prim ve puan ikisinin toplamı üzerinden hesaplanır. Puan, gelir ve prim ayrı NT/BASE çarpanları kullanır: puan NT 1,40, gelir NT 1,20, prim NT 1,00; BASE’de sırasıyla 1,00 · 1,00 · 0,85.</p>'+
     '<p class="hint">Kategori ve markayı listeden seçebilir ya da yeni bir değer yazabilirsiniz. Hedef kategorisi bu ürünün satışlarının hangi personel hedefine sayılacağını belirler. Yüzde seçilirse satış girilirken satış tutarı istenir; prim ve puan bu tutardan hesaplanır. Değişiklik yalnızca sonraki satışları etkiler.</p><p class="err" id="pr-err"></p>',
     '<button class="btn" data-act="close">Vazgeç</button>'+(p?'':'<button class="btn" data-act="save-prod-next">Kaydet ve yeni ekle</button>')+'<button class="btn primary" data-act="save-prod">'+(p?'Kaydet':'Ürünü kaydet')+'</button>'));
@@ -8952,7 +8957,7 @@ function openEmp(id){
     '<div class="field"><label for="p-ticket">Ticket (₺)</label><input id="p-ticket" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ticket?e.ticket:'')+'" placeholder="0"></div>'+
     '<div class="field"><label for="p-yol">Yol parası (₺)</label><input id="p-yol" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.yol?e.yol:'')+'" placeholder="0"></div>'+
     '<div class="field"><label for="p-ekodeme">Ek ödeme (₺)</label><input id="p-ekodeme" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekOdeme?e.ekOdeme:'')+'" placeholder="0"></div>'+
-    '<div class="field"><label for="p-ekprim">Prim (₺)</label><input id="p-ekprim" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekPrim?e.ekPrim:'')+'" placeholder="0"></div>'+
+    '<div class="field"><label for="p-ekprim">Fatura (₺)</label><input id="p-ekprim" type="number" min="0" step="0.01" inputmode="decimal" value="'+(e&&e.ekPrim?e.ekPrim:'')+'" placeholder="0"></div>'+
     '<div class="field full"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="p-bayi" type="checkbox" style="width:auto"'+(e&&e.bayiMuduru?' checked':'')+'> Bayi Müdürü</label></div></div>'+
     '<p class="hint">Bayi Müdürü tek kişi olabilir. Yeni alınan tüm randevular otomatik olarak bu personele atanır; buradan işaretlerseniz önceki Bayi Müdürü\u2019nden bu yetki kalkar. <b>Takım</b> alanı görünürlüğü belirler: bu kişinin kayıtlarını takımın lideri görür. Boş bırakılırsa birim yapısındaki eski kapsam geçerli olur.</p>'+
     (e&&ayrildi(e)?'<div class="ro-banner"><b>Bu personel işten ayrıldı.</b><div class="sm">Çıkış tarihi: '+fmtDate(e.cikisTarihi)+(e.cikisNedeni?' · '+esc(e.cikisNedeni):'')+'</div>'+
@@ -9626,7 +9631,28 @@ function adinaYazabilecekler(){
 }
 /* Prim tutarları yalnızca bayi müdürü, muhasebe ve master'da görünür.
    isUst() master ile bayi müdürünü kapsar. */
-const primGor=()=>isUst()||isMuhasebe();
+/* Prim görünürlüğü kişiye bağlıdır: herkes KENDİ satışının primini
+   görür, takım lideri lideri olduğu takımınkini, bayi müdürü ve
+   muhasebe hepsini. Satış destek bütün satışları görebildiği için
+   satır bazında süzmek şart: ona da yalnızca kendi primi açıktır.
+   eid verilmezse "en az bir şey görür müyüm" sorusudur; artık
+   herkesin kendi satırı olduğu için sütun herkese açılır. */
+/* Satış ekleme penceresinde hesap, satışın yazılacağı kişiye aittir */
+const slPrimGor=()=>primGor((($('#sl-emp')||{}).value)||me.employeeId||'');
+function primGor(eid){
+  if(isUst()||isMuhasebe())return true;
+  if(!me||!me.employeeId)return false;
+  if(eid===undefined||eid===null||eid==='')return true;
+  if(eid===me.employeeId)return true;
+  return ekipte(eid);
+}
+/* Bir satış listesinin primi: yalnızca görülebilen satırlar toplanır,
+   yoksa destek gibi geniş kapsamlı roller toplamdan herkesin primini
+   okuyabilirdi. */
+const primTopla=list=>(list||[]).reduce((a,s)=>a+(primGor(s.employeeId)?(s.prim||0):0),0);
+/* Prim ŞEMASI (tarife hakedişi, operatör mutabakatı) ayrı: bunlar tek
+   tek satış değil, kazanç düzeninin kendisidir. Yönetimde kalıyor. */
+const primAyarGor=()=>isUst()||isMuhasebe();
 /* Gelir, şirketin operatörden aldığı hakediştir; satış ekibini
    ilgilendirmez. Ürün ve satır bazında master ile muhasebe görür —
    muhasebe ürünlerin gelir ayarlarını yönettiği için gerekli. */
@@ -9994,7 +10020,7 @@ const actions={
   'sl-del'(el){slRead();dlgState.lines=dlgState.lines.filter(L=>L.id!==el.dataset.id);
     if(!dlgState.lines.length)dlgState.lines=[newLine()];renderLines();},
   sale(el){openSaleDetail(el.dataset.id);},
-  'del-sale'(el){const s=byId(db.sales,el.dataset.id);if(!s)return;confirmDlg('Satışı iptal et','Bu satış silinecek'+(s.items.length?' ve '+s.items.length+' adet seri numarası stoğa geri alınacak':'')+'. Puan ve prim de düşer.','confirm-del-sale',s.id,'Satışı iptal et');},
+  'del-sale'(el){const s=byId(db.sales,el.dataset.id);if(!s)return;confirmDlg('Satışı iptal et','Bu satış silinecek'+(s.items.length?' ve '+s.items.length+' adet seri numarası stoğa geri alınacak':'')+'. Puan ve fatura da düşer.','confirm-del-sale',s.id,'Satışı iptal et');},
   'confirm-del-sale'(el){
     const s=byId(db.sales,el.dataset.id);if(!s)return;
     run(null,async()=>{
