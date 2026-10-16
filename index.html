@@ -429,7 +429,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-h';
+const SURUM='16.10.2026-i';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -5246,7 +5246,13 @@ function leadSatisaDondu(l){
 function girisRaporRows(period){
   const m={};
   (db.leads||[]).filter(l=>girisDonemde(l,period)).forEach(l=>{
-    const eid=kullaniciEmp(l.createdBy);
+    /* leadGirenId önce saha_id'ye bakar. Yalnızca createdBy'a bakmak,
+       takım liderinde herkesi "Bilinmeyen kullanıcı"ya düşürüyordu:
+       profiles satırlarını yalnızca yönetim okuyabiliyor, lider
+       başkasının kullanıcı kaydını göremiyor. saha_id ise kaydın
+       kendisinde duruyor ve lideri olduğu takımın kayıtlarında
+       zaten görünür. */
+    const eid=leadGirenId(l);
     const key=eid||('u:'+(l.createdBy||'yok'));
     const g=m[key]||(m[key]={key:key,eid:eid,userId:l.createdBy,
       elle:0,excel:0,toplam:0,aranan:0,randevu:0,musteri:0,satis:0});
