@@ -138,24 +138,33 @@ tr.sel{background:var(--accent-soft)}
 .sline{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:12px;background:var(--paper)}
 .sline-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .sline-h b{font-size:14px}
-.hcell{display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding:6px 4px;border:0;background:transparent;width:100%;text-align:right;border-radius:6px;min-width:92px}
+.hcell{display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding:6px 4px;border:0;background:transparent;width:100%;text-align:right;border-radius:6px;min-width:104px}
 .hcell:hover{background:var(--accent-soft)}
 .hcell.salt{cursor:default}
 .hcell.salt:hover{background:transparent}
-.hbar{display:block;width:100%;height:6px;background:var(--paper);border-radius:3px;overflow:hidden}
+.hbar{display:block;width:100%;height:7px;background:var(--paper);border-radius:4px;overflow:hidden}
 .hbar span{display:block;height:100%;background:var(--accent)}
 /* Gösterge renkleri: bir bakışta hangi kalemin geride olduğu görünsün.
    t=hedef tamam, y=yakın, o=orta, d=düşük. */
-.hbar span.t,.hk-bar span.t{background:var(--in)}
-.hbar span.y,.hk-bar span.y{background:var(--accent)}
-.hbar span.o,.hk-bar span.o{background:var(--warn-line)}
-.hbar span.d,.hk-bar span.d{background:var(--out)}
-.hyuzde{font-variant-numeric:tabular-nums}
-.hyuzde.t{color:var(--in)} .hyuzde.o{color:var(--warn)} .hyuzde.d{color:var(--out)}
+/* Dört bandın rengi: eskiden %70+ turuncu (#C2410C) ile %40 altı
+   kırmızı (#A93226) neredeyse aynı okunuyordu. Artık dört ayrı renk
+   ailesi: kırmızı · sarı · mavi · yeşil. */
+:root{--hdf-t:#15803D; --hdf-y:#1D6FE0; --hdf-o:#E8A33D; --hdf-d:#D92D20}
+.hbar span.t,.hk-bar span.t{background:var(--hdf-t)}
+.hbar span.y,.hk-bar span.y{background:var(--hdf-y)}
+.hbar span.o,.hk-bar span.o{background:var(--hdf-o)}
+.hbar span.d,.hk-bar span.d{background:var(--hdf-d)}
+.hyuzde{font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;line-height:1.15}
+.hyuzde.t{color:var(--hdf-t)} .hyuzde.y{color:var(--hdf-y)}
+.hyuzde.o{color:#8A5600}      /* sarı zeminde okunsun diye koyu ton */
+.hyuzde.d{color:var(--hdf-d)}
+/* Gerçekleşen rakam öne çıksın, hedef arkada kalsın */
+.hger{font-size:13.5px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.hhed{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .hdf-lejant{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
 .hdf-lejant i{display:inline-block;width:22px;height:6px;border-radius:3px;margin-right:5px;vertical-align:middle}
-.hdf-lejant .t{background:var(--in)} .hdf-lejant .y{background:var(--accent)}
-.hdf-lejant .o{background:var(--warn-line)} .hdf-lejant .d{background:var(--out)}
+.hdf-lejant .t{background:var(--hdf-t)} .hdf-lejant .y{background:var(--hdf-y)}
+.hdf-lejant .o{background:var(--hdf-o)} .hdf-lejant .d{background:var(--hdf-d)}
 .svc-chip{display:inline-block;background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px;margin:0 4px 4px 0}
 textarea{resize:vertical}
 .clamp{max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -429,7 +438,7 @@ const WRITE_ENABLED=true;
 let me=null;
 const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const now=new Date();
-const SURUM='16.10.2026-l';
+const SURUM='16.10.2026-m';
 /* --- Telefona kurulabilir uygulama (PWA) ---
    Service worker yalnızca https veya localhost'ta çalışır; dosyayı
    çift tıklayarak açtığınızda sessizce atlanır. */
@@ -3466,7 +3475,7 @@ const hedefCubuk=pc=>'<span class="hbar"><span class="'+hedefSinif(pc)+
   '" style="width:'+clamp(pc,0,100)+'%"></span></span>';
 const hedefLejant=()=>'<div class="hdf-lejant">'+
   '<span><i class="t"></i>hedef tamam</span>'+
-  '<span><i class="y"></i>%70 ve üzeri</span>'+
+  '<span><i class="y"></i>%70–99</span>'+
   '<span><i class="o"></i>%40–69</span>'+
   '<span><i class="d"></i>%40 altı</span></div>';
 function hedefCell(empId,kat,period){
@@ -3490,11 +3499,11 @@ function hedefCell(empId,kat,period){
   if(!t.defined){
     if(!r)return sar('<span class="muted sm">Hedef yok</span>');
     const d=kat.kind==='tutar'?money(r):nf.format(r);
-    return sar('<b>'+d+'</b><span class="muted sm">hedef yok</span>');
+    return sar('<span class="hger">'+d+'</span><span class="hhed">hedef yok</span>');
   }
-  const pc=pct(r,t.value),fmt=kat.kind==='tutar'?money(r)+' / '+money(t.value):nf.format(r)+' / '+nf.format(t.value);
+  const pc=pct(r,t.value),bic=v=>kat.kind==='tutar'?money(v):nf.format(v);
   return sar('<b class="hyuzde '+hedefSinif(pc)+'">%'+pc+'</b>'+hedefCubuk(pc)+
-    '<span class="muted sm">'+fmt+'</span>');
+    '<span><span class="hger">'+bic(r)+'</span><span class="hhed"> / '+bic(t.value)+'</span></span>');
 }
 /* Bir grup personelin bir hedef kategorisindeki toplamı.
    Muaf tutulanlar hedefe de gerçekleşmeye de katılmaz. */
@@ -3524,14 +3533,16 @@ function toplamHucre(list,kat,period){
      hücrede (hedefCell) bu zaten böyle davranıyordu. */
   if(!t.sayi)
     return t.gercek
-      ?'<b>'+bicim(t.gercek)+'</b><div class="muted sm">hedef yok</div>'
+      ?'<div class="hcell salt"><span class="hger">'+bicim(t.gercek)+'</span>'+
+        '<span class="hhed">hedef yok</span></div>'
       :'<span class="muted sm">—</span>';
   const pc=pct(t.gercek,t.hedef);
-  const fmt=bicim(t.gercek)+' / '+bicim(t.hedef);
   /* Toplam satırlarında çubuk yoktu; karşılaştırma tablosu bu yüzden
      yalnızca rakam yığınıydı. */
   return '<div class="hcell salt"><b class="hyuzde '+hedefSinif(pc)+'">%'+pc+'</b>'+
-    hedefCubuk(pc)+'<span class="muted sm">'+fmt+'</span></div>';
+    hedefCubuk(pc)+
+    '<span><span class="hger">'+bicim(t.gercek)+'</span>'+
+    '<span class="hhed"> / '+bicim(t.hedef)+'</span></span></div>';
 }
 /* toplamGoster=false: yalnızca kendi hedefini gören personel için.
    Tek kişilik listede "birim toplamı" satırı, kişinin kendi rakamını
